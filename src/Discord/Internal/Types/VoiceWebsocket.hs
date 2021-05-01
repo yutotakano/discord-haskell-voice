@@ -123,10 +123,11 @@ instance ToJSON VoiceWebsocketSendable where
     toJSON (Speaking payload) = object
         [ "op" .= (5 :: Int)
         , "d"  .= object
-            [ "speaking" .= ( speakingPayloadMicrophone payload
-                            + speakingPayloadSoundshare payload * 2
-                            + speakingPayloadPriority payload * 4
-                            )
+            [ "speaking" .=
+                ( speakingPayloadMicrophone payload
+                + speakingPayloadSoundshare payload * 2
+                + speakingPayloadPriority payload * 4
+                )
             , "delay"    .= speakingPayloadDelay payload
             , "ssrc"     .= speakingPayloadSSRC payload
             ]
