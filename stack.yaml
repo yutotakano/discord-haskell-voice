@@ -1,0 +1,9 @@
+resolver: lts-16.20
+
+packages:
+- .
+
+extra-deps:
+- discord-haskell-1.8.5
+- emoji-0.1.0.2
+

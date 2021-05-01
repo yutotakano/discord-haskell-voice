@@ -1,0 +1,35 @@
+name:                discord-haskell-voice
+version:             0.0.1
+description:         Ambitious supplementary library to discord-haskell (work in progress).
+                     See the project README on GitHub for more information.
+                     <https://github.com/yutotakano/discord-haskell-voice>
+synopsis:            Voice support for discord-haskell (WIP).
+github:              "yutotakano/discord-haskell-voice"
+license:             MIT
+author:              Yuto Takano
+maintainer:          "moa17stock@gmail.com"
+copyright:           "2021 Yuto Takano"
+category:            Network
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+default-extensions:  OverloadedStrings
+
+dependencies:
+- base >= 4.7 && < 5
+
+library:
+  source-dirs: src
+
+  #executables:
+  #example-voice:
+  #  main:                examples/Main.hs
+  #  source-dirs:         app
+  #  ghc-options:
+  #  - -threaded
+  #  - -rtsopts
+  #  - -with-rtsopts=-N
+  #  dependencies:
+  #  - discord-haskell-voice
+
