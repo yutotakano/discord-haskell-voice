@@ -17,19 +17,30 @@ extra-source-files:
 default-extensions:  OverloadedStrings
 
 dependencies:
+- aeson
+- async
 - base >= 4.7 && < 5
+- bytestring
+- discord-haskell >= 1.8.6
+- mtl
+- safe-exceptions
+- websockets
+- wuss
+- text
+- time
+- unliftio
 
 library:
   source-dirs: src
 
-  #executables:
-  #example-voice:
-  #  main:                examples/Main.hs
-  #  source-dirs:         app
-  #  ghc-options:
-  #  - -threaded
-  #  - -rtsopts
-  #  - -with-rtsopts=-N
-  #  dependencies:
-  #  - discord-haskell-voice
+executables:
+  simple-join-vc:
+    main:           SimpleJoinVC.hs
+    source-dirs:    examples
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - discord-haskell-voice
 

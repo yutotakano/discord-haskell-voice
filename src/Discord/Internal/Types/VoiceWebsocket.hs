@@ -9,18 +9,24 @@ import           Discord.Internal.Types.Prelude
 
 data VoiceWebsocketReceivable
     = Ready ReadyPayload                            -- Opcode 2
-    | SessionDescription T.Text [B.ByteString]      -- Opcode 4
-    | Speaking SpeakingPayload                      -- Opcode 5
+    | SessionDescription T.Text [Float]             -- Opcode 4
+    | SpeakingR SpeakingPayload                     -- Opcode 5
     | HeartbeatAck                                  -- Opcode 6
-    | Hello Integer                                 -- Opcode 8
+    | Hello Int                                     -- Opcode 8
+      -- ^ Int because this is heartbeat, and threadDelay uses it
     | Resumed                                       -- Opcode 9
+    | ParseError T.Text                             -- Internal use
+    | Reconnect                                     -- Internal use
+    deriving (Show, Eq)
 
 data VoiceWebsocketSendable
     = Identify IdentifyPayload                      -- Opcode 0
     | SelectProtocol SelectProtocolPayload          -- Opcode 1
-    | Heartbeat Integer                             -- Opcode 3
+    | Heartbeat Int                                 -- Opcode 3
+      -- ^ Int because threadDelay uses it
     | Speaking SpeakingPayload                      -- Opcode 5
     | Resume GuildId T.Text T.Text                  -- Opcode 7
+    deriving (Show, Eq)
 
 data ReadyPayload = ReadyPayload
     { readyPayloadSSRC  :: Integer -- contains the 32-bit SSRC identifier
@@ -66,7 +72,7 @@ instance FromJSON VoiceWebsocketReceivable where
                 ip <- od .: "ip"
                 port <- od .: "port"
                 modes <- od .: "modes"
-                pure $ ReadyPayload ssrc ip port modes
+                pure $ Ready $ ReadyPayload ssrc ip port modes
             4 -> do
                 od <- o .: "d"
                 mode <- od .: "mode"
@@ -75,12 +81,12 @@ instance FromJSON VoiceWebsocketReceivable where
             5 -> do
                 od <- o .: "d"
                 speaking <- od .: "speaking"
-                (priority, rest1) = speaking `divMod` 4
-                (soundshare, rest2) = rest1 `divMod` 2
-                microphone = rest2
+                let (priority, rest1) = speaking `divMod` 4
+                let (soundshare, rest2) = rest1 `divMod` 2
+                let microphone = rest2
                 delay <- od .: "delay"
                 ssrc <- od .: "ssrc"
-                pure $ SpeakingPayload
+                pure $ SpeakingR $ SpeakingPayload
                     { speakingPayloadMicrophone = toEnum microphone
                     , speakingPayloadSoundshare = toEnum soundshare
                     , speakingPayloadPriority   = toEnum priority
@@ -102,7 +108,7 @@ instance ToJSON VoiceWebsocketSendable where
             [ "server_id"  .= identifyPayloadServerId payload
             , "user_id"    .= identifyPayloadUserId payload
             , "session_id" .= identifyPayloadSessionId payload
-            , "token"      .= identifyPayloadToken token
+            , "token"      .= identifyPayloadToken payload
             ]
         ]
     toJSON (SelectProtocol payload) = object
@@ -124,9 +130,9 @@ instance ToJSON VoiceWebsocketSendable where
         [ "op" .= (5 :: Int)
         , "d"  .= object
             [ "speaking" .=
-                ( speakingPayloadMicrophone payload
-                + speakingPayloadSoundshare payload * 2
-                + speakingPayloadPriority payload * 4
+                ( fromEnum (speakingPayloadMicrophone payload)
+                + fromEnum (speakingPayloadSoundshare payload) * 2
+                + fromEnum (speakingPayloadPriority payload) * 4
                 )
             , "delay"    .= speakingPayloadDelay payload
             , "ssrc"     .= speakingPayloadSSRC payload
