@@ -23,11 +23,9 @@ import Discord.Handle                   ( discordHandleGateway
 import Discord                          ( DiscordHandler
                                         )
 
-data DiscordVoiceThreadId = DiscordVoiceThreadIdGateway ThreadId
-                          | DiscordVoiceThreadIdWebsocket ThreadId
-                          | DiscordVoiceThreadIdUDP ThreadId
-
-type DiscordVoiceHandleGateway = (Chan (Either GatewayException Event), Chan GatewaySendable)
+data DiscordVoiceThreadId
+    = DiscordVoiceThreadIdWebsocket ThreadId
+    | DiscordVoiceThreadIdUDP ThreadId
 
 data DiscordVoiceHandle = DiscordVoiceHandle
     { discordVoiceHandleWebsocket   :: DiscordVoiceHandleWebsocket
@@ -61,7 +59,7 @@ joinVoice gid cid mute deaf = do
         Just (sessionId, token, guildId, Just endpoint) -> do
             let connData = (sessionId, token, guildId, endpoint) :: WebsocketConnData
             -- Get the current user ID, and pass it on with all the other data
-            eCache <- liftIO $ readMVar $ discordHandleCache h :: (Either (Cache, GatewayException) Cache)
+            eCache <- liftIO $ readMVar $ discordHandleCache h 
             case eCache of
                 Left _ ->
                     liftIO $ writeChan (discordHandeLog h) "Could not get current user."
@@ -71,16 +69,26 @@ joinVoice gid cid mute deaf = do
 
                     liftIO $ startVoiceThreads connData userId $ discordHandleLog h
 
--- | Loop a maximum of 5 seconds, or until both Voice State Update and Voice Server Update has been received
-loopUntilEvents :: Chan (Either GatewayException Event) -> IO (Maybe (T.Text, T.Text, GuildId, Maybe T.Text))
-loopUntilEvents events = eitherRight <$> race (threadDelay (5 * 10^(6 :: Int))) waitForBoth
+-- | Loop a maximum of 5 seconds, or until both Voice State Update and
+-- Voice Server Update has been received.
+loopUntilEvents
+    :: Chan (Either GatewayException Event)
+    -> IO (Maybe (T.Text, T.Text, GuildId, Maybe T.Text))
+loopUntilEvents events = eitherRight <$> race wait5 waitForBoth
   where
+    wait5 :: IO ()
+    wait5 = threadDelay (5 * 10^(6 :: Int)))
+
     waitForBoth :: IO (T.Text, T.Text, GuildId, Maybe T.Text)
     waitForBoth = do
         waitForBoth' Nothing Nothing
 
-    -- | Wait for both VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE, order is undefined in docs
-    waitForBoth' :: Maybe T.Text -> Maybe (T.Text, GuildId, Maybe T.Text) -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
+    -- | Wait for both VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE.
+    -- The order is undefined in docs.
+    waitForBoth'
+        :: Maybe T.Text
+        -> Maybe (T.Text, GuildId, Maybe T.Text)
+        -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
     waitForBoth' (Just a) (Just (b, c, d) = pure $ (a, b, c, d)
     waitForBoth' mb1 mb2 = do
         top <- readChan events
