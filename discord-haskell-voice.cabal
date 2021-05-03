@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 1bf99d8f451968b851210f4dd832b7aaaea75cb1ce31978cabaa576b40604cdc
+-- hash: 13303b20d5e5479568b25100626296b4a8e3d90cdd3b2895e4fd146610717e8e
 
 name:           discord-haskell-voice
 version:        0.0.1
@@ -50,6 +50,7 @@ library
     , mtl
     , network
     , safe-exceptions
+    , saltine
     , text
     , time
     , unliftio
@@ -74,6 +75,7 @@ executable owen-chill
     , mtl
     , network
     , safe-exceptions
+    , saltine
     , text
     , time
     , unliftio
@@ -98,6 +100,7 @@ executable simple-join-vc
     , mtl
     , network
     , safe-exceptions
+    , saltine
     , text
     , time
     , unliftio

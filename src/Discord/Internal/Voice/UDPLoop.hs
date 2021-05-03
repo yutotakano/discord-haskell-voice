@@ -1,8 +1,17 @@
 module Discord.Internal.Voice.UDPLoop where
 
+import           Crypto.Saltine.Core.SecretBox
+                                            ( Key(..)
+                                            , Nonce(..)
+                                            , secretboxOpen
+                                            )
+import qualified Crypto.Saltine.Class as SC
 import           Control.Concurrent         ( Chan
                                             , readChan
                                             , writeChan
+                                            , MVar
+                                            , takeMVar
+                                            , putMVar
                                             , forkIO
                                             , killThread
                                             )
@@ -11,7 +20,11 @@ import           Control.Exception.Safe     ( handle
                                             , finally
                                             , try
                                             )
+import           Data.Binary.Put            ( runPut
+                                            )
 import           Data.Binary                ( encode
+                                            , putList
+                                            , putWord8
                                             , decode
                                             )
 import qualified Data.ByteString.Lazy as BL
@@ -19,6 +32,10 @@ import           Data.ByteString.Builder
 import qualified Data.ByteString as B
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import           Data.Maybe                 ( fromJust
+                                            )
+import           Data.Word                  ( Word8
+                                            )
 import           Network.Socket
 import           Network.Socket.ByteString.Lazy
                                             ( sendAll
@@ -53,8 +70,8 @@ data ConnLoopState
 udpError :: T.Text -> T.Text
 udpError t = "Voice UDP error - " <> t
 
-udpLoop :: DiscordVoiceHandleUDP -> UDPConnInfo -> Chan T.Text -> IO ()
-udpLoop (receives, sends) connInfo log = loop ConnStart 0
+udpLoop :: DiscordVoiceHandleUDP -> UDPConnInfo -> MVar [Word8] -> Chan T.Text -> IO ()
+udpLoop (receives, sends) connInfo syncKey log = loop ConnStart 0
   where
     loop :: ConnLoopState -> Int -> IO ()
     loop s retries = do
@@ -83,7 +100,7 @@ udpLoop (receives, sends) connInfo log = loop ConnStart 0
                     writeChan receives msg
 
                     startEternalStream (UDPConn connInfo sock)
-                        (receives, sends) log
+                        (receives, sends) syncKey log
 
                 case next :: Either SomeException ConnLoopState of
                     Left e -> do
@@ -96,32 +113,62 @@ udpLoop (receives, sends) connInfo log = loop ConnStart 0
 startEternalStream
     :: UDPConn
     -> DiscordVoiceHandleUDP
+    -> MVar [Word8]
     -> Chan T.Text
     -> IO ConnLoopState
-startEternalStream conn (receives, sends) log = do
+startEternalStream conn (receives, sends) syncKey log = do
     let handler :: SomeException -> IO ConnLoopState
         handler e = do
             writeChan log $ udpError $ "event stream error: " <> T.pack (show e)
             pure ConnReconnect
     handle handler $ do
-        sendLoopId <- forkIO $ sendableLoop conn sends log
-        receiveLoopId <- forkIO $ receivableLoop conn receives log
+        sendLoopId <- forkIO $ sendableLoop conn sends syncKey log
 
-        finally (receivableLoop conn receives log >> pure ConnClosed)
+        finally (receivableLoop conn receives syncKey log >> pure ConnClosed)
             (killThread sendLoopId >> print "Exited UDP stream")
 
-receivableLoop :: UDPConn -> Chan VoiceUDPPacket -> Chan T.Text -> IO ()
-receivableLoop conn receives log = do
-    msg <- decode <$> recv (udpDataSocket conn) 999
-    print msg
-    writeChan log "new packet received"
-    writeChan receives msg
-    receivableLoop conn receives log
+receivableLoop :: UDPConn -> Chan VoiceUDPPacket -> MVar [Word8] -> Chan T.Text -> IO ()
+receivableLoop conn receives syncKey log = do
+    msg' <- decode <$> recv (udpDataSocket conn) 999
+    msg <- case msg' of
+        SpeakingDataEncrypted nonce' og -> do
+            byteKey <- takeMVar syncKey
+            let key = fromJust $ SC.decode $ B.pack byteKey :: Key
+            putMVar syncKey byteKey
+            let nonce = fromJust $ SC.decode nonce'
+            let deciphered = secretboxOpen key nonce $ BL.toStrict og
+            case deciphered of
+                Nothing -> do
+                    writeChan log $ udpError $
+                        "could not decipher audio message!"
+                    pure $ MalformedPacket og
+                Just x  -> do
+                    pure $ SpeakingData x
+        SpeakingDataEncryptedExtra nonce' og -> do
+            -- Almost similar, but remove first 8 bytes of decoded audio
+            byteKey <- takeMVar syncKey
+            let key = fromJust $ SC.decode $ B.pack byteKey :: Key
+            putMVar syncKey byteKey
+            print $ B.length nonce'
+            let nonce = fromJust $ SC.decode nonce'
+            let deciphered = secretboxOpen key nonce $ BL.toStrict og
+            case deciphered of
+                Nothing -> do
+                    writeChan log $ udpError $
+                        "could not decipher audio message!"
+                    pure $ MalformedPacket og
+                Just x  -> do
+                    pure $ SpeakingData $ B.drop 8 x
+        other -> pure other
 
-sendableLoop :: UDPConn -> Chan VoiceUDPPacket -> Chan T.Text -> IO ()
-sendableLoop conn sends log = do
+    print msg
+    writeChan receives msg
+    receivableLoop conn receives syncKey log
+
+sendableLoop :: UDPConn -> Chan VoiceUDPPacket -> MVar [Word8] -> Chan T.Text -> IO ()
+sendableLoop conn sends syncKey log = do
     -- Immediately send the first packet available
     top <- readChan sends
     sendAll (udpDataSocket conn) $ encode top
 
-    sendableLoop conn sends log
+    sendableLoop conn sends syncKey log
