@@ -12,7 +12,9 @@ import           Control.Concurrent                 ( ThreadId
                                                     , newChan
                                                     , readChan
                                                     , writeChan
+                                                    , newEmptyMVar
                                                     , readMVar
+                                                    , putMVar
                                                     )
 import           Control.Exception.Safe             ( SomeException
                                                     , handle
@@ -64,7 +66,6 @@ data DiscordVoiceThreadId
 data DiscordVoiceHandle = DiscordVoiceHandle
     { discordVoiceHandleWebsocket   :: DiscordVoiceHandleWebsocket
     , discordVoiceHandleUDP         :: DiscordVoiceHandleUDP
-    , discordVoiceEncryptionKey     :: [Float]
     , discordVoiceThreads           :: [DiscordVoiceThreadId]
     }
 
@@ -178,6 +179,7 @@ startVoiceThreads connInfo uid log = do
     -- an MVar to the data. We will wait and read from it.
     events <- newChan -- types are inferred from line below
     sends <- newChan
+    syncKey <- newEmptyMVar
     websocketId <- forkIO $ voiceWebsocketLoop (events, sends) (connInfo, uid) log
     
     -- The first event is either a Right (Ready payload) or Left errors
@@ -194,7 +196,7 @@ startVoiceThreads connInfo uid log = do
             
             byteReceives <- newChan
             byteSends <- newChan
-            udpId <- forkIO $ udpLoop (byteReceives, byteSends) udpInfo log
+            udpId <- forkIO $ udpLoop (byteReceives, byteSends) udpInfo syncKey log
 
             -- the first packet is a IP Discovery. Always.
             (IPDiscovery _ ip port) <- readChan byteReceives
@@ -211,15 +213,16 @@ startVoiceThreads connInfo uid log = do
             -- Opcode 4 Session Description
             f <- readChan events
             case f of
-                Right (SessionDescription _ key) -> pure $ Just $ DiscordVoiceHandle
-                    { discordVoiceHandleWebsocket = (events, sends)
-                    , discordVoiceHandleUDP       = (byteReceives, byteSends)
-                    , discordVoiceEncryptionKey   = key
-                    , discordVoiceThreads         =
-                        [ DiscordVoiceThreadIdWebsocket websocketId
-                        , DiscordVoiceThreadIdUDP udpId
-                        ]
-                    }
+                Right (SessionDescription _ key) -> do
+                    putMVar syncKey key
+                    pure $ Just $ DiscordVoiceHandle
+                        { discordVoiceHandleWebsocket = (events, sends)
+                        , discordVoiceHandleUDP       = (byteReceives, byteSends)
+                        , discordVoiceThreads         =
+                            [ DiscordVoiceThreadIdWebsocket websocketId
+                            , DiscordVoiceThreadIdUDP udpId
+                            ]
+                        }
                 Right _ -> pure Nothing
                 Left  _ -> pure Nothing
         Right _ -> pure Nothing

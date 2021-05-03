@@ -6,6 +6,8 @@ import           Data.Aeson
 import           Data.Aeson.Types
 import qualified Data.Text as T
 import qualified Data.ByteString as B
+import           Data.Word                      ( Word8
+                                                )
 
 import           Discord.Internal.Types.Prelude
 
@@ -13,7 +15,7 @@ data VoiceWebsocketReceivable
     = Ready ReadyPayload                            -- Opcode 2
     | HeartbeatR                                    -- Opcode 3
       -- ^ For some reason Discord sends us this, even though it's not in docs
-    | SessionDescription T.Text [Float]             -- Opcode 4
+    | SessionDescription T.Text [Word8]             -- Opcode 4
     | SpeakingR SpeakingPayload                     -- Opcode 5
     | HeartbeatAck                                  -- Opcode 6
     | Hello Int                                     -- Opcode 8
