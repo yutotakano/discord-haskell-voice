@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: ff3565621095250c1e9ebca32b5685da71ebc1588bca2194692f11d73b7d2db3
+-- hash: 3419ac7de3d65008ab4b4b71a5ef0a9e8bf4fef1af4ea58d3029a12197a1205c
 
 name:           discord-haskell-voice
 version:        0.0.1
@@ -53,12 +53,32 @@ library
     , wuss
   default-language: Haskell2010
 
-executable simple-join-vc
-  main-is: SimpleJoinVC.hs
+executable owen-chill
+  main-is: examples/OwenChillVC.hs
   other-modules:
       Paths_discord_haskell_voice
-  hs-source-dirs:
-      examples
+  default-extensions: OverloadedStrings
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , async
+    , base >=4.7 && <5
+    , bytestring
+    , discord-haskell >=1.8.6
+    , discord-haskell-voice
+    , mtl
+    , safe-exceptions
+    , text
+    , time
+    , unliftio
+    , websockets
+    , wuss
+  default-language: Haskell2010
+
+executable simple-join-vc
+  main-is: examples/SimpleJoinVC.hs
+  other-modules:
+      Paths_discord_haskell_voice
   default-extensions: OverloadedStrings
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:

@@ -24,6 +24,8 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import           Data.Time.Clock.POSIX
+import           Data.Word                  ( Word16
+                                            )
 import           Wuss                       ( runSecureClient )
 import           Network.WebSockets         ( ConnectionException(..)
                                             , Connection
@@ -73,16 +75,24 @@ wsError :: T.Text -> T.Text
 wsError t = "Voice Websocket error - " <> t
 
 connect :: T.Text -> (Connection -> IO a) -> IO a
-connect url = runSecureClient (T.unpack url) 443 ""
+connect endpoint = runSecureClient url port "/"
+  where
+    url = (T.unpack . T.takeWhile (/= ':')) endpoint
+    port = (read . T.unpack . T.takeWhileEnd (/= ':')) endpoint
 
 -- | Attempt to connect (and reconnect on disconnects) to the voice websocket.
-voiceWebsocketLoop :: DiscordVoiceHandleWebsocket -> (WebsocketConnInfo, UserId) -> Chan T.Text -> IO ()
+voiceWebsocketLoop
+    :: DiscordVoiceHandleWebsocket
+    -> (WebsocketConnInfo, UserId)
+    -> Chan T.Text
+    -> IO ()
 voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
   where
     loop :: ConnLoopState -> Int -> IO ()
     loop s retries = do
         case s of
-            ConnClosed -> pure ()
+            ConnClosed -> do
+                pure ()
 
             ConnStart -> do
                 next <- try $ connect (endpoint info) $ \conn -> do
@@ -93,40 +103,26 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
                         , identifyPayloadSessionId = sessionId info
                         , identifyPayloadToken = token info
                         }
-                    -- Attempt to get opcode 2 Ready
-                    msg <- getPayload conn log
-                    case msg of
-                        -- Not documented in the docs, but we presume
-                        -- the Identify -> Ready flow is done before Hello
-                        Right (Ready payload) -> do
-                            -- Ready received, so now wait for Hello
-                            msg2 <- getPayload conn log
-                            case msg2 of
-                                Right (Hello interval) -> do
-                                    -- All good! Start the continuous stream.
-                                    writeChan receives $ Right (Ready payload)
-                                    startEternalStream
-                                        (ConnData conn info receives)
-                                            interval sends log
-                             
-                        Right m -> do
-                            writeChan log $ wsError 
-                                "first message has to be opcode 4 Ready"
-                            writeChan receives $ Left $
-                                VoiceWebsocketUnexpected m
-                                    "first message has to be opcode 4 Ready"
+                    -- Attempt to get opcode 2 Ready and Opcode 8 Hello in an
+                    -- undefined order.
+                    result <- waitForHelloReadyOr10Seconds conn
+                    case result of
+                        Nothing -> do
+                            writeChan log $ wsError $
+                                "did not receive a valid Opcode 2 and 8 " <>
+                                    " after connection within 10 seconds"
                             pure ConnClosed
-                        Left ce -> do
-                            writeChan log $ wsError
-                                "unexpected response to connection"
-                            writeChan receives $ Left $
-                                VoiceWebsocketConnection ce
-                                    "unexpected response to connection"
-                            pure ConnClosed
+                        Just (interval, payload) -> do
+                            -- All good! Start the heartbeating and send loops.
+                            writeChan receives $ Right (Ready payload)
+                            startEternalStream (ConnData conn info receives)
+                                interval sends log
+                -- Connection is now closed.
                 case next :: Either SomeException ConnLoopState of
-                    Left _ -> do
-                        writeChan log $ wsError
-                            "could not connect due to an exception"
+                    Left e -> do
+                        writeChan log $ wsError $
+                            "could not connect due to an exception: " <>
+                                (T.pack $ show e)
                         writeChan receives $ Left $
                             VoiceWebsocketCouldNotConnect
                                 "could not connect due to an exception"
@@ -159,6 +155,7 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
                                 VoiceWebsocketConnection m
                                     "unexpected response to resumption"
                             pure ConnClosed
+                -- Connection is now closed.
                 case next :: Either SomeException ConnLoopState of
                     Left _ -> do
                         writeChan log $ wsError
@@ -166,6 +163,44 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
                         threadDelay $ 10 * (10^(6 :: Int))
                         loop (ConnReconnect previousInterval) (retries + 1)
                     Right n -> loop n 1
+
+    -- | Wait for 10 seconds or received Ready and Hello, whichever comes first.
+    -- Discord Docs does not specify the order in which Ready and Hello can
+    -- arrive, hence the complicated recursive logic and racing.
+    waitForHelloReadyOr10Seconds :: Connection -> IO (Maybe (Int, ReadyPayload))
+    waitForHelloReadyOr10Seconds conn =
+        either id id <$> race wait10Seconds (waitForHelloReady conn Nothing Nothing)
+
+    -- | Wait 10 seconds, this is for fallback when Discord never sends the msgs
+    -- to prevent deadlocking.
+    wait10Seconds :: IO (Maybe (Int, ReadyPayload))
+    wait10Seconds = do
+        threadDelay $ 10 * 10^(6 :: Int)
+        pure $ Nothing
+
+    -- | Wait for both Opcode 2 Ready and Opcode 8 Hello, and return both
+    -- responses in a Maybe (so that the type signature matches wait10seconds)
+    waitForHelloReady
+        :: Connection
+        -> Maybe Int
+        -> Maybe ReadyPayload
+        -> IO (Maybe (Int, ReadyPayload))
+    waitForHelloReady conn (Just x) (Just y) = pure $ Just (x, y)
+    waitForHelloReady conn mb1 mb2 = do
+        msg <- getPayload conn log
+        case msg of
+            Right (Ready payload) ->
+                waitForHelloReady conn mb1 (Just payload)
+            Right (Hello interval) ->
+                waitForHelloReady conn (Just interval) mb2
+            Right _ ->
+                waitForHelloReady conn mb1 mb2
+            Left _  ->
+                waitForHelloReady conn mb1 mb2
+
+
+
+
 
 getPayload
     :: Connection
@@ -200,7 +235,6 @@ startEternalStream
     -> Chan T.Text
     -> IO ConnLoopState
 startEternalStream connData interval sends log = do
-    writeChan log $ wsError "eternal event stream started"
     let err :: SomeException -> IO ConnLoopState
         err e = do
             writeChan log $ wsError $ "event stream error: " <> T.pack (show e)
@@ -208,10 +242,10 @@ startEternalStream connData interval sends log = do
     handle err $ do
         sysSends <- newChan -- Chan for Heartbeat
         sendLoopId <- forkIO $ sendableLoop connData sysSends sends
-        heartLoopId <- forkIO $ heartbeatLoop connData sysSends interval
+        heartLoopId <- forkIO $ heartbeatLoop connData sysSends interval log
 
         finally (eventStream connData interval sysSends log) $
-            (killThread heartLoopId >> killThread sendLoopId)
+            (killThread heartLoopId >> killThread sendLoopId >> print "Exited eternal stream")
 
 -- | Eternally stay on lookout for the connection. Writes to receivables channel.
 eventStream
@@ -226,22 +260,42 @@ eventStream connData interval sysSends log = loop
     loop = do
         eitherPayload <- getPayloadTimeout (connection connData) interval log
         case eitherPayload of
-            -- https://hackage.haskell.org/package/websockets-0.12.7.2/docs/Network-WebSockets.html#t:ConnectionException
+            -- Network-WebSockets, type ConnectionException
             Left (CloseRequest code str) -> do
-                writeChan log $ wsError $
-                    "connection closed with code: " <> T.pack (show code)
-                pure ConnClosed
+                handleClose code str
             Left _ -> do
                 writeChan log $ wsError
                     "connection exception in eventStream."
                 pure (ConnReconnect interval)
             Right Reconnect -> do
                 writeChan log $ wsError
-                    "connection timed out."
+                    "connection timed out, trying to reconnect again."
                 pure (ConnReconnect interval)
             Right receivable -> do
                 writeChan (receivesChan connData) (Right receivable)
                 loop
+   
+    handleClose :: Word16 -> BL.ByteString -> IO ConnLoopState
+    handleClose code str = do
+        let reason = TE.decodeUtf8 $ BL.toStrict str
+        case code of
+            -- from discord.py voice_client.py#L421
+            1000 -> do
+                writeChan log $ wsError reason
+                -- Normal close
+                pure ConnClosed
+            4014 -> do
+                -- VC deleted
+                pure (ConnReconnect interval)
+            4015 -> do
+                -- VC crashed
+                pure ConnClosed
+            x    -> do
+                writeChan log $ wsError $
+                    "connection closed with code: [" <> T.pack (show code) <>
+                        "] " <> reason
+                pure ConnClosed
+
 
 -- | Eternally send data from sysSends and usrSends channels
 sendableLoop
@@ -262,10 +316,12 @@ heartbeatLoop
     :: WebsocketConn
     -> Chan VoiceWebsocketSendable
     -> Int
+    -> Chan T.Text
     -> IO ()
-heartbeatLoop connData sysSends interval = do
+heartbeatLoop connData sysSends interval log = do
     threadDelay $ 1 * 10^(6 :: Int)
     forever $ do
         time <- round <$> getPOSIXTime
         writeChan sysSends $ Heartbeat $ time
+        writeChan log $ "Heartbeat at " <> (T.pack $ show time)
         threadDelay $ interval * 1000

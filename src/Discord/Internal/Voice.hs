@@ -1,4 +1,6 @@
-module Discord.Internal.Voice where
+module Discord.Internal.Voice
+    ( joinVoice
+    ) where
 
 import           Control.Concurrent.Async           ( race
                                                     )
@@ -12,11 +14,15 @@ import           Control.Concurrent                 ( ThreadId
                                                     , writeChan
                                                     , readMVar
                                                     )
+import           Control.Exception.Safe             ( SomeException
+                                                    , handle
+                                                    )
 import           Control.Monad.Reader               ( ask
                                                     , liftIO
                                                     )
 import           Data.Aeson
 import           Data.Aeson.Types                   ( parseMaybe
+                                                    , parseEither
                                                     )
 import           Data.Maybe                         ( fromJust
                                                     )
@@ -89,12 +95,15 @@ joinVoice gid cid mute deaf = do
     result <- liftIO $ loopUntilEvents events
     case result of
         Nothing -> do
-            liftIO $ writeChan (discordHandleLog h)
-                "Discord did not respond to opcode 4 in time. "
+            liftIO $ print "owo"
+            liftIO $ writeChan (discordHandleLog h) $
+                "Discord did not respond to opcode 4 in time. " <>
                     "Perhaps it may not have permission to join."
             pure Nothing
         Just (_, _, _, Nothing) -> do
-            liftIO $ writeChan (discordHandleLog h)
+            liftIO $ print "awa"
+            -- If endpoint is null, according to Docs, no servers are available.
+            liftIO $ writeChan (discordHandleLog h) $
                 "Discord did not give a good endpoint. " <>
                     "Perhaps it is down for maintenance."
             pure Nothing
@@ -115,6 +124,7 @@ joinVoice gid cid mute deaf = do
                 Right cache -> do
                     let uid = userId $ _currentUser cache
 
+                    -- someone please teach me a clean way to write this with <$>
                     a <- liftIO $ startVoiceThreads connData uid $ discordHandleLog h
                     pure $ Just a
 
@@ -126,11 +136,10 @@ loopUntilEvents
 loopUntilEvents events = eitherRight <$> race wait5 waitForBoth
   where
     wait5 :: IO ()
-    wait5 = threadDelay (5 * 10^(6 :: Int))
+    wait5 = threadDelay (20 * 10^(6 :: Int))
 
     waitForBoth :: IO (T.Text, T.Text, GuildId, Maybe T.Text)
-    waitForBoth = do
-        waitForBoth' Nothing Nothing
+    waitForBoth = waitForBoth' Nothing Nothing
 
     -- | Wait for both VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE.
     -- The order is undefined in docs.
@@ -144,19 +153,18 @@ loopUntilEvents events = eitherRight <$> race wait5 waitForBoth
         case top of
             Right (UnknownEvent "VOICE_STATE_UPDATE" obj) -> do
                 -- Parse the unknown event, and call waitForVoiceServer
-                -- We assume "d -> session_id" always exists because Discord says so
-                let sessionId = fromJust $ flip parseMaybe obj $ \o -> do
-                        d <- o .: "d"
-                        d .: "session_id"
-                waitForBoth' (Just sessionId) mb2
-            Right (UnknownEvent "VOICE_SERVER_UDPATE" obj) -> do
-                let result = fromJust $ flip parseMaybe obj $ \o -> do
-                        d <- o .: "d"
-                        token <- d .: "token"
-                        guildId <- d .: "guildId"
-                        endpoint <- d .: "endpoint"
+                -- We assume "d -> session_id" always exists because Discord
+                -- said so.
+                let sessionId = flip parseMaybe obj $ \o -> do
+                        o .: "session_id"
+                waitForBoth' sessionId mb2
+            Right (UnknownEvent "VOICE_SERVER_UPDATE" obj) -> do
+                let result = flip parseMaybe obj $ \o -> do
+                        token <- o .: "token"
+                        guildId <- o .: "guild_id"
+                        endpoint <- o .: "endpoint"
                         pure (token, guildId, endpoint)
-                waitForBoth' mb1 (Just result)
+                waitForBoth' mb1 result
             Right _ -> waitForBoth' mb1 mb2
             Left _  -> waitForBoth' mb1 mb2
 
@@ -173,7 +181,8 @@ startVoiceThreads connData uid log = do
     events <- newChan -- types are inferred from line below
     sends <- newChan
     websocketId <- forkIO $ voiceWebsocketLoop (events, sends) (connData, uid) log
-
+    
+    -- Wait for 
     pure $ DiscordVoiceHandle
         { discordVoiceHandleWebsocket = (events, sends)
         , discordVoiceThreads =

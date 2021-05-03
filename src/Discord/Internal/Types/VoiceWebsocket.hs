@@ -1,5 +1,7 @@
 module Discord.Internal.Types.VoiceWebsocket where
 
+import           Control.Applicative            ( (<|>)
+                                                )
 import           Data.Aeson
 import           Data.Aeson.Types
 import qualified Data.Text as T
@@ -9,12 +11,15 @@ import           Discord.Internal.Types.Prelude
 
 data VoiceWebsocketReceivable
     = Ready ReadyPayload                            -- Opcode 2
+    | HeartbeatR                                    -- Opcode 3
+      -- ^ For some reason Discord sends us this, even though it's not in docs
     | SessionDescription T.Text [Float]             -- Opcode 4
     | SpeakingR SpeakingPayload                     -- Opcode 5
     | HeartbeatAck                                  -- Opcode 6
     | Hello Int                                     -- Opcode 8
       -- ^ Int because this is heartbeat, and threadDelay uses it
     | Resumed                                       -- Opcode 9
+    | ClientDisconnect UserId                       -- Opcode 13
     | ParseError T.Text                             -- Internal use
     | Reconnect                                     -- Internal use
     deriving (Show, Eq)
@@ -73,6 +78,8 @@ instance FromJSON VoiceWebsocketReceivable where
                 port <- od .: "port"
                 modes <- od .: "modes"
                 pure $ Ready $ ReadyPayload ssrc ip port modes
+            3 -> do
+                pure $ HeartbeatR
             4 -> do
                 od <- o .: "d"
                 mode <- od .: "mode"
@@ -80,11 +87,23 @@ instance FromJSON VoiceWebsocketReceivable where
                 pure $ SessionDescription mode secretKey
             5 -> do
                 od <- o .: "d"
-                speaking <- od .: "speaking"
+                speaking <- 
+                    -- speaking field can be a number or a boolean.
+                    -- This is undocumented in the docs. God, discord.
+                    (od .: "speaking" :: Parser Int) <|>
+                        (do
+                            s <- od .: "speaking" :: Parser Bool
+                            case s of
+                                True  -> pure 1
+                                False -> pure 0
+                        )
+
                 let (priority, rest1) = speaking `divMod` 4
                 let (soundshare, rest2) = rest1 `divMod` 2
                 let microphone = rest2
-                delay <- od .: "delay"
+                delay <- od .:? "delay" .!= 0
+                -- The delay key is not present when we receive this data, but
+                -- present when we send it, I think? not documented anywhere.
                 ssrc <- od .: "ssrc"
                 pure $ SpeakingR $ SpeakingPayload
                     { speakingPayloadMicrophone = toEnum microphone
@@ -99,6 +118,10 @@ instance FromJSON VoiceWebsocketReceivable where
                 interval <- od .: "heartbeat_interval"
                 pure $ Hello interval
             9 -> pure Resumed
+            13 -> do
+                od <- o .: "d"
+                uid <- od .: "user_id"
+                pure $ ClientDisconnect uid
             _ -> fail $ "Unknown Voice Websocket Receivable, opcode " <> show op
 
 instance ToJSON VoiceWebsocketSendable where
