@@ -35,12 +35,14 @@ import           Discord.Internal.Types             ( GuildId
                                                     , UpdateStatusVoiceOpts
                                                     )
 import           Discord.Internal.Voice.WebsocketLoop
+import           Discord.Internal.Voice.UDPLoop
 import           Discord.Internal.Types.VoiceWebsocket
+import           Discord.Internal.Types.VoiceUDP
 import           Discord.Internal.Types             ( GuildId
                                                     , UserId
                                                     , User(..)
                                                     , UpdateStatusVoiceOpts(..)
-                                                    , Event(..)
+                                                    , Event( UnknownEvent )
                                                     )
 import           Discord.Internal.Gateway.EventLoop
                                                     ( GatewayException(..)
@@ -59,14 +61,10 @@ data DiscordVoiceThreadId
     = DiscordVoiceThreadIdWebsocket ThreadId
     | DiscordVoiceThreadIdUDP ThreadId
 
-type DiscordVoiceHandleUDP
-  = ( Chan (Either VoiceWebsocketException VoiceWebsocketReceivable)
-    , Chan VoiceWebsocketSendable
-    )
-
 data DiscordVoiceHandle = DiscordVoiceHandle
     { discordVoiceHandleWebsocket   :: DiscordVoiceHandleWebsocket
     , discordVoiceHandleUDP         :: DiscordVoiceHandleUDP
+    , discordVoiceEncryptionKey     :: [Float]
     , discordVoiceThreads           :: [DiscordVoiceThreadId]
     }
 
@@ -108,11 +106,11 @@ joinVoice gid cid mute deaf = do
                     "Perhaps it is down for maintenance."
             pure Nothing
         Just (sessionId, token, guildId, Just endpoint) -> do
-            let connData = ConnInfo
-                    { sessionId = sessionId
-                    , token     = token
-                    , guildId   = guildId
-                    , endpoint  = endpoint
+            let connInfo = WSConnInfo
+                    { wsInfoSessionId = sessionId
+                    , wsInfoToken     = token
+                    , wsInfoGuildId   = guildId
+                    , wsInfoEndpoint  = endpoint
                     }
             -- Get the current user ID, and pass it on with all the other data
             eCache <- liftIO $ readMVar $ snd $ discordHandleCache h 
@@ -125,8 +123,8 @@ joinVoice gid cid mute deaf = do
                     let uid = userId $ _currentUser cache
 
                     -- someone please teach me a clean way to write this with <$>
-                    a <- liftIO $ startVoiceThreads connData uid $ discordHandleLog h
-                    pure $ Just a
+                    liftIO $ startVoiceThreads connInfo uid $ discordHandleLog h
+                    
 
 -- | Loop a maximum of 5 seconds, or until both Voice State Update and
 -- Voice Server Update has been received.
@@ -174,20 +172,56 @@ eitherRight (Left _)  = Nothing
 eitherRight (Right x) = Just x
 
 -- | Start the Websocket thread, which will create the UDP thread
-startVoiceThreads :: WebsocketConnInfo -> UserId -> Chan T.Text -> IO DiscordVoiceHandle
-startVoiceThreads connData uid log = do
+startVoiceThreads :: WebsocketConnInfo -> UserId -> Chan T.Text -> IO (Maybe DiscordVoiceHandle)
+startVoiceThreads connInfo uid log = do
     -- The UDP thread is not created immediately, so what is returned is
     -- an MVar to the data. We will wait and read from it.
     events <- newChan -- types are inferred from line below
     sends <- newChan
-    websocketId <- forkIO $ voiceWebsocketLoop (events, sends) (connData, uid) log
+    websocketId <- forkIO $ voiceWebsocketLoop (events, sends) (connInfo, uid) log
     
-    -- Wait for 
-    pure $ DiscordVoiceHandle
-        { discordVoiceHandleWebsocket = (events, sends)
-        , discordVoiceThreads =
-            [ DiscordVoiceThreadIdWebsocket websocketId
-            ]
-        }
-     
+    -- The first event is either a Right (Ready payload) or Left errors
+    e <- readChan events
+    case e of
+        Right (Ready p) -> do
+            let udpInfo = UDPConnInfo
+                    { udpInfoSSRC = readyPayloadSSRC p
+                    , udpInfoAddr = readyPayloadIP p
+                    , udpInfoPort = readyPayloadPort p
+                    , udpInfoMode = "xsalsa20_poly1305"
+                    -- ^ Too much hassle to implement all encryption modes.
+                    }
+            
+            byteReceives <- newChan
+            byteSends <- newChan
+            udpId <- forkIO $ udpLoop (byteReceives, byteSends) udpInfo log
+
+            -- the first packet is a IP Discovery. Always.
+            (IPDiscovery _ ip port) <- readChan byteReceives
+            
+            -- signal to the voice websocket using Opcode 1 Select Protocol
+            writeChan sends $ SelectProtocol $ SelectProtocolPayload
+                { selectProtocolPayloadProtocol = "udp"
+                , selectProtocolPayloadIP       = ip
+                , selectProtocolPayloadPort     = port
+                , selectProtocolPayloadMode     = "xsalsa20_poly1305"
+                }
+
+            -- the next thing we receive in the websocket *should* be an
+            -- Opcode 4 Session Description
+            f <- readChan events
+            case f of
+                Right (SessionDescription _ key) -> pure $ Just $ DiscordVoiceHandle
+                    { discordVoiceHandleWebsocket = (events, sends)
+                    , discordVoiceHandleUDP       = (byteReceives, byteSends)
+                    , discordVoiceEncryptionKey   = key
+                    , discordVoiceThreads         =
+                        [ DiscordVoiceThreadIdWebsocket websocketId
+                        , DiscordVoiceThreadIdUDP udpId
+                        ]
+                    }
+                Right _ -> pure Nothing
+                Left  _ -> pure Nothing
+        Right _ -> pure Nothing
+        Left  _ -> pure Nothing
 

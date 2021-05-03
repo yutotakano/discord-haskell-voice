@@ -51,17 +51,17 @@ type DiscordVoiceHandleWebsocket
     )
 
 -- | session_id, token, guild_id, endpoint
-data WebsocketConnInfo = ConnInfo
-    { sessionId  :: T.Text
-    , token      :: T.Text
-    , guildId    :: GuildId
-    , endpoint   :: T.Text
+data WebsocketConnInfo = WSConnInfo
+    { wsInfoSessionId  :: T.Text
+    , wsInfoToken      :: T.Text
+    , wsInfoGuildId    :: GuildId
+    , wsInfoEndpoint   :: T.Text
     }
 
-data WebsocketConn = ConnData
-    { connection   :: Connection
-    , connInfo     :: WebsocketConnInfo
-    , receivesChan :: Chan (Either VoiceWebsocketException VoiceWebsocketReceivable)
+data WebsocketConn = WSConn
+    { wsDataConnection   :: Connection
+    , wsDataConnInfo     :: WebsocketConnInfo
+    , wsDataReceivesChan :: Chan (Either VoiceWebsocketException VoiceWebsocketReceivable)
     }
 
 data ConnLoopState
@@ -95,13 +95,13 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
                 pure ()
 
             ConnStart -> do
-                next <- try $ connect (endpoint info) $ \conn -> do
+                next <- try $ connect (wsInfoEndpoint info) $ \conn -> do
                     -- Send opcode 0 Identify
                     sendTextData conn $ encode $ Identify $ IdentifyPayload
-                        { identifyPayloadServerId = guildId info
+                        { identifyPayloadServerId = wsInfoGuildId info
                         , identifyPayloadUserId = userId
-                        , identifyPayloadSessionId = sessionId info
-                        , identifyPayloadToken = token info
+                        , identifyPayloadSessionId = wsInfoSessionId info
+                        , identifyPayloadToken = wsInfoToken info
                         }
                     -- Attempt to get opcode 2 Ready and Opcode 8 Hello in an
                     -- undefined order.
@@ -115,7 +115,7 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
                         Just (interval, payload) -> do
                             -- All good! Start the heartbeating and send loops.
                             writeChan receives $ Right (Ready payload)
-                            startEternalStream (ConnData conn info receives)
+                            startEternalStream (WSConn conn info receives)
                                 interval sends log
                 -- Connection is now closed.
                 case next :: Either SomeException ConnLoopState of
@@ -130,16 +130,16 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
                     Right n -> loop n 0
 
             ConnReconnect previousInterval -> do
-                next <- try $ connect (endpoint info) $ \conn -> do
+                next <- try $ connect (wsInfoEndpoint info) $ \conn -> do
                     -- Send opcode 7 Resume
                     sendTextData conn $ encode $
-                        Resume (guildId info) (sessionId info) (token info)
+                        Resume (wsInfoGuildId info) (wsInfoSessionId info) (wsInfoToken info)
                     -- Attempt to get opcode 9 Resumed
                     msg <- getPayload conn log
                     case msg of
                         Right Resumed -> do
                             startEternalStream
-                                (ConnData conn info receives)
+                                (WSConn conn info receives)
                                     previousInterval sends log
                         Right m -> do
                             writeChan log $ wsError
@@ -234,17 +234,17 @@ startEternalStream
     -> Chan VoiceWebsocketSendable
     -> Chan T.Text
     -> IO ConnLoopState
-startEternalStream connData interval sends log = do
+startEternalStream wsconn interval sends log = do
     let err :: SomeException -> IO ConnLoopState
         err e = do
             writeChan log $ wsError $ "event stream error: " <> T.pack (show e)
             pure (ConnReconnect interval)
     handle err $ do
         sysSends <- newChan -- Chan for Heartbeat
-        sendLoopId <- forkIO $ sendableLoop connData sysSends sends
-        heartLoopId <- forkIO $ heartbeatLoop connData sysSends interval log
+        sendLoopId <- forkIO $ sendableLoop wsconn sysSends sends
+        heartLoopId <- forkIO $ heartbeatLoop wsconn sysSends interval log
 
-        finally (eventStream connData interval sysSends log) $
+        finally (eventStream wsconn interval sysSends log) $
             (killThread heartLoopId >> killThread sendLoopId >> print "Exited eternal stream")
 
 -- | Eternally stay on lookout for the connection. Writes to receivables channel.
@@ -254,11 +254,11 @@ eventStream
     -> Chan VoiceWebsocketSendable
     -> Chan T.Text
     -> IO ConnLoopState
-eventStream connData interval sysSends log = loop
+eventStream wsconn interval sysSends log = loop
   where
     loop :: IO ConnLoopState
     loop = do
-        eitherPayload <- getPayloadTimeout (connection connData) interval log
+        eitherPayload <- getPayloadTimeout (wsDataConnection wsconn) interval log
         case eitherPayload of
             -- Network-WebSockets, type ConnectionException
             Left (CloseRequest code str) -> do
@@ -271,8 +271,9 @@ eventStream connData interval sysSends log = loop
                 writeChan log $ wsError
                     "connection timed out, trying to reconnect again."
                 pure (ConnReconnect interval)
+            Right HeartbeatAck -> loop
             Right receivable -> do
-                writeChan (receivesChan connData) (Right receivable)
+                writeChan (wsDataReceivesChan wsconn) (Right receivable)
                 loop
    
     handleClose :: Word16 -> BL.ByteString -> IO ConnLoopState
@@ -303,13 +304,13 @@ sendableLoop
     -> Chan VoiceWebsocketSendable
     -> Chan VoiceWebsocketSendable
     -> IO ()
-sendableLoop connData sysSends usrSends = do
+sendableLoop wsconn sysSends usrSends = do
     -- Wait-time taken from discord-haskell/Internal.Gateway.EventLoop
     threadDelay $ round ((10^(6 :: Int)) * (62 / 120) :: Double)
     -- Get whichever possible, and send it
     payload <- either id id <$> race (readChan sysSends) (readChan usrSends)
-    sendTextData (connection connData) $ encode payload
-    sendableLoop connData sysSends usrSends
+    sendTextData (wsDataConnection wsconn) $ encode payload
+    sendableLoop wsconn sysSends usrSends
 
 -- | Eternally send heartbeats through the sysSends channel
 heartbeatLoop
@@ -318,7 +319,7 @@ heartbeatLoop
     -> Int
     -> Chan T.Text
     -> IO ()
-heartbeatLoop connData sysSends interval log = do
+heartbeatLoop wsconn sysSends interval log = do
     threadDelay $ 1 * 10^(6 :: Int)
     forever $ do
         time <- round <$> getPOSIXTime

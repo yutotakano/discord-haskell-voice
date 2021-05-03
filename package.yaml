@@ -20,9 +20,11 @@ dependencies:
 - aeson
 - async
 - base >= 4.7 && < 5
+- binary
 - bytestring
 - discord-haskell >= 1.8.6
 - mtl
+- network
 - safe-exceptions
 - websockets
 - wuss

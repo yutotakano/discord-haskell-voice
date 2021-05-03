@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 3419ac7de3d65008ab4b4b71a5ef0a9e8bf4fef1af4ea58d3029a12197a1205c
+-- hash: 1bf99d8f451968b851210f4dd832b7aaaea75cb1ce31978cabaa576b40604cdc
 
 name:           discord-haskell-voice
 version:        0.0.1
@@ -29,8 +29,10 @@ source-repository head
 
 library
   exposed-modules:
+      Discord.Internal.Types.VoiceUDP
       Discord.Internal.Types.VoiceWebsocket
       Discord.Internal.Voice
+      Discord.Internal.Voice.UDPLoop
       Discord.Internal.Voice.WebsocketLoop
       Lib
   other-modules:
@@ -42,9 +44,11 @@ library
       aeson
     , async
     , base >=4.7 && <5
+    , binary
     , bytestring
     , discord-haskell >=1.8.6
     , mtl
+    , network
     , safe-exceptions
     , text
     , time
@@ -63,10 +67,12 @@ executable owen-chill
       aeson
     , async
     , base >=4.7 && <5
+    , binary
     , bytestring
     , discord-haskell >=1.8.6
     , discord-haskell-voice
     , mtl
+    , network
     , safe-exceptions
     , text
     , time
@@ -85,10 +91,12 @@ executable simple-join-vc
       aeson
     , async
     , base >=4.7 && <5
+    , binary
     , bytestring
     , discord-haskell >=1.8.6
     , discord-haskell-voice
     , mtl
+    , network
     , safe-exceptions
     , text
     , time
