@@ -1,0 +1,70 @@
+DiscordHandler is a ReaderT DiscordHandle IO
+
+joinVoice :: GuildId -> ChannelId -> Bool -> Bool -> DiscordHandler DiscordVoiceHandle
+
+voiceStream <- joinVoice guildId channelId mute deaf
+
+The DiscordVoiceHandle should have a reference to
+1. A Chan for sending 20ms long audio stream
+2. A Voice gateway object DiscordVoiceHandleGateway which is an alias for (Chan (Either GatewayException Event), Chan GatewaySendable) where the sendable is identical to the usual gateway sendable, and chan is a duplicated channel of the same thing
+3. A thread ID for the DiscordVoiceThreadIdGateway
+4. A DiscordVoiceHandleWebsocket which is an alias for (Chan (Either GatewayException Event), Chan GatewaySendable)
+5. A thread ID for the DiscordVOiceThreadIdWebsocket
+6. An UDP connection thread (DiscordVoiceHandleUDP), and its thread ID (DiscordVoiceThreadIdUDP)
+
+playAudio :: DiscordVoiceHandle -> AudioSource -> DiscordHandler ()
+playAudio = get the Chan from the handle, add 20ms audio to it, wait 20ms (crucial for long audio), repeat until nothing
+
+disconnectVoice :: DiscordVoiceHandle -> DiscordHandler ()
+disconnectVoice = kill the voice thread and the UDP connection thread
+
+_ <- disconnectVoice voiceStream
+
+Gateway thread:
+- to receive these, dupChan the internal Event chan (where?) -> copy Internal.Gateway.Cache.hs
+- steps:
+    -> Opcode 4 Gateway Voice State Update
+    <- Opcode 0 Event Voice State Update (containing session_id)
+    <- Opcode 0 Event Voice Server Update (containing non-wss url and token)
+    ++ The order for the above two are unspecified
+    ++ Create Voice websocket
+
+Voice thread:
+- connects with voice websocket, copy startGatewayThread -> eternal loop of eventStream, heartbeat, and sendableLoop
+- steps:
+    -> Opcode 0 Identify (served_id, session_id, user_id, token)
+    <- Opcode 2 Ready (ssrc?, ip, port, encryption modes (ignore?))
+    <- Opcode 8 Hello
+    ++ Create UDP thread
+      ++ Once received external IP and port from UDP thread
+      -> Opcode 1 Select Protocol (address, port, encryption mode)
+      <- Opcode 4 Session Description (mode, secret_key (32 byte array))    
+
+    (repeat)
+    -> Opcode 3 Heartbeat
+    <- Opcode 6 Heartbeat ACK
+
+    (when speaking)
+    -> Opcode 5 Speaking
+    ++ send data on UDP thread (if you do this before Opcode 5, error)
+    ++ silence should be done after sending five frames of silence
+
+    (resume)
+    -> Opcode 7 Resume (session_id, server_id, token)
+    <- Opcode 9 Resumed
+
+UDP thread:
+- connects with UDP -> eternal loop of reading from Chan and sending it?
+- steps:
+    ++ Open UDP thread, maybe perform IP Discovery:
+      -- Somehow send UDP thing
+    ++ Pass external IP and port and encryption mode to Voice Websocket thread
+
+    (when transmitting)
+    -> RTP Header
+
+
+---
+
+type VoiceConnection = ReaderT DiscordVoiceHandle DiscordHandler  
+- discard because it's not viable semantically. runVoice? how to interweave the Reader in a normal DiscordHandler, etc
