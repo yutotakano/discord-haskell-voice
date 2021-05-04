@@ -4,7 +4,7 @@ import           Control.Monad              ( forM_
                                             )
 import qualified Data.Text.IO as TIO
 import           Discord
-import           Discord.Internal.Voice     ( joinVoice
+import           Discord.Voice              ( joinVoice
                                             )
 import qualified Discord.Requests as R
 import           Discord.Types
