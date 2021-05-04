@@ -136,7 +136,8 @@ loopUntilEvents events = eitherRight <$> race wait5 (waitForBoth Nothing Nothing
     wait5 = threadDelay (5 * 10^(6 :: Int))
 
     -- | Wait for both VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE.
-    -- The order is undefined in docs.
+    -- The order is undefined in docs, so this function will recursively fill
+    -- up the two Maybe arguments until both are Just.
     waitForBoth
         :: Maybe T.Text
         -> Maybe (T.Text, GuildId, Maybe T.Text)
@@ -146,9 +147,8 @@ loopUntilEvents events = eitherRight <$> race wait5 (waitForBoth Nothing Nothing
         top <- readChan events
         case top of
             Right (UnknownEvent "VOICE_STATE_UPDATE" obj) -> do
-                -- Parse the unknown event, and call waitForVoiceServer
-                -- We assume "d -> session_id" always exists because Discord
-                -- said so.
+                -- Conveniently, we can just pass the result of parseMaybe
+                -- back recursively.
                 let sessionId = flip parseMaybe obj $ \o -> do
                         o .: "session_id"
                 waitForBoth sessionId mb2
