@@ -261,7 +261,7 @@ startEternalStream wsconn interval sends log = do
         heartLoopId <- forkIO $ heartbeatLoop wsconn sysSends interval log
 
         finally (eventStream wsconn interval sysSends log) $
-            (killThread heartLoopId >> killThread sendLoopId >> print "Exited eternal stream")
+            (killThread heartLoopId >> killThread sendLoopId)
 
 -- | Eternally stay on lookout for the connection. Writes to receivables channel.
 eventStream
@@ -291,7 +291,9 @@ eventStream wsconn interval sysSends log = loop
             Right receivable -> do
                 writeChan (wsDataReceivesChan wsconn) (Right receivable)
                 loop
-   
+  
+    -- | Handle Websocket Close codes by logging appropriate messages and
+    -- closing the connection.
     handleClose :: Word16 -> BL.ByteString -> IO ConnLoopState
     handleClose code str = do
         let reason = TE.decodeUtf8 $ BL.toStrict str
