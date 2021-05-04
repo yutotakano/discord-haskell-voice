@@ -90,17 +90,17 @@ joinVoice gid cid mute deaf = do
         , updateStatusVoiceOptsIsDeaf = deaf
         }
 
-    -- Loop for a maximum of 5 seconds
+    -- Wait for Opcode 0 Voice State Update and Voice Server Update
+    -- for a maximum of 5 seconds
     result <- liftIO $ loopUntilEvents events
+
     case result of
         Nothing -> do
-            liftIO $ print "owo"
             liftIO $ writeChan (discordHandleLog h) $
                 "Discord did not respond to opcode 4 in time. " <>
                     "Perhaps it may not have permission to join."
             pure Nothing
         Just (_, _, _, Nothing) -> do
-            liftIO $ print "awa"
             -- If endpoint is null, according to Docs, no servers are available.
             liftIO $ writeChan (discordHandleLog h) $
                 "Discord did not give a good endpoint. " <>
@@ -118,12 +118,10 @@ joinVoice gid cid mute deaf = do
             case eCache of
                 Left _ -> do
                     liftIO $ writeChan (discordHandleLog h)
-                        "Could not get current user."
+                        "Could not get current user from cache."
                     pure Nothing
                 Right cache -> do
                     let uid = userId $ _currentUser cache
-
-                    -- someone please teach me a clean way to write this with <$>
                     liftIO $ startVoiceThreads connInfo uid $ discordHandleLog h
                     
 
@@ -132,22 +130,19 @@ joinVoice gid cid mute deaf = do
 loopUntilEvents
     :: Chan (Either GatewayException Event)
     -> IO (Maybe (T.Text, T.Text, GuildId, Maybe T.Text))
-loopUntilEvents events = eitherRight <$> race wait5 waitForBoth
+loopUntilEvents events = eitherRight <$> race wait5 (waitForBoth Nothing Nothing)
   where
     wait5 :: IO ()
-    wait5 = threadDelay (20 * 10^(6 :: Int))
-
-    waitForBoth :: IO (T.Text, T.Text, GuildId, Maybe T.Text)
-    waitForBoth = waitForBoth' Nothing Nothing
+    wait5 = threadDelay (5 * 10^(6 :: Int))
 
     -- | Wait for both VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE.
     -- The order is undefined in docs.
-    waitForBoth'
+    waitForBoth
         :: Maybe T.Text
         -> Maybe (T.Text, GuildId, Maybe T.Text)
         -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
-    waitForBoth' (Just a) (Just (b, c, d)) = pure (a, b, c, d)
-    waitForBoth' mb1 mb2 = do
+    waitForBoth (Just a) (Just (b, c, d)) = pure (a, b, c, d)
+    waitForBoth mb1 mb2 = do
         top <- readChan events
         case top of
             Right (UnknownEvent "VOICE_STATE_UPDATE" obj) -> do
@@ -156,16 +151,16 @@ loopUntilEvents events = eitherRight <$> race wait5 waitForBoth
                 -- said so.
                 let sessionId = flip parseMaybe obj $ \o -> do
                         o .: "session_id"
-                waitForBoth' sessionId mb2
+                waitForBoth sessionId mb2
             Right (UnknownEvent "VOICE_SERVER_UPDATE" obj) -> do
                 let result = flip parseMaybe obj $ \o -> do
                         token <- o .: "token"
                         guildId <- o .: "guild_id"
                         endpoint <- o .: "endpoint"
                         pure (token, guildId, endpoint)
-                waitForBoth' mb1 result
-            Right _ -> waitForBoth' mb1 mb2
-            Left _  -> waitForBoth' mb1 mb2
+                waitForBoth mb1 result
+            Right _ -> waitForBoth mb1 mb2
+            Left _  -> waitForBoth mb1 mb2
 
 -- | Selects the right element as a Maybe
 eitherRight :: Either a b -> Maybe b
@@ -173,10 +168,13 @@ eitherRight (Left _)  = Nothing
 eitherRight (Right x) = Just x
 
 -- | Start the Websocket thread, which will create the UDP thread
-startVoiceThreads :: WebsocketConnInfo -> UserId -> Chan T.Text -> IO (Maybe DiscordVoiceHandle)
+startVoiceThreads
+    :: WebsocketConnInfo
+    -> UserId
+    -> Chan T.Text
+    -> IO (Maybe DiscordVoiceHandle)
 startVoiceThreads connInfo uid log = do
-    -- The UDP thread is not created immediately, so what is returned is
-    -- an MVar to the data. We will wait and read from it.
+    -- First create the websocket (which will automatically try to identify)
     events <- newChan -- types are inferred from line below
     sends <- newChan
     syncKey <- newEmptyMVar
@@ -186,6 +184,7 @@ startVoiceThreads connInfo uid log = do
     e <- readChan events
     case e of
         Right (Ready p) -> do
+            -- Now try to create the UDP thread
             let udpInfo = UDPConnInfo
                     { udpInfoSSRC = readyPayloadSSRC p
                     , udpInfoAddr = readyPayloadIP p
@@ -198,7 +197,7 @@ startVoiceThreads connInfo uid log = do
             byteSends <- newChan
             udpId <- forkIO $ udpLoop (byteReceives, byteSends) udpInfo syncKey log
 
-            -- the first packet is a IP Discovery. Always.
+            -- the first packet is a IP Discovery response.
             (IPDiscovery _ ip port) <- readChan byteReceives
             
             -- signal to the voice websocket using Opcode 1 Select Protocol
