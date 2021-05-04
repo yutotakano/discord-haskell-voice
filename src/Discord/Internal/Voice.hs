@@ -73,6 +73,11 @@ data DiscordVoiceHandle = DiscordVoiceHandle
     }
 
 -- | Joins a voice channel and initialises all the threads, ready to stream.
+-- Returns Nothing if an error was encountered somewhere. 
+--
+-- (TODO: consider switching to Either Error DiscordVoiceHandle, like restCall
+-- in the original module? But what should the error type be and where should it
+-- be defined, when it's so interweaved in both Websocket, UDP, and Gateway?)
 joinVoice
     :: GuildId
     -> ChannelId
@@ -131,7 +136,7 @@ getCacheUserId = do
 loopUntilEvents
     :: Chan (Either GatewayException Event)
     -> IO (Maybe (T.Text, T.Text, GuildId, Maybe T.Text))
-loopUntilEvents events = eitherRight <$> race wait5 (waitForBoth Nothing Nothing)
+loopUntilEvents events = rightToMaybe <$> race wait5 (waitForBoth Nothing Nothing)
   where
     wait5 :: IO ()
     wait5 = threadDelay (5 * 10^(6 :: Int))
@@ -164,9 +169,9 @@ loopUntilEvents events = eitherRight <$> race wait5 (waitForBoth Nothing Nothing
             Left _  -> waitForBoth mb1 mb2
 
 -- | Selects the right element as a Maybe
-eitherRight :: Either a b -> Maybe b
-eitherRight (Left _)  = Nothing
-eitherRight (Right x) = Just x
+rightToMaybe :: Either a b -> Maybe b
+rightToMaybe (Left _)  = Nothing
+rightToMaybe (Right x) = Just x
 
 -- | Start the Websocket thread, which will create the UDP thread
 startVoiceThreads
@@ -225,7 +230,10 @@ startVoiceThreads connInfo uid log = do
                             ]
                         }
                 Right a -> do
-                    print "it wasn't"
+                    -- If this is ever called, refactor this entire case stmt
+                    -- to a waitForSessionDescription, as it means another
+                    -- event could be in the Websocket before SessionDescription
+                    print "owo"
                     print a
                     killThread udpId
                     killThread websocketId
