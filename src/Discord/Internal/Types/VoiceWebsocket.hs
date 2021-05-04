@@ -22,6 +22,7 @@ data VoiceWebsocketReceivable
       -- ^ Int because this is heartbeat, and threadDelay uses it
     | Resumed                                       -- Opcode 9
     | ClientDisconnect UserId                       -- Opcode 13
+    | UnknownOPCode Integer Object                  -- Opcode unknown
     | ParseError T.Text                             -- Internal use
     | Reconnect                                     -- Internal use
     deriving (Show, Eq)
@@ -124,7 +125,7 @@ instance FromJSON VoiceWebsocketReceivable where
                 od <- o .: "d"
                 uid <- od .: "user_id"
                 pure $ ClientDisconnect uid
-            _ -> fail $ "Unknown Voice Websocket Receivable, opcode " <> show op
+            _ -> pure $ UnknownOPCode op o
 
 instance ToJSON VoiceWebsocketSendable where
     toJSON (Identify payload) = object

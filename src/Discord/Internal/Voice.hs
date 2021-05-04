@@ -1,11 +1,13 @@
 module Discord.Internal.Voice
     ( joinVoice
+    , leaveVoice
     ) where
 
 import           Control.Concurrent.Async           ( race
                                                     )
 import           Control.Concurrent                 ( ThreadId
                                                     , threadDelay
+                                                    , killThread
                                                     , forkIO
                                                     , Chan
                                                     , dupChan
@@ -53,10 +55,10 @@ import           Discord.Internal.Gateway.Cache     ( Cache(..)
                                                     )
 import           Discord.Handle                     ( discordHandleGateway
                                                     , discordHandleLog
-                                                    , discordHandleCache
                                                     )
 import           Discord                            ( DiscordHandler
                                                     , sendCommand
+                                                    , readCache
                                                     )
 
 data DiscordVoiceThreadId
@@ -64,7 +66,8 @@ data DiscordVoiceThreadId
     | DiscordVoiceThreadIdUDP ThreadId
 
 data DiscordVoiceHandle = DiscordVoiceHandle
-    { discordVoiceHandleWebsocket   :: DiscordVoiceHandleWebsocket
+    { discordVoiceGuildId           :: GuildId
+    , discordVoiceHandleWebsocket   :: DiscordVoiceHandleWebsocket
     , discordVoiceHandleUDP         :: DiscordVoiceHandleUDP
     , discordVoiceThreads           :: [DiscordVoiceThreadId]
     }
@@ -114,16 +117,14 @@ joinVoice gid cid mute deaf = do
                     , wsInfoEndpoint  = endpoint
                     }
             -- Get the current user ID, and pass it on with all the other data
-            eCache <- liftIO $ readMVar $ snd $ discordHandleCache h 
-            case eCache of
-                Left _ -> do
-                    liftIO $ writeChan (discordHandleLog h)
-                        "Could not get current user from cache."
-                    pure Nothing
-                Right cache -> do
-                    let uid = userId $ _currentUser cache
-                    liftIO $ startVoiceThreads connInfo uid $ discordHandleLog h
-                    
+            uid <- getCacheUserId
+            liftIO $ startVoiceThreads connInfo uid $ discordHandleLog h
+
+-- | Get the user ID of the bot from the cache.
+getCacheUserId :: DiscordHandler UserId
+getCacheUserId = do
+    cache <- readCache
+    pure $ userId $ _currentUser cache
 
 -- | Loop a maximum of 5 seconds, or until both Voice State Update and
 -- Voice Server Update has been received.
@@ -215,15 +216,45 @@ startVoiceThreads connInfo uid log = do
                 Right (SessionDescription _ key) -> do
                     putMVar syncKey key
                     pure $ Just $ DiscordVoiceHandle
-                        { discordVoiceHandleWebsocket = (events, sends)
+                        { discordVoiceGuildId         = wsInfoGuildId connInfo
+                        , discordVoiceHandleWebsocket = (events, sends)
                         , discordVoiceHandleUDP       = (byteReceives, byteSends)
                         , discordVoiceThreads         =
                             [ DiscordVoiceThreadIdWebsocket websocketId
                             , DiscordVoiceThreadIdUDP udpId
                             ]
                         }
-                Right _ -> pure Nothing
-                Left  _ -> pure Nothing
-        Right _ -> pure Nothing
-        Left  _ -> pure Nothing
+                Right a -> do
+                    print "it wasn't"
+                    print a
+                    killThread udpId
+                    killThread websocketId
+                    pure Nothing
+                Left  _ -> do
+                    killThread udpId
+                    killThread websocketId
+                    pure Nothing
+        Right _ -> do
+            killThread websocketId
+            pure Nothing
+        Left  _ -> do
+            killThread websocketId
+            pure Nothing
 
+-- | Leave the current voice session by killing all relevant threads, and
+-- sending a Voice State Update to the gateway.
+leaveVoice :: DiscordVoiceHandle -> DiscordHandler ()
+leaveVoice handle = do
+    mapM_ (liftIO . killThread . toId) (discordVoiceThreads handle)
+    
+    sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts
+        { updateStatusVoiceOptsGuildId = discordVoiceGuildId handle
+        , updateStatusVoiceOptsChannelId = Nothing
+        , updateStatusVoiceOptsIsMuted = False
+        , updateStatusVoiceOptsIsDeaf = False
+        }
+
+  where
+    toId t = case t of
+        DiscordVoiceThreadIdWebsocket a -> a
+        DiscordVoiceThreadIdUDP a -> a
