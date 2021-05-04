@@ -6,7 +6,7 @@ import           Control.Monad              ( forM_
                                             )
 import qualified Data.Text.IO as TIO
 import           Discord
-import           Discord.Internal.Voice     ( joinVoice   -- <-- This is the magic!
+import           Discord.Voice              ( joinVoice   -- <-- This is the magic!
                                             , leaveVoice
                                             )
 import qualified Discord.Requests as R
