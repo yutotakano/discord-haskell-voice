@@ -220,3 +220,17 @@ decrypt byteKey byteNonce og = secretboxOpen key nonce $ BL.toStrict og
   where
     key = fromJust $ SC.decode $ B.pack byteKey
     nonce = fromJust $ SC.decode byteNonce
+
+-- | Encrypt a strict sound packet using the provided Discord key and header
+-- nonce. The argument is strict because it has to be converted to strict
+-- before passing onto Saltine anyway, and it leaves room for the caller of the
+-- function to choose which laziness to use.
+--
+-- As with decryption, this function does no error handling on the format of the
+-- key and nonce (key = 32 bytes, nonce = 24 bytes).
+encrypt :: [Word8] -> B.ByteString -> B.ByteString -> B.ByteString
+encrypt byteKey byteNonce og = secretbox key nonce og
+  where
+    key = fromJust $ SC.decode $ B.pack byteKey
+    nonce = fromJust $ SC.decode byteNonce
+
