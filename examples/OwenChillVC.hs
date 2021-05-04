@@ -7,6 +7,7 @@ import           Control.Monad              ( forM_
 import qualified Data.Text.IO as TIO
 import           Discord
 import           Discord.Internal.Voice     ( joinVoice   -- <-- This is the magic!
+                                            , leaveVoice
                                             )
 import qualified Discord.Requests as R
 import           Discord.Types
@@ -15,7 +16,7 @@ import           UnliftIO                   ( liftIO
 
 main :: IO ()
 main = do
-    tok <- TIO.readFile "./examples/production.secret"
+    tok <- TIO.readFile "./examples/auth-token.secret"
 
     t <- runDiscord $ def { discordToken = tok
                           , discordOnStart = startHandler
@@ -25,13 +26,22 @@ main = do
                           }
     putStrLn "Finished!"
 
-eventHandler :: Event -> DiscordHandler ()
-eventHandler event = pure ()
-
 -- | Literally just joins this specific one and chills. lol.
+eventHandler :: Event -> DiscordHandler ()
+eventHandler event =
+    case event of
+        MessageCreate msg ->
+            case messageText msg of
+                "---joinVC" -> do
+                    mbVc <- joinVoice (read "765660106259562498") (read "765660106259562502") False False
+                    -- mbVc <- joinVoice (read "768810076201811989") (read "768810076201811993") False False
+                    case mbVc of
+                        Nothing -> liftIO $ print "whoops"
+                        Just vc -> do
+                            -- automatically leave after 30 seconds
+                            liftIO $ threadDelay $ 30 * 10^(6 :: Int)
+                            leaveVoice vc
+        _ -> pure ()
+
 startHandler :: DiscordHandler ()
-startHandler = do
-    -- _ <- joinVoice (read "755798054455738489") (read "836947624137326623") False False
-    liftIO $ threadDelay $ 4 * 10^(6 :: Int)
-    _ <- joinVoice (read "768810076201811989") (read "768810076201811993") False False
-    pure ()
+startHandler = pure ()

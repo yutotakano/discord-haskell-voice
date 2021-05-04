@@ -156,7 +156,7 @@ startEternalStream conn (receives, sends) syncKey log = do
         sendLoopId <- forkIO $ sendableLoop conn sends syncKey log
 
         finally (receivableLoop conn receives syncKey log >> pure ConnClosed)
-            (killThread sendLoopId >> print "Exited UDP stream")
+            (killThread sendLoopId)
 
 -- | Eternally receive a packet from the socket (max length 999, so practically
 -- never fails). Decrypts audio data as necessary, and writes it to the
@@ -194,6 +194,7 @@ receivableLoop conn receives syncKey log = do
         other -> pure other
 
     writeChan receives msg
+    print msg
     receivableLoop conn receives syncKey log
 
 -- | Eternally send the top packet in the sendable packet Chan. 

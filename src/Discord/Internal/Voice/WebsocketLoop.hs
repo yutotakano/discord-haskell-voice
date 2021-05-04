@@ -67,8 +67,7 @@ data WebsocketConn = WSConn
 data ConnLoopState
     = ConnStart
     | ConnClosed
-    | ConnReconnect Int
-      -- ^ Int and not Integer because threadDelay uses it
+    | ConnReconnect
     deriving Show
 
 wsError :: T.Text -> T.Text
@@ -110,7 +109,7 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
                         Nothing -> do
                             writeChan log $ wsError $
                                 "did not receive a valid Opcode 2 and 8 " <>
-                                    " after connection within 10 seconds"
+                                    "after connection within 10 seconds"
                             pure ConnClosed
                         Just (interval, payload) -> do
                             -- All good! Start the heartbeating and send loops.
@@ -129,39 +128,30 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
                         loop ConnClosed 0
                     Right n -> loop n 0
 
-            ConnReconnect previousInterval -> do
+            ConnReconnect -> do
                 next <- try $ connect (wsInfoEndpoint info) $ \conn -> do
                     -- Send opcode 7 Resume
                     sendTextData conn $ encode $
                         Resume (wsInfoGuildId info) (wsInfoSessionId info) (wsInfoToken info)
-                    -- Attempt to get opcode 9 Resumed
-                    msg <- getPayload conn log
-                    case msg of
-                        Right Resumed -> do
-                            startEternalStream
-                                (WSConn conn info receives)
-                                    previousInterval sends log
-                        Right m -> do
-                            writeChan log $ wsError
-                                "first message after resume should be opcode 9 Resumed"
-                            writeChan receives $ Left $
-                                VoiceWebsocketUnexpected m
-                                    "first message after resume should be opcode 9 Resumed"
+                    -- Attempt to get opcode 9 Resumed and Opcode 8 Hello in an
+                    -- undefined order
+                    result <- waitForHelloResumedOr10Seconds conn
+                    case result of
+                        Nothing -> do
+                            writeChan log $ wsError $
+                                "did not receive a valid Opcode 9 and 8 " <>
+                                    "after reconnection within 10 seconds"
                             pure ConnClosed
-                        Left m -> do
-                            writeChan log $ wsError
-                                "unexpected response to resumption"
-                            writeChan receives $ Left $
-                                VoiceWebsocketConnection m
-                                    "unexpected response to resumption"
-                            pure ConnClosed
+                        Just interval -> do
+                            startEternalStream (WSConn conn info receives)
+                                interval sends log
                 -- Connection is now closed.
                 case next :: Either SomeException ConnLoopState of
                     Left _ -> do
                         writeChan log $ wsError
                             "could not resume, retrying after 10 seconds"
                         threadDelay $ 10 * (10^(6 :: Int))
-                        loop (ConnReconnect previousInterval) (retries + 1)
+                        loop ConnReconnect (retries + 1)
                     Right n -> loop n 1
 
     -- | Wait for 10 seconds or received Ready and Hello, whichever comes first.
@@ -172,8 +162,9 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
         either id id <$> race wait10Seconds (waitForHelloReady conn Nothing Nothing)
 
     -- | Wait 10 seconds, this is for fallback when Discord never sends the msgs
-    -- to prevent deadlocking.
-    wait10Seconds :: IO (Maybe (Int, ReadyPayload))
+    -- to prevent deadlocking. Type signature is generic to accommodate any
+    -- kind of response (both for Resumed and Ready)
+    wait10Seconds :: IO (Maybe a)
     wait10Seconds = do
         threadDelay $ 10 * 10^(6 :: Int)
         pure $ Nothing
@@ -198,9 +189,34 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
             Left _  ->
                 waitForHelloReady conn mb1 mb2
 
+    -- | Wait for 10 seconds or received Resumed and Hello, whichever comes first.
+    -- Discrod Docs does not specify the order here again, and does not even
+    -- specify that Hello will be sent. Anyway, Hello sometimes comes before 
+    -- Resumed (as I've found out) so the logic is identical to
+    -- waitForHelloReadyor10Seconds.
+    waitForHelloResumedOr10Seconds :: Connection -> IO (Maybe Int)
+    waitForHelloResumedOr10Seconds conn =
+        either id id <$> race wait10Seconds (waitForHelloResumed conn Nothing False)
 
-
-
+    -- | Wait for both Opcode 9 Resumed and Opcode 8 Hello, and return the
+    -- Hello interval. There is no body in Resumed.
+    waitForHelloResumed
+        :: Connection
+        -> Maybe Int
+        -> Bool
+        -> IO (Maybe Int)
+    waitForHelloResumed conn (Just x) True = pure $ Just x
+    waitForHelloResumed conn mb1 bool = do
+        msg <- getPayload conn log
+        case msg of
+            Right (Hello interval) ->
+                waitForHelloResumed conn (Just interval) bool
+            Right Resumed ->
+                waitForHelloResumed conn mb1 True
+            Right _ ->
+                waitForHelloResumed conn mb1 bool
+            Left _ ->
+                waitForHelloResumed conn mb1 bool
 
 getPayload
     :: Connection
@@ -238,7 +254,7 @@ startEternalStream wsconn interval sends log = do
     let err :: SomeException -> IO ConnLoopState
         err e = do
             writeChan log $ wsError $ "event stream error: " <> T.pack (show e)
-            pure (ConnReconnect interval)
+            pure ConnReconnect
     handle err $ do
         sysSends <- newChan -- Chan for Heartbeat
         sendLoopId <- forkIO $ sendableLoop wsconn sysSends sends
@@ -266,11 +282,11 @@ eventStream wsconn interval sysSends log = loop
             Left _ -> do
                 writeChan log $ wsError
                     "connection exception in eventStream."
-                pure (ConnReconnect interval)
+                pure ConnReconnect
             Right Reconnect -> do
                 writeChan log $ wsError
                     "connection timed out, trying to reconnect again."
-                pure (ConnReconnect interval)
+                pure ConnReconnect
             Right HeartbeatAck -> loop
             Right receivable -> do
                 writeChan (wsDataReceivesChan wsconn) (Right receivable)
@@ -282,12 +298,15 @@ eventStream wsconn interval sysSends log = loop
         case code of
             -- from discord.py voice_client.py#L421
             1000 -> do
-                writeChan log $ wsError reason
                 -- Normal close
+                writeChan log $ wsError $
+                    "websocket closed due to reason: " <> reason
                 pure ConnClosed
             4014 -> do
-                -- VC deleted
-                pure (ConnReconnect interval)
+                -- VC deleted, or bot kicked
+                writeChan log $ wsError $
+                    "vc deleted or bot forcefully disconnected..."
+                pure ConnClosed
             4015 -> do
                 -- VC crashed
                 pure ConnClosed
