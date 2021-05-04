@@ -4,6 +4,7 @@ import           Crypto.Saltine.Core.SecretBox
                                             ( Key(..)
                                             , Nonce(..)
                                             , secretboxOpen
+                                            , secretbox
                                             )
 import qualified Crypto.Saltine.Class as SC
 import           Control.Concurrent         ( Chan
@@ -174,7 +175,7 @@ receivableLoop conn receives syncKey log = do
     msg <- case msg' of
         SpeakingDataEncrypted byteNonce og -> do
             byteKey <- readMVar syncKey
-            let deciphered = decrypt byteKey byteNonce og
+            let deciphered = decrypt byteKey byteNonce $ BL.toStrict og
             case deciphered of
                 Nothing -> do
                     writeChan log $ udpError $
@@ -184,7 +185,7 @@ receivableLoop conn receives syncKey log = do
         SpeakingDataEncryptedExtra byteNonce og -> do
             -- Almost similar, but remove first 8 bytes of decoded audio
             byteKey <- readMVar syncKey
-            let deciphered = decrypt byteKey byteNonce og
+            let deciphered = decrypt byteKey byteNonce $ BL.toStrict og
             case deciphered of
                 Nothing -> do
                     writeChan log $ udpError $
@@ -212,11 +213,14 @@ sendableLoop conn sends syncKey log = do
 
     sendableLoop conn sends syncKey log
 
--- | Decrypt a sound packet using the provided Discord key and header nonce.
+-- | Decrypt a sound packet using the provided Discord key and header nonce. The
+-- argument is strict because it has to be strict when passed to Saltine anyway,
+-- and having the same type signature leaves room for the caller to choose.
+--
 -- This does no error handling on misformatted key/nonce since this function is
 -- only used in contexts where we are guaranteed they are valid.
-decrypt :: [Word8] -> B.ByteString -> BL.ByteString -> Maybe B.ByteString
-decrypt byteKey byteNonce og = secretboxOpen key nonce $ BL.toStrict og
+decrypt :: [Word8] -> B.ByteString -> B.ByteString -> Maybe B.ByteString
+decrypt byteKey byteNonce og = secretboxOpen key nonce og
   where
     key = fromJust $ SC.decode $ B.pack byteKey
     nonce = fromJust $ SC.decode byteNonce
