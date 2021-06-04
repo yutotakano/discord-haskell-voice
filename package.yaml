@@ -20,11 +20,14 @@ dependencies:
 - aeson
 - async
 - base >= 4.7 && < 5
+- BoundedChan
 - binary
 - bytestring
 - discord-haskell >= 1.8.6
+- lens
 - mtl
 - network
+- opus
 - safe-exceptions
 - saltine
 - text
@@ -37,8 +40,8 @@ library:
   source-dirs: src
 
 executables:
-  simple-join-vc:
-    main:           examples/SimpleJoinVC.hs
+  join-all-on-start:
+    main:           examples/JoinAllVC.hs
     ghc-options:
     - -threaded
     - -rtsopts
@@ -46,8 +49,8 @@ executables:
     dependencies:
     - discord-haskell-voice
 
-  owen-chill:
-    main:           examples/OwenChillVC.hs
+  join-specific:
+    main:           examples/JoinSpecificVC.hs
     ghc-options:
     - -threaded
     - -rtsopts
