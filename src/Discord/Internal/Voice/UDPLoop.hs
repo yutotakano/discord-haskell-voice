@@ -1,5 +1,6 @@
 module Discord.Internal.Voice.UDPLoop where
 
+import           Codec.Audio.Opus.Decoder
 import           Crypto.Saltine.Core.SecretBox
                                             ( Key(..)
                                             , Nonce(..)
@@ -7,6 +8,7 @@ import           Crypto.Saltine.Core.SecretBox
                                             , secretbox
                                             )
 import qualified Crypto.Saltine.Class as SC
+import qualified Control.Concurrent.BoundedChan as Bounded
 import           Control.Concurrent         ( Chan
                                             , readChan
                                             , writeChan
@@ -21,11 +23,11 @@ import           Control.Exception.Safe     ( handle
                                             , finally
                                             , try
                                             )
-import           Data.Binary.Put            ( runPut
+import           Control.Lens.Operators     ( (#)
+                                            )
+import           Control.Monad.IO.Class     ( MonadIO
                                             )
 import           Data.Binary                ( encode
-                                            , putList
-                                            , putWord8
                                             , decode
                                             )
 import qualified Data.ByteString.Lazy as BL
@@ -33,6 +35,8 @@ import           Data.ByteString.Builder
 import qualified Data.ByteString as B
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import           Data.Time.Clock.POSIX      ( getPOSIXTime
+                                            )
 import           Data.Maybe                 ( fromJust
                                             )
 import           Data.Word                  ( Word8
@@ -47,8 +51,8 @@ import           Discord.Internal.Types.VoiceUDP
 
 
 type DiscordVoiceHandleUDP
-  = ( Chan VoiceUDPPacket
-    , Chan VoiceUDPPacket
+  = ( Chan VoiceUDPPacket -- can receive various stuff
+    , Bounded.BoundedChan B.ByteString   -- but can only send audio
     )
 
 data UDPConnInfo = UDPConnInfo
@@ -170,47 +174,69 @@ receivableLoop
     -> IO ()
 receivableLoop conn receives syncKey log = do
     -- max length has to be specified but is irrelevant since it is so big
-    msg' <- decode <$> recv (udpDataSocket conn) 999
+    msg'' <- decode <$> recv (udpDataSocket conn) 999
     -- decrypt any encrypted audio packets
-    msg <- case msg' of
-        SpeakingDataEncrypted byteNonce og -> do
+    msg' <- case msg'' of
+        SpeakingDataEncrypted header og -> do
             byteKey <- readMVar syncKey
-            let deciphered = decrypt byteKey byteNonce $ BL.toStrict og
+            let nonce = B.append header $ B.concat $
+                    replicate 12 $ B.singleton 0
+            let deciphered = decrypt byteKey nonce $ BL.toStrict og
             case deciphered of
                 Nothing -> do
                     writeChan log $ udpError $
                         "could not decipher audio message!"
-                    pure $ MalformedPacket og
+                    pure $ MalformedPacket $ BL.append (BL.fromStrict header) og
                 Just x  -> pure $ SpeakingData x
-        SpeakingDataEncryptedExtra byteNonce og -> do
+        SpeakingDataEncryptedExtra header og -> do
             -- Almost similar, but remove first 8 bytes of decoded audio
             byteKey <- readMVar syncKey
-            let deciphered = decrypt byteKey byteNonce $ BL.toStrict og
+            let nonce = B.append header $ B.concat $
+                    replicate 12 $ B.singleton 0
+            let deciphered = decrypt byteKey nonce $ BL.toStrict og
             case deciphered of
                 Nothing -> do
                     writeChan log $ udpError $
                         "could not decipher audio message!"
-                    pure $ MalformedPacket og
+                    pure $ MalformedPacket $ BL.append (BL.fromStrict header) og
                 Just x  -> pure $ SpeakingData $ B.drop 8 x
+        other -> pure other
+    
+    msg <- case msg' of
+        SpeakingData bytes -> decodeOpusData bytes
         other -> pure other
 
     writeChan receives msg
-    print msg
     receivableLoop conn receives syncKey log
 
 -- | Eternally send the top packet in the sendable packet Chan. 
 -- If the packet is raw audio, it will automatically encrypt it using the key.
 sendableLoop
     :: UDPConn
-    -> Chan VoiceUDPPacket
+    -> Bounded.BoundedChan B.ByteString
     -> MVar [Word8]
     -> Chan T.Text
     -> IO ()
 sendableLoop conn sends syncKey log = do
     -- Immediately send the first packet available
-    top <- readChan sends
-    sendAll (udpDataSocket conn) $ encode top
+    top <- Bounded.tryReadChan sends
+    case top of
+        Nothing -> do
+            -- write five frames of silence
+            sequence_ $ replicate 5 $ Bounded.writeChan sends "\248\255\254"
+        Just og -> do
+            timestamp <- (round . (* 1000)) <$> getPOSIXTime
+            let header = BL.toStrict $ encode $
+                    Header 80 78 1 (fromIntegral timestamp) (fromIntegral $ udpInfoSSRC $ udpDataInfo conn)
+            let nonce = B.append header $ B.concat $
+                    replicate 12 $ B.singleton 0
+            byteKey <- readMVar syncKey
+            let opusBS = BL.fromStrict $ encrypt byteKey nonce og
 
+            sendAll (udpDataSocket conn) $
+                encode $ SpeakingDataEncrypted header opusBS
+
+    threadDelay $ round $ 20 * 10^(3 :: Int) -- wait 20ms
     sendableLoop conn sends syncKey log
 
 -- | Decrypt a sound packet using the provided Discord key and header nonce. The
@@ -238,3 +264,12 @@ encrypt byteKey byteNonce og = secretbox key nonce og
     key = fromJust $ SC.decode $ B.pack byteKey
     nonce = fromJust $ SC.decode byteNonce
 
+decodeOpusData :: B.ByteString -> IO VoiceUDPPacket
+decodeOpusData bytes = do
+    B.writeFile "test.opus" bytes
+    let deCfg = _DecoderConfig # (opusSR48k, True)
+    let deStreamCfg = _DecoderStreamConfig # (deCfg, 48*20, 0)
+    decoder <- opusDecoderCreate deCfg
+    decoded <- opusDecode decoder deStreamCfg bytes
+    B.appendFile "test.pcm" decoded
+    pure $ SpeakingData decoded

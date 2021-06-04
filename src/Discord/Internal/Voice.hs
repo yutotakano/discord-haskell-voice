@@ -5,6 +5,9 @@ module Discord.Internal.Voice
 
 import           Control.Concurrent.Async           ( race
                                                     )
+import qualified Control.Concurrent.BoundedChan as Bounded
+                                                    ( newBoundedChan
+                                                    )
 import           Control.Concurrent                 ( ThreadId
                                                     , threadDelay
                                                     , killThread
@@ -200,7 +203,7 @@ startVoiceThreads connInfo uid log = do
                     }
             
             byteReceives <- newChan
-            byteSends <- newChan
+            byteSends <- Bounded.newBoundedChan 60
             udpId <- forkIO $ udpLoop (byteReceives, byteSends) udpInfo syncKey log
 
             -- the first packet is a IP Discovery response.
@@ -266,3 +269,13 @@ leaveVoice handle = do
     toId t = case t of
         DiscordVoiceThreadIdWebsocket a -> a
         DiscordVoiceThreadIdUDP a -> a
+
+
+-- playAudio :: DiscordVoiceHandle -> AudioSource -> DiscordHandler ()
+-- playAudio handle source = do
+--     runConduit $ source .| streamLoop handle
+
+-- udpSink :: DiscordVoiceHandle -> ConduitT Message o m ()
+-- udpSink handle = do
+--     await
+

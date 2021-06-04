@@ -13,12 +13,30 @@ data VoiceUDPPacket
     -- ^ ssrc, ip, port
     | SpeakingData B.ByteString
     | SpeakingDataEncrypted B.ByteString BL.ByteString
-    -- ^ nonce, and encrypted audio bytes
+    -- ^ header, and encrypted audio bytes
     | SpeakingDataEncryptedExtra B.ByteString BL.ByteString
-    -- ^ nonce, and encrypted audio bytes with extended header inside
+    -- ^ header, and encrypted audio bytes with extended header inside
     | UnknownPacket BL.ByteString
     | MalformedPacket BL.ByteString
     deriving (Show, Eq)
+
+data VoiceUDPPacketHeader
+    = Header Word8 Word8 Word16 Word32 Word32 
+
+instance Binary VoiceUDPPacketHeader where
+    get = do
+        ver <- getWord8
+        pl <- getWord8
+        seq <- getWord16be
+        timestamp <- getWord32be
+        ssrc <- getWord32be
+        pure $ Header ver pl seq timestamp ssrc
+    put (Header ver pl seq timestamp ssrc) = do
+        putWord8 ver
+        putWord8 pl
+        putWord16be seq
+        putWord32be timestamp
+        putWord32be ssrc
 
 instance Binary VoiceUDPPacket where
     get = do
@@ -34,17 +52,13 @@ instance Binary VoiceUDPPacket where
             0x80 -> do
                 -- Receiving audio is undocumented but should be pretty much
                 -- the same as sending, according to several GitHub issues.
-                header <- lookAhead $ getByteString 12
+                header <- getByteString 12
                 -- Attach 12 empty bytes to create the 24 requires, as per the
                 -- Discord docs.
-                let nonce = B.append header $ B.concat $
-                        replicate 12 $ B.singleton 0
-                _ <- getWord16be
-                seq <- getWord16be
-                timestamp <- getWord32be
-                ssrc <- getWord32be
+                -- let nonce = B.append header $ B.concat $
+                --         replicate 12 $ B.singleton 0
                 a <- getRemainingLazyByteString
-                pure $ SpeakingDataEncrypted nonce a
+                pure $ SpeakingDataEncrypted header a
             0x90 -> do
                 -- undocumented, but it seems to also be audio data
                 -- When it is 0x90, the encrypted spoken data contains an
@@ -53,15 +67,15 @@ instance Binary VoiceUDPPacket where
                 --
                 -- https://github.com/bwmarrin/discordgo/issues/423
                 -- https://github.com/discord/discord-api-docs/issues/231
-                header <- lookAhead $ getByteString 12
-                let nonce = B.append header $ B.concat $
-                        replicate 12 $ B.singleton 0
-                _ <- getWord16be
-                seq <- getWord16be
-                timestamp <- getWord32be
-                ssrc <- getWord32be
+                header <- getByteString 12
+                -- let nonce = B.append header $ B.concat $
+                --         replicate 12 $ B.singleton 0
+                -- _ <- getWord16be
+                -- seq <- getWord16be
+                -- timestamp <- getWord32be
+                -- ssrc <- getWord32be
                 a <- getRemainingLazyByteString
-                pure $ SpeakingDataEncryptedExtra nonce a
+                pure $ SpeakingDataEncryptedExtra header a
             other -> do
                 a <- getRemainingLazyByteString
                 pure $ UnknownPacket a
@@ -71,7 +85,7 @@ instance Binary VoiceUDPPacket where
         putWord32be $ fromIntegral ssrc
         putLazyByteString $ BL.replicate 64 0 -- 64 empty bytes
         putWord16be $ fromIntegral port
-    put (SpeakingDataEncrypted nonce raw) = do
-        putWord16be 1
-    put (MalformedPacket a) = do
+    put (SpeakingDataEncrypted header a) = do
+        putByteString header
         putLazyByteString a
+    put (MalformedPacket a) = putLazyByteString a
