@@ -41,6 +41,7 @@ eventHandler event =
                             -- automatically leave after 30 seconds
                             liftIO $ threadDelay $ 30 * 10^(6 :: Int)
                             leaveVoice vc
+                _ -> pure ()
         _ -> pure ()
 
 startHandler :: DiscordHandler ()
