@@ -18,6 +18,17 @@ packages:
       sha256: dd9ea90a631342e5db0fc21331ade4d563a685e9125d5a3989eefa8e1b96c6c6
   original:
     hackage: emoji-0.1.0.2
+- completed:
+    name: opus
+    version: 0.1.0.0
+    git: https://github.com/yutotakano/opus.git
+    pantry-tree:
+      size: 722
+      sha256: b2bb5f7fa245c3c8065d361bc153bbb530ab9b54d5e50fc60b13adbf62f91f61
+    commit: 742a6dc94300d6d8998926e2225dcb455c75cc10
+  original:
+    git: https://github.com/yutotakano/opus.git
+    commit: 742a6dc94300d6d8998926e2225dcb455c75cc10
 snapshots:
 - completed:
     size: 532177
