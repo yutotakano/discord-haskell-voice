@@ -158,7 +158,7 @@ startEternalStream conn (receives, sends) syncKey log = do
             writeChan log $ udpError $ "event stream error: " <> T.pack (show e)
             pure ConnReconnect
     handle handler $ do
-        sendLoopId <- forkIO $ sendableLoop conn sends syncKey log
+        sendLoopId <- forkIO $ sendableLoop conn sends syncKey log 0 0
 
         -- write ten frames of silence initially
         sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
@@ -220,18 +220,25 @@ createNonceFromHeader h = B.append h $ B.concat $ replicate 12 $ B.singleton 0
 sendableLoop
     :: UDPConn
     -> Bounded.BoundedChan B.ByteString
+    -- ^ Channel of sendable audio data
     -> MVar [Word8]
+    -- ^ The encryption key
     -> Chan T.Text
+    -- ^ Logs
+    -> Integer 
+    -- ^ Sequence number, modulo 65535
+    -> Integer
+    -- ^ Timestamp number, modulo 4294967295
     -> IO ()
-sendableLoop conn sends syncKey log = do
+sendableLoop conn sends syncKey log sequence timestamp = do
     -- Immediately send the first packet available
     top <- Bounded.tryReadChan sends
     case top of
         Nothing -> pure ()
         Just og -> do
-            timestamp <- round <$> getPOSIXTime
             let header = BL.toStrict $ encode $
-                    Header 80 78 1 (fromIntegral timestamp) (fromIntegral $ udpInfoSSRC $ udpDataInfo conn)
+                    Header 0x80 0x78 (fromIntegral sequence) (fromIntegral timestamp) $
+                        fromIntegral $ udpInfoSSRC $ udpDataInfo conn
             let nonce = createNonceFromHeader header
             byteKey <- readMVar syncKey
             let opusBS = BL.fromStrict $ encrypt byteKey nonce og
@@ -244,6 +251,7 @@ sendableLoop conn sends syncKey log = do
     -- wait 20ms
     threadDelay $ round $ 20 * 10^(3 :: Int)
     sendableLoop conn sends syncKey log
+        (sequence + 1 `mod` 0xFFFF) (timestamp + 48*20 `mod` 0xFFFFFFFF)
 
 -- | Decrypt a sound packet using the provided Discord key and header nonce. The
 -- argument is strict because it has to be strict when passed to Saltine anyway,
@@ -272,11 +280,9 @@ encrypt byteKey byteNonce og = secretbox key nonce og
 
 decodeOpusData :: B.ByteString -> IO VoiceUDPPacket
 decodeOpusData bytes = do
-    -- B.writeFile "received.opus" bytes
     let deCfg = _DecoderConfig # (opusSR48k, True)
     let deStreamCfg = _DecoderStreamConfig # (deCfg, 48*20, 0)
     decoder <- opusDecoderCreate deCfg
     decoded <- opusDecode decoder deStreamCfg bytes
-    -- B.appendFile "received.pcm" decoded
     pure $ SpeakingData decoded
 

@@ -53,10 +53,6 @@ instance Binary VoiceUDPPacket where
                 -- Receiving audio is undocumented but should be pretty much
                 -- the same as sending, according to several GitHub issues.
                 header <- getByteString 12
-                -- Attach 12 empty bytes to create the 24 requires, as per the
-                -- Discord docs.
-                -- let nonce = B.append header $ B.concat $
-                --         replicate 12 $ B.singleton 0
                 a <- getRemainingLazyByteString
                 pure $ SpeakingDataEncrypted header a
             0x90 -> do
@@ -68,12 +64,6 @@ instance Binary VoiceUDPPacket where
                 -- https://github.com/bwmarrin/discordgo/issues/423
                 -- https://github.com/discord/discord-api-docs/issues/231
                 header <- getByteString 12
-                -- let nonce = B.append header $ B.concat $
-                --         replicate 12 $ B.singleton 0
-                -- _ <- getWord16be
-                -- seq <- getWord16be
-                -- timestamp <- getWord32be
-                -- ssrc <- getWord32be
                 a <- getRemainingLazyByteString
                 pure $ SpeakingDataEncryptedExtra header a
             other -> do
