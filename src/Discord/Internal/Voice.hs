@@ -50,6 +50,7 @@ import           Discord.Internal.Voice.WebsocketLoop
 import           Discord.Internal.Voice.UDPLoop
 import           Discord.Internal.Types.VoiceWebsocket
 import           Discord.Internal.Types.VoiceUDP
+import           Discord.Internal.Types.VoiceError
 import           Discord.Internal.Types             ( GuildId
                                                     , UserId
                                                     , User(..)
@@ -92,7 +93,7 @@ joinVoice
     -> ChannelId
     -> Bool
     -> Bool
-    -> DiscordHandler (Maybe DiscordVoiceHandle)
+    -> DiscordHandler (Either VoiceError DiscordVoiceHandle)
 joinVoice gid cid mute deaf = do
     -- Duplicate the event channel, so we can read without taking data from event handlers
     h <- ask
@@ -113,16 +114,11 @@ joinVoice gid cid mute deaf = do
 
     case result of
         Nothing -> do
-            liftIO $ writeChan (discordHandleLog h) $
-                "Discord did not respond to opcode 4 in time. " <>
-                    "Perhaps it may not have permission to join."
-            pure Nothing
+            -- did not respond in time: no permission? or discord offline?
+            pure $ Left VoiceNotAvailable
         Just (_, _, _, Nothing) -> do
             -- If endpoint is null, according to Docs, no servers are available.
-            liftIO $ writeChan (discordHandleLog h) $
-                "Discord did not give a good endpoint. " <>
-                    "Perhaps it is down for maintenance."
-            pure Nothing
+            pure $ Left NoServerAvailable
         Just (sessionId, token, guildId, Just endpoint) -> do
             let connInfo = WSConnInfo
                     { wsInfoSessionId = sessionId
@@ -187,7 +183,7 @@ startVoiceThreads
     :: WebsocketConnInfo
     -> UserId
     -> Chan T.Text
-    -> IO (Maybe DiscordVoiceHandle)
+    -> IO (Either VoiceError DiscordVoiceHandle)
 startVoiceThreads connInfo uid log = do
     -- First create the websocket (which will automatically try to identify)
     events <- newChan -- types are inferred from line below
@@ -229,7 +225,7 @@ startVoiceThreads connInfo uid log = do
             case f of
                 Right (SessionDescription _ key) -> do
                     putMVar syncKey key
-                    pure $ Just $ DiscordVoiceHandle
+                    pure $ Right $ DiscordVoiceHandle
                         { discordVoiceGuildId         = wsInfoGuildId connInfo
                         , discordVoiceHandleWebsocket = (events, sends)
                         , discordVoiceHandleUDP       = (byteReceives, byteSends)
@@ -247,17 +243,17 @@ startVoiceThreads connInfo uid log = do
                     print a
                     killThread udpId
                     killThread websocketId
-                    pure Nothing
+                    pure $ Left $ InvalidPayloadOrder
                 Left  _ -> do
                     killThread udpId
                     killThread websocketId
-                    pure Nothing
+                    pure $ Left $ InvalidPayloadOrder
         Right _ -> do
             killThread websocketId
-            pure Nothing
+            pure $ Left $ InvalidPayloadOrder
         Left  _ -> do
             killThread websocketId
-            pure Nothing
+            pure $ Left $ InvalidPayloadOrder
 
 -- | Leave the current voice session by killing all relevant threads, and
 -- sending a Voice State Update to the gateway.

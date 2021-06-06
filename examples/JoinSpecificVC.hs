@@ -4,13 +4,16 @@ import           Control.Concurrent         ( threadDelay
                                             )
 import           Control.Monad              ( forM_
                                             )
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.IO as TIO
-import           Discord
+import qualified Data.Text as T
 import           Discord.Voice              ( joinVoice   -- <-- This is the magic!
                                             , leaveVoice
+                                            , playPCM
                                             )
 import qualified Discord.Requests as R
 import           Discord.Types
+import           Discord
 import           UnliftIO                   ( liftIO
                                             )
 
@@ -33,14 +36,15 @@ eventHandler event =
         MessageCreate msg ->
             case messageText msg of
                 "---joinVC" -> do
-                    mbVc <- joinVoice (read "765660106259562498") (read "765660106259562502") False False
-                    -- mbVc <- joinVoice (read "768810076201811989") (read "768810076201811993") False False
-                    case mbVc of
-                        Nothing -> liftIO $ print "whoops"
-                        Just vc -> do
-                            -- automatically leave after 30 seconds
-                            liftIO $ threadDelay $ 30 * 10^(6 :: Int)
-                            leaveVoice vc
+                    eVc <- joinVoice (read "765660106259562498") (read "765660106259562502") False False
+                    -- eVc <- joinVoice (read "768810076201811989") (read "768810076201811993") False False
+                    case eVc of
+                        Left e -> do
+                            _ <- restCall $ R.CreateMessage (messageChannel msg) $
+                                (T.pack $ "Couldn't join!" <> show e)
+                            pure ()
+                        Right vc -> do
+                            pure ()
                 _ -> pure ()
         _ -> pure ()
 
