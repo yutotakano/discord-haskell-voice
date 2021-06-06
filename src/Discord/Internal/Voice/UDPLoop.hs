@@ -160,6 +160,9 @@ startEternalStream conn (receives, sends) syncKey log = do
     handle handler $ do
         sendLoopId <- forkIO $ sendableLoop conn sends syncKey log
 
+        -- write ten frames of silence initially
+        sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
+
         finally (receivableLoop conn receives syncKey log >> pure ConnClosed)
             (killThread sendLoopId)
 
@@ -175,12 +178,11 @@ receivableLoop
 receivableLoop conn receives syncKey log = do
     -- max length has to be specified but is irrelevant since it is so big
     msg'' <- decode <$> recv (udpDataSocket conn) 999
-    -- decrypt any encrypted audio packets
+    -- decrypt any encrypted audio packets to plain SpeakingData
     msg' <- case msg'' of
         SpeakingDataEncrypted header og -> do
             byteKey <- readMVar syncKey
-            let nonce = B.append header $ B.concat $
-                    replicate 12 $ B.singleton 0
+            let nonce = createNonceFromHeader header
             let deciphered = decrypt byteKey nonce $ BL.toStrict og
             case deciphered of
                 Nothing -> do
@@ -191,8 +193,7 @@ receivableLoop conn receives syncKey log = do
         SpeakingDataEncryptedExtra header og -> do
             -- Almost similar, but remove first 8 bytes of decoded audio
             byteKey <- readMVar syncKey
-            let nonce = B.append header $ B.concat $
-                    replicate 12 $ B.singleton 0
+            let nonce = createNonceFromHeader header
             let deciphered = decrypt byteKey nonce $ BL.toStrict og
             case deciphered of
                 Nothing -> do
@@ -201,7 +202,8 @@ receivableLoop conn receives syncKey log = do
                     pure $ MalformedPacket $ BL.append (BL.fromStrict header) og
                 Just x  -> pure $ SpeakingData $ B.drop 8 x
         other -> pure other
-    
+   
+    -- decode speaking data's OPUS to raw PCM
     msg <- case msg' of
         SpeakingData bytes -> decodeOpusData bytes
         other -> pure other
@@ -209,8 +211,12 @@ receivableLoop conn receives syncKey log = do
     writeChan receives msg
     receivableLoop conn receives syncKey log
 
--- | Eternally send the top packet in the sendable packet Chan. 
--- If the packet is raw audio, it will automatically encrypt it using the key.
+-- | Appends 12 empty bytes to form the 24-byte nonce for the secret box.
+createNonceFromHeader :: B.ByteString -> B.ByteString
+createNonceFromHeader h = B.append h $ B.concat $ replicate 12 $ B.singleton 0
+
+-- | Eternally send the top packet in the sendable packet Chan. It assumes that
+-- it is already OPUS-encoded. The function will encrypt it using the syncKey.
 sendableLoop
     :: UDPConn
     -> Bounded.BoundedChan B.ByteString
@@ -221,22 +227,22 @@ sendableLoop conn sends syncKey log = do
     -- Immediately send the first packet available
     top <- Bounded.tryReadChan sends
     case top of
-        Nothing -> do
-            -- write five frames of silence
-            sequence_ $ replicate 5 $ Bounded.writeChan sends "\248\255\254"
+        Nothing -> pure ()
         Just og -> do
-            timestamp <- (round . (* 1000)) <$> getPOSIXTime
+            timestamp <- round <$> getPOSIXTime
             let header = BL.toStrict $ encode $
                     Header 80 78 1 (fromIntegral timestamp) (fromIntegral $ udpInfoSSRC $ udpDataInfo conn)
-            let nonce = B.append header $ B.concat $
-                    replicate 12 $ B.singleton 0
+            let nonce = createNonceFromHeader header
             byteKey <- readMVar syncKey
             let opusBS = BL.fromStrict $ encrypt byteKey nonce og
 
+            print $
+                encode $ SpeakingDataEncrypted header opusBS
             sendAll (udpDataSocket conn) $
                 encode $ SpeakingDataEncrypted header opusBS
 
-    threadDelay $ round $ 20 * 10^(3 :: Int) -- wait 20ms
+    -- wait 20ms
+    threadDelay $ round $ 20 * 10^(3 :: Int)
     sendableLoop conn sends syncKey log
 
 -- | Decrypt a sound packet using the provided Discord key and header nonce. The
@@ -266,10 +272,11 @@ encrypt byteKey byteNonce og = secretbox key nonce og
 
 decodeOpusData :: B.ByteString -> IO VoiceUDPPacket
 decodeOpusData bytes = do
-    B.writeFile "test.opus" bytes
+    -- B.writeFile "received.opus" bytes
     let deCfg = _DecoderConfig # (opusSR48k, True)
     let deStreamCfg = _DecoderStreamConfig # (deCfg, 48*20, 0)
     decoder <- opusDecoderCreate deCfg
     decoded <- opusDecode decoder deStreamCfg bytes
-    B.appendFile "test.pcm" decoded
+    -- B.appendFile "received.pcm" decoded
     pure $ SpeakingData decoded
+
