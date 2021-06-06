@@ -1,13 +1,13 @@
 module Discord.Internal.Voice
     ( joinVoice
     , leaveVoice
+    , playPCM
     ) where
 
+import           Codec.Audio.Opus.Encoder
 import           Control.Concurrent.Async           ( race
                                                     )
 import qualified Control.Concurrent.BoundedChan as Bounded
-                                                    ( newBoundedChan
-                                                    )
 import           Control.Concurrent                 ( ThreadId
                                                     , threadDelay
                                                     , killThread
@@ -24,13 +24,18 @@ import           Control.Concurrent                 ( ThreadId
 import           Control.Exception.Safe             ( SomeException
                                                     , handle
                                                     )
+import           Control.Lens.Operators             ( (#)
+                                                    )
 import           Control.Monad.Reader               ( ask
                                                     , liftIO
+                                                    )
+import           Control.Monad                      ( when
                                                     )
 import           Data.Aeson
 import           Data.Aeson.Types                   ( parseMaybe
                                                     , parseEither
                                                     )
+import qualified Data.ByteString.Lazy as BL
 import           Data.Maybe                         ( fromJust
                                                     )
 import qualified Data.Text as T
@@ -72,6 +77,7 @@ data DiscordVoiceHandle = DiscordVoiceHandle
     { discordVoiceGuildId           :: GuildId
     , discordVoiceHandleWebsocket   :: DiscordVoiceHandleWebsocket
     , discordVoiceHandleUDP         :: DiscordVoiceHandleUDP
+    , discordVoiceHandleSSRC        :: Integer
     , discordVoiceThreads           :: [DiscordVoiceThreadId]
     }
 
@@ -227,6 +233,7 @@ startVoiceThreads connInfo uid log = do
                         { discordVoiceGuildId         = wsInfoGuildId connInfo
                         , discordVoiceHandleWebsocket = (events, sends)
                         , discordVoiceHandleUDP       = (byteReceives, byteSends)
+                        , discordVoiceHandleSSRC      = udpInfoSSRC udpInfo
                         , discordVoiceThreads         =
                             [ DiscordVoiceThreadIdWebsocket websocketId
                             , DiscordVoiceThreadIdUDP udpId
@@ -271,11 +278,32 @@ leaveVoice handle = do
         DiscordVoiceThreadIdUDP a -> a
 
 
--- playAudio :: DiscordVoiceHandle -> AudioSource -> DiscordHandler ()
--- playAudio handle source = do
---     runConduit $ source .| streamLoop handle
+-- | Play a stereo, 16-bit little-endian raw PCM, with 48,000 Hz.
+playPCM :: DiscordVoiceHandle -> BL.ByteString -> DiscordHandler ()
+playPCM handle source = do
+    let thereAreMore = not $ BL.null source
+    liftIO $ writeChan (snd $ discordVoiceHandleWebsocket handle) $ Speaking $ SpeakingPayload
+        { speakingPayloadMicrophone = thereAreMore
+        , speakingPayloadSoundshare = False
+        , speakingPayloadPriority   = False
+        , speakingPayloadDelay      = 0
+        , speakingPayloadSSRC       = discordVoiceHandleSSRC handle
+        }
+    when thereAreMore $ repeatedlySend source
+  where
+    repeatedlySend restSource = do
+        let sends = snd (discordVoiceHandleUDP handle)
+        if not (BL.null restSource) then do
+            liftIO $ print $ BL.length restSource
+            let (clip, remains) = BL.splitAt (48*20) restSource
+            let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
+            let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1275)
+            encoder <- opusEncoderCreate enCfg
+            encoded <- opusEncode encoder enStreamCfg $ BL.toStrict clip
 
--- udpSink :: DiscordVoiceHandle -> ConduitT Message o m ()
--- udpSink handle = do
---     await
+            liftIO $ Bounded.writeChan sends encoded
+            repeatedlySend remains
+        else do
+            liftIO $ sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
+            playPCM handle restSource
 

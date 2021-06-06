@@ -13,11 +13,11 @@ import           Discord.Internal.Types.Prelude
 
 data VoiceWebsocketReceivable
     = Ready ReadyPayload                            -- Opcode 2
-    | HeartbeatR                                    -- Opcode 3
+    | HeartbeatR Int                                -- Opcode 3
       -- ^ For some reason Discord sends us this, even though it's not in docs
     | SessionDescription T.Text [Word8]             -- Opcode 4
     | SpeakingR SpeakingPayload                     -- Opcode 5
-    | HeartbeatAck                                  -- Opcode 6
+    | HeartbeatAckR Int                             -- Opcode 6
     | Hello Int                                     -- Opcode 8
       -- ^ Int because this is heartbeat, and threadDelay uses it
     | Resumed                                       -- Opcode 9
@@ -32,6 +32,7 @@ data VoiceWebsocketSendable
     | SelectProtocol SelectProtocolPayload          -- Opcode 1
     | Heartbeat Int                                 -- Opcode 3
       -- ^ Int because threadDelay uses it
+    | HeartbeatAck Int
     | Speaking SpeakingPayload                      -- Opcode 5
     | Resume GuildId T.Text T.Text                  -- Opcode 7
     deriving (Show, Eq)
@@ -81,8 +82,9 @@ instance FromJSON VoiceWebsocketReceivable where
                 port <- od .: "port"
                 modes <- od .: "modes"
                 pure $ Ready $ ReadyPayload ssrc ip port modes
-            3 -> do
-                pure $ HeartbeatR
+            3 -> do 
+                od <- o .: "d"
+                pure $ HeartbeatR od
             4 -> do
                 od <- o .: "d"
                 mode <- od .: "mode"
@@ -115,7 +117,9 @@ instance FromJSON VoiceWebsocketReceivable where
                     , speakingPayloadDelay      = delay
                     , speakingPayloadSSRC       = ssrc
                     }
-            6 -> pure HeartbeatAck
+            6 -> do
+                od <- o .: "d"
+                pure $ HeartbeatAckR od
             8 -> do
                 od <- o .: "d"
                 interval <- od .: "heartbeat_interval"
@@ -150,7 +154,11 @@ instance ToJSON VoiceWebsocketSendable where
         ]
     toJSON (Heartbeat i) = object
         [ "op" .= (3 :: Int)
-        , "d"  .= if i < 0 then "null" else show i
+        , "d"  .= i
+        ]
+    toJSON (HeartbeatAck i) = object
+        [ "op" .= (6 :: Int)
+        , "d"  .= i
         ]
     toJSON (Speaking payload) = object
         [ "op" .= (5 :: Int)

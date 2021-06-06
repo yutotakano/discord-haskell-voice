@@ -275,6 +275,7 @@ eventStream wsconn interval sysSends log = loop
     loop :: IO ConnLoopState
     loop = do
         eitherPayload <- getPayloadTimeout (wsDataConnection wsconn) interval log
+        print $ "<-- " <> show eitherPayload
         case eitherPayload of
             -- Network-WebSockets, type ConnectionException
             Left (CloseRequest code str) -> do
@@ -287,7 +288,18 @@ eventStream wsconn interval sysSends log = loop
                 writeChan log $ wsError
                     "connection timed out, trying to reconnect again."
                 pure ConnReconnect
-            Right HeartbeatAck -> loop
+            Right (HeartbeatAckR _) ->
+                -- discord docs says HeartbeatAck is sent (opcode 6) after every
+                -- Heartbeat (3) that I send. However, this doesn't seem to be
+                -- the case, as discord responds with another Heartbeat (3) to
+                -- my own, and Ack is never sent back. 
+                -- I am required to send back an Ack from MY side in response to
+                -- the Heartbeat that they send which is in response to the
+                -- heartbeat that I send. wtf?
+                loop
+            Right (HeartbeatR a) -> do
+                writeChan sysSends $ HeartbeatAck a
+                loop
             Right receivable -> do
                 writeChan (wsDataReceivesChan wsconn) (Right receivable)
                 loop
@@ -302,7 +314,7 @@ eventStream wsconn interval sysSends log = loop
             1000 -> do
                 -- Normal close
                 writeChan log $ wsError $
-                    "websocket closed due to reason: " <> reason
+                    "websocket closed normally."
                 pure ConnClosed
             4014 -> do
                 -- VC deleted, or bot kicked
@@ -330,6 +342,7 @@ sendableLoop wsconn sysSends usrSends = do
     threadDelay $ round ((10^(6 :: Int)) * (62 / 120) :: Double)
     -- Get whichever possible, and send it
     payload <- either id id <$> race (readChan sysSends) (readChan usrSends)
+    print $ "--> " <> show payload
     sendTextData (wsDataConnection wsconn) $ encode payload
     sendableLoop wsconn sysSends usrSends
 
@@ -338,6 +351,7 @@ heartbeatLoop
     :: WebsocketConn
     -> Chan VoiceWebsocketSendable
     -> Int
+    -- ^ milliseconds
     -> Chan T.Text
     -> IO ()
 heartbeatLoop wsconn sysSends interval log = do
@@ -345,5 +359,4 @@ heartbeatLoop wsconn sysSends interval log = do
     forever $ do
         time <- round <$> getPOSIXTime
         writeChan sysSends $ Heartbeat $ time
-        writeChan log $ "Heartbeat at " <> (T.pack $ show time)
         threadDelay $ interval * 1000
