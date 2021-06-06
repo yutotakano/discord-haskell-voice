@@ -83,16 +83,25 @@ data DiscordVoiceHandle = DiscordVoiceHandle
     }
 
 -- | Joins a voice channel and initialises all the threads, ready to stream.
--- Returns Nothing if an error was encountered somewhere. 
 --
--- (TODO: consider switching to Either Error DiscordVoiceHandle, like restCall
--- in the original module? But what should the error type be and where should it
--- be defined, when it's so interweaved in both Websocket, UDP, and Gateway?)
+-- @
+-- eVc <- joinVoice gid cid False False
+-- case eVc of
+--     Left e -> liftIO $ putStrLn $ show e
+--     Right vc -> do
+--         -- do nothing in VC for 30 seconds
+--         threadDelay $ 30 * 10**(6 :: Int)
+--         'leaveVoice' vc
+-- @
 joinVoice
     :: GuildId
+    -- ^ The guild in which the channel is located
     -> ChannelId
+    -- ^ The voice channel id to join
     -> Bool
+    -- ^ Whether the bot should join muted
     -> Bool
+    -- ^ Whether the bot should join deafened
     -> DiscordHandler (Either VoiceError DiscordVoiceHandle)
 joinVoice gid cid mute deaf = do
     -- Duplicate the event channel, so we can read without taking data from event handlers
@@ -157,6 +166,7 @@ loopUntilEvents events = rightToMaybe <$> race wait5 (waitForBoth Nothing Nothin
     waitForBoth mb1 mb2 = do
         top <- readChan events
         case top of
+            -- Parse UnknownEvent, which are events not handled by discord-haskell.
             Right (UnknownEvent "VOICE_STATE_UPDATE" obj) -> do
                 -- Conveniently, we can just pass the result of parseMaybe
                 -- back recursively.
@@ -181,8 +191,11 @@ rightToMaybe (Right x) = Just x
 -- | Start the Websocket thread, which will create the UDP thread
 startVoiceThreads
     :: WebsocketConnInfo
+    -- ^ Connection details for the websocket
     -> UserId
+    -- ^ The current user ID
     -> Chan T.Text
+    -- ^ The channel to log errors
     -> IO (Either VoiceError DiscordVoiceHandle)
 startVoiceThreads connInfo uid log = do
     -- First create the websocket (which will automatically try to identify)
@@ -274,10 +287,25 @@ leaveVoice handle = do
         DiscordVoiceThreadIdUDP a -> a
 
 
--- | Play a stereo, 16-bit little-endian raw PCM, with 48,000 Hz.
-playPCM :: DiscordVoiceHandle -> BL.ByteString -> DiscordHandler ()
+-- | Play a PCM audio until finish.
+--
+-- @
+-- eVc <- joinVoice gid cid False False
+-- case eVc of
+--     Left e -> pure ()
+--     Right vc -> do
+--         music <- BL.readFile "things.pcm"
+--         playPCM vc music
+--         'leaveVoice' vc
+-- @
+playPCM
+    :: DiscordVoiceHandle
+    -> BL.ByteString
+    -- ^ The 16-bit little-endian stereo PCM, at 48kHz.
+    -> DiscordHandler ()
 playPCM handle source = do
     let thereAreMore = not $ BL.null source
+    -- update the speaking indicator (this needs to happen before bytes are sent)
     liftIO $ writeChan (snd $ discordVoiceHandleWebsocket handle) $ Speaking $ SpeakingPayload
         { speakingPayloadMicrophone = thereAreMore
         , speakingPayloadSoundshare = False
@@ -287,6 +315,7 @@ playPCM handle source = do
         }
     when thereAreMore $ do
         let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
+        -- 1275 is the max bytes an opus 20ms frame can have
         let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
         encoder <- opusEncoderCreate enCfg
         repeatedlySend encoder enStreamCfg source
@@ -294,12 +323,17 @@ playPCM handle source = do
     repeatedlySend encoder streamCfg restSource = do
         let sends = snd (discordVoiceHandleUDP handle)
         if not (BL.null restSource) then do
-            liftIO $ print $ BL.length restSource
-            let (clip, remains) = BL.splitAt (48*20*2*2) restSource
+            -- bytestrings are made of CChar (Int8) but the data is 16-bit so
+            -- multiply by two to get the right amount
+            let clipLength = 48*20*2*2 -- frame size * channels * (16/8)
+            let (clip, remains) = BL.splitAt clipLength restSource
+            -- encode the audio
             encoded <- opusEncode encoder streamCfg $ BL.toStrict clip
+            -- send it
             liftIO $ Bounded.writeChan sends encoded
             repeatedlySend encoder streamCfg remains
         else do
+            -- Send at least 5 blank frames (10 just in case)
             liftIO $ sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
             playPCM handle restSource
 
