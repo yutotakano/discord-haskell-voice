@@ -78,7 +78,7 @@ data DiscordVoiceHandle = DiscordVoiceHandle
     { discordVoiceGuildId           :: GuildId
     , discordVoiceHandleWebsocket   :: DiscordVoiceHandleWebsocket
     , discordVoiceHandleUDP         :: DiscordVoiceHandleUDP
-    , discordVoiceHandleSSRC        :: Integer
+    , discordVoiceSSRC              :: Integer
     , discordVoiceThreads           :: [DiscordVoiceThreadId]
     }
 
@@ -242,7 +242,7 @@ startVoiceThreads connInfo uid log = do
                         { discordVoiceGuildId         = wsInfoGuildId connInfo
                         , discordVoiceHandleWebsocket = (events, sends)
                         , discordVoiceHandleUDP       = (byteReceives, byteSends)
-                        , discordVoiceHandleSSRC      = udpInfoSSRC udpInfo
+                        , discordVoiceSSRC      = udpInfoSSRC udpInfo
                         , discordVoiceThreads         =
                             [ DiscordVoiceThreadIdWebsocket websocketId
                             , DiscordVoiceThreadIdUDP udpId
@@ -308,11 +308,14 @@ playPCM handle source = do
     -- update the speaking indicator (this needs to happen before bytes are sent)
     liftIO $ writeChan (snd $ discordVoiceHandleWebsocket handle) $ Speaking $ SpeakingPayload
         { speakingPayloadMicrophone = thereAreMore
+        -- Soundshare and priority are const as False, don't see bots needing 
+        -- them. If and when required, add Bool signatures to playPCM.
         , speakingPayloadSoundshare = False
         , speakingPayloadPriority   = False
         , speakingPayloadDelay      = 0
-        , speakingPayloadSSRC       = discordVoiceHandleSSRC handle
+        , speakingPayloadSSRC       = discordVoiceSSRC handle
         }
+
     when thereAreMore $ do
         let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
         -- 1275 is the max bytes an opus 20ms frame can have
