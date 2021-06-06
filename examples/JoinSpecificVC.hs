@@ -44,6 +44,9 @@ eventHandler event =
                                 (T.pack $ "Couldn't join!" <> show e)
                             pure ()
                         Right vc -> do
+                            contents <- liftIO $ BL.readFile "./music.raw"
+                            playPCM vc contents
+                            leaveVoice vc
                             pure ()
                 _ -> pure ()
         _ -> pure ()
