@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 14ddc4997f1699335251ec31a0f0983879d322ceb326d6c3c87d973af2109b32
+-- hash: a048a6ce06937e710bf0b881bc6f1470f4f8d5ca851dfa4af424ade96533872b
 
 name:           discord-haskell-voice
 version:        0.0.1
@@ -29,6 +29,7 @@ source-repository head
 
 library
   exposed-modules:
+      Discord.Internal.Types.VoiceError
       Discord.Internal.Types.VoiceUDP
       Discord.Internal.Types.VoiceWebsocket
       Discord.Internal.Voice
