@@ -285,20 +285,20 @@ playPCM handle source = do
         , speakingPayloadDelay      = 0
         , speakingPayloadSSRC       = discordVoiceHandleSSRC handle
         }
-    when thereAreMore $ repeatedlySend source
+    when thereAreMore $ do
+        let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
+        let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
+        encoder <- opusEncoderCreate enCfg
+        repeatedlySend encoder enStreamCfg source
   where
-    repeatedlySend restSource = do
+    repeatedlySend encoder streamCfg restSource = do
         let sends = snd (discordVoiceHandleUDP handle)
         if not (BL.null restSource) then do
             liftIO $ print $ BL.length restSource
-            let (clip, remains) = BL.splitAt (48*20) restSource
-            let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
-            let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1275)
-            encoder <- opusEncoderCreate enCfg
-            encoded <- opusEncode encoder enStreamCfg $ BL.toStrict clip
-
+            let (clip, remains) = BL.splitAt (48*20*2*2) restSource
+            encoded <- opusEncode encoder streamCfg $ BL.toStrict clip
             liftIO $ Bounded.writeChan sends encoded
-            repeatedlySend remains
+            repeatedlySend encoder streamCfg remains
         else do
             liftIO $ sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
             playPCM handle restSource
