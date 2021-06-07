@@ -220,7 +220,7 @@ createNonceFromHeader h = B.append h $ B.concat $ replicate 12 $ B.singleton 0
 sendableLoop
     :: UDPConn
     -> Bounded.BoundedChan B.ByteString
-    -- ^ Channel of sendable audio data
+    -- ^ Channel of OPUS-encoded audio data
     -> MVar [Word8]
     -- ^ The encryption key
     -> Chan T.Text
@@ -232,24 +232,22 @@ sendableLoop
     -> IO ()
 sendableLoop conn sends syncKey log sequence timestamp = do
     -- Immediately send the first packet available
-    top <- Bounded.tryReadChan sends
-    case top of
-        Nothing -> pure ()
-        Just og -> do
-            let header = BL.toStrict $ encode $
-                    Header 0x80 0x78 (fromIntegral sequence) (fromIntegral timestamp) $
-                        fromIntegral $ udpInfoSSRC $ udpDataInfo conn
-            let nonce = createNonceFromHeader header
-            byteKey <- readMVar syncKey
-            let opusBS = BL.fromStrict $ encrypt byteKey nonce og
+    opusBytes <- Bounded.readChan sends
+    let header = BL.toStrict $ encode $
+            Header 0x80 0x78 (fromIntegral sequence) (fromIntegral timestamp) $
+                fromIntegral $ udpInfoSSRC $ udpDataInfo conn
+    let nonce = createNonceFromHeader header
+    byteKey <- readMVar syncKey
+    let encryptedOpus = BL.fromStrict $ encrypt byteKey nonce opusBytes
+    
+    -- send the header and the encrypted opus data
+    sendAll (udpDataSocket conn) $
+        encode $ SpeakingDataEncrypted header encryptedOpus
 
-            print $
-                encode $ SpeakingDataEncrypted header opusBS
-            sendAll (udpDataSocket conn) $
-                encode $ SpeakingDataEncrypted header opusBS
-
-    -- wait 20ms
-    threadDelay $ round $ 20 * 10^(3 :: Int)
+    -- wait a biiit less than 20ms before sending the next packet
+    -- (this is inaccurate, but I couldn't think of a way of smoothening the
+    -- choppiness caused by delays from processing)
+    threadDelay $ round $ 19.3 * 10^(3 :: Int)
     sendableLoop conn sends syncKey log
         (sequence + 1 `mod` 0xFFFF) (timestamp + 48*20 `mod` 0xFFFFFFFF)
 
