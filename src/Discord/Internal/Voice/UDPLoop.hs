@@ -36,6 +36,7 @@ import qualified Data.ByteString as B
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import           Data.Time.Clock.POSIX      ( getPOSIXTime
+                                            , POSIXTime
                                             )
 import           Data.Maybe                 ( fromJust
                                             )
@@ -158,7 +159,8 @@ startEternalStream conn (receives, sends) syncKey log = do
             writeChan log $ udpError $ "event stream error: " <> T.pack (show e)
             pure ConnReconnect
     handle handler $ do
-        sendLoopId <- forkIO $ sendableLoop conn sends syncKey log 0 0
+        currentTime <- getPOSIXTime
+        sendLoopId <- forkIO $ sendableLoop conn sends syncKey log 0 0 currentTime
 
         -- write ten frames of silence initially
         sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
@@ -229,8 +231,10 @@ sendableLoop
     -- ^ Sequence number, modulo 65535
     -> Integer
     -- ^ Timestamp number, modulo 4294967295
+    -> POSIXTime
+    -- ^ The timestamp at the moment the last data was sent
     -> IO ()
-sendableLoop conn sends syncKey log sequence timestamp = do
+sendableLoop conn sends syncKey log sequence timestamp startTime = do
     -- Immediately send the first packet available
     opusBytes <- Bounded.readChan sends
     let header = BL.toStrict $ encode $
@@ -245,11 +249,12 @@ sendableLoop conn sends syncKey log sequence timestamp = do
         encode $ SpeakingDataEncrypted header encryptedOpus
 
     -- wait a biiit less than 20ms before sending the next packet
-    -- (this is inaccurate, but I couldn't think of a way of smoothening the
-    -- choppiness caused by delays from processing)
-    threadDelay $ round $ 20 * 10^(3 :: Int)
+    -- logic taken from discord.py discord/player.py L595
+    let theoreticalNextTime = startTime + (20 / 1000)
+    currentTime <- getPOSIXTime
+    threadDelay $ round $ (max 0 $ theoreticalNextTime - currentTime) * 10^(6 :: Int)
     sendableLoop conn sends syncKey log
-        (sequence + 1 `mod` 0xFFFF) (timestamp + 48*20 `mod` 0xFFFFFFFF)
+        (sequence + 1 `mod` 0xFFFF) (timestamp + 48*20 `mod` 0xFFFFFFFF) theoreticalNextTime
 
 -- | Decrypt a sound packet using the provided Discord key and header nonce. The
 -- argument is strict because it has to be strict when passed to Saltine anyway,
