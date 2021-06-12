@@ -218,7 +218,7 @@ startVoiceThreads connInfo uid log = do
                     }
             
             byteReceives <- newChan
-            byteSends <- Bounded.newBoundedChan 100 -- 2 seconds worth of 20ms
+            byteSends <- Bounded.newBoundedChan 500 -- 10 seconds worth of 20ms
             udpId <- forkIO $ udpLoop (byteReceives, byteSends) udpInfo syncKey log
 
             -- the first packet is a IP Discovery response.

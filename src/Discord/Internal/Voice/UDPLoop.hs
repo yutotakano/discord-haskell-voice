@@ -247,7 +247,7 @@ sendableLoop conn sends syncKey log sequence timestamp = do
     -- wait a biiit less than 20ms before sending the next packet
     -- (this is inaccurate, but I couldn't think of a way of smoothening the
     -- choppiness caused by delays from processing)
-    threadDelay $ round $ 19.3 * 10^(3 :: Int)
+    threadDelay $ round $ 20 * 10^(3 :: Int)
     sendableLoop conn sends syncKey log
         (sequence + 1 `mod` 0xFFFF) (timestamp + 48*20 `mod` 0xFFFFFFFF)
 
