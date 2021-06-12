@@ -316,14 +316,20 @@ eventStream wsconn interval sysSends log = loop
                 writeChan log $ wsError $
                     "websocket closed normally."
                 pure ConnClosed
-            4014 -> do
-                -- VC deleted, or bot kicked
+            4001 -> do
+                -- Unknown opcode
                 writeChan log $ wsError $
-                    "vc deleted or bot forcefully disconnected..."
+                    "websocket closed due to unknown opcode"
                 pure ConnClosed
+            4014 -> do
+                -- VC deleted, main gateway closed, or bot kicked. Do not resume.
+                -- Instead, restart from zero.
+                writeChan log $ wsError $
+                    "vc deleted or bot forcefully disconnected... Restarting gateway"
+                pure ConnStart
             4015 -> do
-                -- VC crashed
-                pure ConnClosed
+                -- "The server crashed. Our bad! Try resuming."
+                pure ConnReconnect
             x    -> do
                 writeChan log $ wsError $
                     "connection closed with code: [" <> T.pack (show code) <>
