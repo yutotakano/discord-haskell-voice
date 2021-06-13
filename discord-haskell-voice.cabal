@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 8d8ff453ecd78017eb9a4f7d143bb21027f31c2d48cb1df4b5752b262f56da93
+-- hash: 1afb00162bd1cecc47dcf8fc64cc8290057cd2790152dd2d1d0b546521d2ebb8
 
 name:           discord-haskell-voice
 version:        0.0.1
@@ -105,6 +105,7 @@ executable join-specific
     , base >=4.7 && <5
     , binary
     , bytestring
+    , containers
     , discord-haskell >=1.8.6
     , discord-haskell-voice
     , lens

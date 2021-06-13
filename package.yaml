@@ -58,3 +58,4 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - discord-haskell-voice
+    - containers
