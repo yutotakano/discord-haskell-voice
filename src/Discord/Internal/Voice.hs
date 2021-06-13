@@ -3,6 +3,7 @@ module Discord.Internal.Voice
     , leaveVoice
     , playPCM
     , playFFmpeg
+    , playYTDL
     ) where
 
 import           Codec.Audio.Opus.Encoder
@@ -292,6 +293,19 @@ leaveVoice handle = do
         DiscordVoiceThreadIdWebsocket a -> a
         DiscordVoiceThreadIdUDP a -> a
 
+-- | Helper function to update the speaking indicator for the bot.
+--
+-- Soundshare and priority are const as False, don't see bots needing them.
+-- If and when required, add Bool signatures to this function.
+updateSpeakingStatus :: Chan VoiceWebsocketSendable -> Bool -> Integer -> IO ()
+updateSpeakingStatus sendChan micStatus ssrc =
+    writeChan sendChan $ Speaking $ SpeakingPayload
+        { speakingPayloadMicrophone = micStatus
+        , speakingPayloadSoundshare = False
+        , speakingPayloadPriority   = False
+        , speakingPayloadDelay      = 0
+        , speakingPayloadSSRC       = ssrc
+        }
 
 -- | Play a PCM audio until finish.
 --
@@ -310,24 +324,15 @@ playPCM
     -- ^ The 16-bit little-endian stereo PCM, at 48kHz.
     -> DiscordHandler ()
 playPCM handle source = do
-    let thereAreMore = not $ BL.null source
     -- update the speaking indicator (this needs to happen before bytes are sent)
-    liftIO $ writeChan (snd $ discordVoiceHandleWebsocket handle) $ Speaking $ SpeakingPayload
-        { speakingPayloadMicrophone = thereAreMore
-        -- Soundshare and priority are const as False, don't see bots needing 
-        -- them. If and when required, add Bool signatures to playPCM.
-        , speakingPayloadSoundshare = False
-        , speakingPayloadPriority   = False
-        , speakingPayloadDelay      = 0
-        , speakingPayloadSSRC       = discordVoiceSSRC handle
-        }
+    liftIO $ updateSpeakingStatus (snd $ discordVoiceHandleWebsocket handle)
+        True (discordVoiceSSRC handle)
 
-    when thereAreMore $ do
-        let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
-        -- 1275 is the max bytes an opus 20ms frame can have
-        let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
-        encoder <- opusEncoderCreate enCfg
-        repeatedlySend encoder enStreamCfg source
+    let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
+    -- 1275 is the max bytes an opus 20ms frame can have
+    let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
+    encoder <- opusEncoderCreate enCfg
+    repeatedlySend encoder enStreamCfg source
   where
     repeatedlySend encoder streamCfg restSource = do
         let sends = snd (discordVoiceHandleUDP handle)
@@ -344,8 +349,20 @@ playPCM handle source = do
         else do
             -- Send at least 5 blank frames (10 just in case)
             liftIO $ sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
-            playPCM handle restSource
+            liftIO $ updateSpeakingStatus (snd $ discordVoiceHandleWebsocket handle)
+                False (discordVoiceSSRC handle)
 
+-- | Play any type of audio that FFmpeg supports, by launching a FFmpeg
+-- subprocess and reading the stdout stream lazily.
+--
+-- @
+-- eVc <- joinVoice gid cid False False
+-- case eVc of
+--     Left e -> pure ()
+--     Right vc -> do
+--         playFFmpeg vc "awesome.mp3" "ffmpeg"
+--         'leaveVoice' vc
+-- @
 playFFmpeg 
     :: DiscordVoiceHandle
     -> FilePath
@@ -355,14 +372,10 @@ playFFmpeg
     -> DiscordHandler ()
 playFFmpeg handle fp exe = do
     -- update the speaking indicator (this needs to happen before bytes are sent)
-    liftIO $ writeChan (snd $ discordVoiceHandleWebsocket handle) $ Speaking $ SpeakingPayload
-        { speakingPayloadMicrophone = True
-        , speakingPayloadSoundshare = False
-        , speakingPayloadPriority   = False
-        , speakingPayloadDelay      = 0
-        , speakingPayloadSSRC       = discordVoiceSSRC handle
-        }
+    liftIO $ updateSpeakingStatus (snd $ discordVoiceHandleWebsocket handle)
+        True (discordVoiceSSRC handle)
 
+    -- Flags taken from discord.py, thanks.
     (_, Just stdout, _, ph) <- liftIO $
         createProcess (proc exe
             [ "-i", fp
@@ -372,6 +385,8 @@ playFFmpeg handle fp exe = do
             , "-loglevel", "warning"
             , "pipe:1"
             ]) { std_out = CreatePipe }
+    
+    -- Initialise encoder
     let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
     let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
     encoder <- opusEncoderCreate enCfg
@@ -379,6 +394,7 @@ playFFmpeg handle fp exe = do
   where
     repeatedlySend encoder streamCfg stdoutHandle = do 
         let sends = snd (discordVoiceHandleUDP handle)
+        -- pretty much the same as playPCM, see there for more info
         let clipLength = 48*20*2*2 -- frame size * channels * (16/8)
         source <- liftIO $ BL.hGet stdoutHandle clipLength
         if not (BL.null source) then do
@@ -388,10 +404,36 @@ playFFmpeg handle fp exe = do
         else do
             -- Send at least 5 blank frames (10 just in case)
             liftIO $ sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
-            liftIO $ writeChan (snd $ discordVoiceHandleWebsocket handle) $ Speaking $ SpeakingPayload
-                { speakingPayloadMicrophone = False
-                , speakingPayloadSoundshare = False
-                , speakingPayloadPriority   = False
-                , speakingPayloadDelay      = 0
-                , speakingPayloadSSRC       = discordVoiceSSRC handle
-                }
+            liftIO $ updateSpeakingStatus (snd $ discordVoiceHandleWebsocket handle)
+                False (discordVoiceSSRC handle)
+
+playYTDL
+    :: DiscordVoiceHandle
+    -> String
+    -- ^ The url or search query to play with youtube-dl.
+    -> String
+    -- ^ The youtube-dl executable
+    -> String
+    -- ^ The ffmpeg executable
+    -> DiscordHandler ()
+playYTDL handle query exe ffmpegexe = do
+    (_, Just stdout, _, ph) <- liftIO $ createProcess (proc exe
+        [ "-j"
+        , "--default-search", "ytsearch"
+        , "--format", "bestaudio/best"
+        , query
+        ]) { std_out = CreatePipe }
+
+    -- read all of it lazily
+    extractedInfo <- liftIO $ BL.hGetContents stdout
+    
+    -- extract stream url, send to playFFmpeg
+    let perhapsUrl = do
+            result <- decode extractedInfo
+            flip parseMaybe result $ \obj -> obj .: "url"
+    case perhapsUrl of
+        -- no matching url found
+        Nothing -> pure ()
+        Just url -> 
+            playFFmpeg handle url ffmpegexe
+
