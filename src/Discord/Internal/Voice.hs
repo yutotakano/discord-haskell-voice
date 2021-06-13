@@ -4,6 +4,7 @@ module Discord.Internal.Voice
     , playPCM
     , playFFmpeg
     , playYTDL
+    , DiscordVoiceHandle(..)
     ) where
 
 import           Codec.Audio.Opus.Encoder
