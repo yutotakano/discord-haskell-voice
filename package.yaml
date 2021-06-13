@@ -28,6 +28,7 @@ dependencies:
 - mtl
 - network
 - opus
+- process
 - safe-exceptions
 - saltine
 - text
