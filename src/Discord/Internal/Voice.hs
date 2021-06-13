@@ -2,6 +2,7 @@ module Discord.Internal.Voice
     ( joinVoice
     , leaveVoice
     , playPCM
+    , playFFmpeg
     ) where
 
 import           Codec.Audio.Opus.Encoder
@@ -39,6 +40,11 @@ import qualified Data.ByteString.Lazy as BL
 import           Data.Maybe                         ( fromJust
                                                     )
 import qualified Data.Text as T
+import           System.Process                     ( CreateProcess(..)
+                                                    , StdStream(..)
+                                                    , proc
+                                                    , createProcess
+                                                    )
 
 import           Discord.Internal.Types             ( GuildId
                                                     , ChannelId
@@ -340,3 +346,52 @@ playPCM handle source = do
             liftIO $ sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
             playPCM handle restSource
 
+playFFmpeg 
+    :: DiscordVoiceHandle
+    -> FilePath
+    -- ^ The file to play
+    -> String
+    -- ^ The ffmpeg executable
+    -> DiscordHandler ()
+playFFmpeg handle fp exe = do
+    -- update the speaking indicator (this needs to happen before bytes are sent)
+    liftIO $ writeChan (snd $ discordVoiceHandleWebsocket handle) $ Speaking $ SpeakingPayload
+        { speakingPayloadMicrophone = True
+        , speakingPayloadSoundshare = False
+        , speakingPayloadPriority   = False
+        , speakingPayloadDelay      = 0
+        , speakingPayloadSSRC       = discordVoiceSSRC handle
+        }
+
+    (_, Just stdout, _, ph) <- liftIO $
+        createProcess (proc exe
+            [ "-i", fp
+            , "-f", "s16le"
+            , "-ar", "48000"
+            , "-ac", "2"
+            , "-loglevel", "warning"
+            , "pipe:1"
+            ]) { std_out = CreatePipe }
+    let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
+    let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
+    encoder <- opusEncoderCreate enCfg
+    repeatedlySend encoder enStreamCfg stdout
+  where
+    repeatedlySend encoder streamCfg stdoutHandle = do 
+        let sends = snd (discordVoiceHandleUDP handle)
+        let clipLength = 48*20*2*2 -- frame size * channels * (16/8)
+        source <- liftIO $ BL.hGet stdoutHandle clipLength
+        if not (BL.null source) then do
+            encoded <- opusEncode encoder streamCfg $ BL.toStrict source
+            liftIO $ Bounded.writeChan sends encoded
+            repeatedlySend encoder streamCfg stdoutHandle
+        else do
+            -- Send at least 5 blank frames (10 just in case)
+            liftIO $ sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
+            liftIO $ writeChan (snd $ discordVoiceHandleWebsocket handle) $ Speaking $ SpeakingPayload
+                { speakingPayloadMicrophone = False
+                , speakingPayloadSoundshare = False
+                , speakingPayloadPriority   = False
+                , speakingPayloadDelay      = 0
+                , speakingPayloadSSRC       = discordVoiceSSRC handle
+                }

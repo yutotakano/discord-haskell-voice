@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: a048a6ce06937e710bf0b881bc6f1470f4f8d5ca851dfa4af424ade96533872b
+-- hash: 8d8ff453ecd78017eb9a4f7d143bb21027f31c2d48cb1df4b5752b262f56da93
 
 name:           discord-haskell-voice
 version:        0.0.1
@@ -53,6 +53,7 @@ library
     , mtl
     , network
     , opus
+    , process
     , safe-exceptions
     , saltine
     , text
@@ -81,6 +82,7 @@ executable join-all-on-start
     , mtl
     , network
     , opus
+    , process
     , safe-exceptions
     , saltine
     , text
@@ -109,6 +111,7 @@ executable join-specific
     , mtl
     , network
     , opus
+    , process
     , safe-exceptions
     , saltine
     , text
