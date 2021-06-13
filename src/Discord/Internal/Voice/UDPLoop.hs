@@ -232,29 +232,36 @@ sendableLoop
     -> Integer
     -- ^ Timestamp number, modulo 4294967295
     -> POSIXTime
-    -- ^ The timestamp at the moment the last data was sent
     -> IO ()
 sendableLoop conn sends syncKey log sequence timestamp startTime = do
     -- Immediately send the first packet available
-    opusBytes <- Bounded.readChan sends
-    let header = BL.toStrict $ encode $
-            Header 0x80 0x78 (fromIntegral sequence) (fromIntegral timestamp) $
-                fromIntegral $ udpInfoSSRC $ udpDataInfo conn
-    let nonce = createNonceFromHeader header
-    byteKey <- readMVar syncKey
-    let encryptedOpus = BL.fromStrict $ encrypt byteKey nonce opusBytes
-    
-    -- send the header and the encrypted opus data
-    sendAll (udpDataSocket conn) $
-        encode $ SpeakingDataEncrypted header encryptedOpus
+    mbOpusBytes <- Bounded.tryReadChan sends
+    case mbOpusBytes of
+        Nothing -> do
+            -- nothing could be read, so wait 20ms (no dynamic calculation
+            -- required, because nothing demands accurate real-time)
+            threadDelay $ round $ 20 * 10^(6 :: Int)
+            currentTime <- getPOSIXTime
+            sendableLoop conn sends syncKey log sequence timestamp currentTime
+        Just opusBytes -> do
+            let header = BL.toStrict $ encode $
+                    Header 0x80 0x78 (fromIntegral sequence) (fromIntegral timestamp) $
+                        fromIntegral $ udpInfoSSRC $ udpDataInfo conn
+            let nonce = createNonceFromHeader header
+            byteKey <- readMVar syncKey
+            let encryptedOpus = BL.fromStrict $ encrypt byteKey nonce opusBytes
+            
+            -- send the header and the encrypted opus data
+            sendAll (udpDataSocket conn) $
+                encode $ SpeakingDataEncrypted header encryptedOpus
 
-    -- wait a biiit less than 20ms before sending the next packet
-    -- logic taken from discord.py discord/player.py L595
-    let theoreticalNextTime = startTime + (20 / 1000)
-    currentTime <- getPOSIXTime
-    threadDelay $ round $ (max 0 $ theoreticalNextTime - currentTime) * 10^(6 :: Int)
-    sendableLoop conn sends syncKey log
-        (sequence + 1 `mod` 0xFFFF) (timestamp + 48*20 `mod` 0xFFFFFFFF) theoreticalNextTime
+            -- wait a biiit less than 20ms before sending the next packet
+            -- logic taken from discord.py discord/player.py L595
+            let theoreticalNextTime = startTime + (20 / 1000)
+            currentTime <- getPOSIXTime
+            threadDelay $ round $ (max 0 $ theoreticalNextTime - currentTime) * 10^(6 :: Int)
+            sendableLoop conn sends syncKey log
+                (sequence + 1 `mod` 0xFFFF) (timestamp + 48*20 `mod` 0xFFFFFFFF) theoreticalNextTime
 
 -- | Decrypt a sound packet using the provided Discord key and header nonce. The
 -- argument is strict because it has to be strict when passed to Saltine anyway,
