@@ -309,6 +309,9 @@ updateSpeakingStatus sendChan micStatus ssrc =
 
 -- | Play a PCM audio until finish.
 --
+-- Requires no external dependencies, as it uses FFI to encode opus (through the
+-- "Codec.Audio.Opus" module).
+--
 -- @
 -- eVc <- joinVoice gid cid False False
 -- case eVc of
@@ -355,6 +358,7 @@ playPCM handle source = do
 -- | Play any type of audio that FFmpeg supports, by launching a FFmpeg
 -- subprocess and reading the stdout stream lazily.
 --
+-- __Requires the ffmpeg executable.__
 -- @
 -- eVc <- joinVoice gid cid False False
 -- case eVc of
@@ -407,6 +411,10 @@ playFFmpeg handle fp exe = do
             liftIO $ updateSpeakingStatus (snd $ discordVoiceHandleWebsocket handle)
                 False (discordVoiceSSRC handle)
 
+-- | Play any URL that is supported by youtube-dl, or a search query for YouTube.
+-- Extracts the stream URL using "youtube-dl -j", and passes it to playFFmpeg.
+--
+-- __Requires the youtube-dl and ffmpeg executable.__
 playYTDL
     :: DiscordVoiceHandle
     -> String
