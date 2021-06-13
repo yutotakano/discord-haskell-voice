@@ -383,14 +383,14 @@ playFFmpeg handle fp exe = do
     -- Flags taken from discord.py, thanks.
     (_, Just stdout, _, ph) <- liftIO $
         createProcess (proc exe
-            [ "-f", "s16le"
+            [ "-reconnect", "1"
+            , "-reconnect_streamed", "1"
+            , "-reconnect_delay_max", "2"
+            , "-i", fp
+            , "-f", "s16le"
             , "-ar", "48000"
             , "-ac", "2"
             , "-loglevel", "warning"
-            , "-reconnect", "1"
-            , "-reconnect_streamed", "1"
-            , "-reconnect_delay_max", "5"
-            , "-i", fp
             , "pipe:1"
             ]) { std_out = CreatePipe }
     
