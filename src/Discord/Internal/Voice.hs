@@ -298,14 +298,14 @@ leaveVoice handle = do
 --
 -- Soundshare and priority are const as False, don't see bots needing them.
 -- If and when required, add Bool signatures to this function.
-updateSpeakingStatus :: Chan VoiceWebsocketSendable -> Bool -> Integer -> IO ()
-updateSpeakingStatus sendChan micStatus ssrc =
-    writeChan sendChan $ Speaking $ SpeakingPayload
+updateSpeakingStatus :: DiscordVoiceHandle -> Bool -> IO ()
+updateSpeakingStatus handle micStatus =
+    writeChan (snd $ discordVoiceHandleWebsocket handle) $ Speaking $ SpeakingPayload
         { speakingPayloadMicrophone = micStatus
         , speakingPayloadSoundshare = False
         , speakingPayloadPriority   = False
         , speakingPayloadDelay      = 0
-        , speakingPayloadSSRC       = ssrc
+        , speakingPayloadSSRC       = (discordVoiceSSRC handle)
         }
 
 -- | Play a PCM audio until finish.
@@ -329,8 +329,7 @@ playPCM
     -> DiscordHandler ()
 playPCM handle source = do
     -- update the speaking indicator (this needs to happen before bytes are sent)
-    liftIO $ updateSpeakingStatus (snd $ discordVoiceHandleWebsocket handle)
-        True (discordVoiceSSRC handle)
+    liftIO $ updateSpeakingStatus handle True
 
     let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
     -- 1275 is the max bytes an opus 20ms frame can have
@@ -353,8 +352,7 @@ playPCM handle source = do
         else do
             -- Send at least 5 blank frames (10 just in case)
             liftIO $ sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
-            liftIO $ updateSpeakingStatus (snd $ discordVoiceHandleWebsocket handle)
-                False (discordVoiceSSRC handle)
+            liftIO $ updateSpeakingStatus handle False
 
 -- | Play any type of audio that FFmpeg supports, by launching a FFmpeg
 -- subprocess and reading the stdout stream lazily.
@@ -377,8 +375,7 @@ playFFmpeg
     -> DiscordHandler ()
 playFFmpeg handle fp exe = do
     -- update the speaking indicator (this needs to happen before bytes are sent)
-    liftIO $ updateSpeakingStatus (snd $ discordVoiceHandleWebsocket handle)
-        True (discordVoiceSSRC handle)
+    liftIO $ updateSpeakingStatus handle True
 
     -- Flags taken from discord.py, thanks.
     (_, Just stdout, _, ph) <- liftIO $
@@ -412,8 +409,7 @@ playFFmpeg handle fp exe = do
         else do
             -- Send at least 5 blank frames (10 just in case)
             liftIO $ sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
-            liftIO $ updateSpeakingStatus (snd $ discordVoiceHandleWebsocket handle)
-                False (discordVoiceSSRC handle)
+            liftIO $ updateSpeakingStatus handle False
 
 -- | Play any URL that is supported by youtube-dl, or a search query for YouTube.
 -- Extracts the stream URL using "youtube-dl -j", and passes it to playFFmpeg.
