@@ -1,6 +1,7 @@
 module Discord.Internal.Voice
     ( joinVoice
     , leaveVoice
+    , updateSpeakingStatus
     , playPCM
     , playFFmpeg
     , playYTDL
