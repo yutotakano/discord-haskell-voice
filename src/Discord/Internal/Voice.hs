@@ -21,9 +21,12 @@ import           Control.Concurrent                 ( ThreadId
                                                     , newChan
                                                     , readChan
                                                     , writeChan
+                                                    , MVar
                                                     , newEmptyMVar
+                                                    , newMVar
                                                     , readMVar
                                                     , putMVar
+                                                    , withMVar
                                                     )
 import           Control.Exception.Safe             ( SomeException
                                                     , handle
@@ -37,7 +40,6 @@ import           Control.Monad                      ( when
                                                     )
 import           Data.Aeson
 import           Data.Aeson.Types                   ( parseMaybe
-                                                    , parseEither
                                                     )
 import qualified Data.ByteString.Lazy as BL
 import           Data.Maybe                         ( fromJust
@@ -89,6 +91,7 @@ data DiscordVoiceHandle = DiscordVoiceHandle
     , discordVoiceHandleUDP         :: DiscordVoiceHandleUDP
     , discordVoiceSSRC              :: Integer
     , discordVoiceThreads           :: [DiscordVoiceThreadId]
+    , discordVoiceMutEx             :: MVar ()
     }
 
 -- | Joins a voice channel and initialises all the threads, ready to stream.
@@ -247,15 +250,17 @@ startVoiceThreads connInfo uid log = do
             case f of
                 Right (SessionDescription _ key) -> do
                     putMVar syncKey key
+                    mutex <- newMVar ()
                     pure $ Right $ DiscordVoiceHandle
                         { discordVoiceGuildId         = wsInfoGuildId connInfo
                         , discordVoiceHandleWebsocket = (events, sends)
                         , discordVoiceHandleUDP       = (byteReceives, byteSends)
-                        , discordVoiceSSRC      = udpInfoSSRC udpInfo
+                        , discordVoiceSSRC            = udpInfoSSRC udpInfo
                         , discordVoiceThreads         =
                             [ DiscordVoiceThreadIdWebsocket websocketId
                             , DiscordVoiceThreadIdUDP udpId
                             ]
+                        , discordVoiceMutEx           = mutex
                         }
                 Right a -> do
                     -- If this is ever called, refactor this entire case stmt
@@ -328,32 +333,33 @@ playPCM
     -> BL.ByteString
     -- ^ The 16-bit little-endian stereo PCM, at 48kHz.
     -> DiscordHandler ()
-playPCM handle source = do
-    -- update the speaking indicator (this needs to happen before bytes are sent)
-    liftIO $ updateSpeakingStatus handle True
+playPCM handle source =
+    liftIO $ withMVar (discordVoiceMutEx handle) $ \_ -> do
+        -- update the speaking indicator (this needs to happen before bytes are sent)
+        updateSpeakingStatus handle True
 
-    let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
-    -- 1275 is the max bytes an opus 20ms frame can have
-    let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
-    encoder <- opusEncoderCreate enCfg
-    repeatedlySend encoder enStreamCfg source
-  where
-    repeatedlySend encoder streamCfg restSource = do
-        let sends = snd (discordVoiceHandleUDP handle)
-        if not (BL.null restSource) then do
-            -- bytestrings are made of CChar (Int8) but the data is 16-bit so
-            -- multiply by two to get the right amount
-            let clipLength = 48*20*2*2 -- frame size * channels * (16/8)
-            let (clip, remains) = BL.splitAt clipLength restSource
-            -- encode the audio
-            encoded <- opusEncode encoder streamCfg $ BL.toStrict clip
-            -- send it
-            liftIO $ Bounded.writeChan sends encoded
-            repeatedlySend encoder streamCfg remains
-        else do
-            -- Send at least 5 blank frames (10 just in case)
-            liftIO $ sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
-            liftIO $ updateSpeakingStatus handle False
+        let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
+        -- 1275 is the max bytes an opus 20ms frame can have
+        let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
+        encoder <- opusEncoderCreate enCfg
+        repeatedlySend encoder enStreamCfg source
+      where
+        repeatedlySend encoder streamCfg restSource = do
+            let sends = snd (discordVoiceHandleUDP handle)
+            if not (BL.null restSource) then do
+                -- bytestrings are made of CChar (Int8) but the data is 16-bit so
+                -- multiply by two to get the right amount
+                let clipLength = 48*20*2*2 -- frame size * channels * (16/8)
+                let (clip, remains) = BL.splitAt clipLength restSource
+                -- encode the audio
+                encoded <- opusEncode encoder streamCfg $ BL.toStrict clip
+                -- send it
+                Bounded.writeChan sends encoded
+                repeatedlySend encoder streamCfg remains
+            else do
+                -- Send at least 5 blank frames (10 just in case)
+                sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
+                updateSpeakingStatus handle False
 
 -- | Play any type of audio that FFmpeg supports, by launching a FFmpeg
 -- subprocess and reading the stdout stream lazily.
@@ -374,13 +380,13 @@ playFFmpeg
     -> String
     -- ^ The ffmpeg executable
     -> DiscordHandler ()
-playFFmpeg handle fp exe = do
-    -- update the speaking indicator (this needs to happen before bytes are sent)
-    liftIO $ updateSpeakingStatus handle True
+playFFmpeg handle fp exe =
+    liftIO $ withMVar (discordVoiceMutEx handle) $ \_ -> do
+        -- update the speaking indicator (this needs to happen before bytes are sent)
+        updateSpeakingStatus handle True
 
-    -- Flags taken from discord.py, thanks.
-    (_, Just stdout, _, ph) <- liftIO $
-        createProcess (proc exe
+        -- Flags taken from discord.py, thanks.
+        (_, Just stdout, _, ph) <- createProcess (proc exe
             [ "-reconnect", "1"
             , "-reconnect_streamed", "1"
             , "-reconnect_delay_max", "2"
@@ -391,26 +397,26 @@ playFFmpeg handle fp exe = do
             , "-loglevel", "warning"
             , "pipe:1"
             ]) { std_out = CreatePipe }
-    
-    -- Initialise encoder
-    let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
-    let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
-    encoder <- opusEncoderCreate enCfg
-    repeatedlySend encoder enStreamCfg stdout
-  where
-    repeatedlySend encoder streamCfg stdoutHandle = do 
-        let sends = snd (discordVoiceHandleUDP handle)
-        -- pretty much the same as playPCM, see there for more info
-        let clipLength = 48*20*2*2 -- frame size * channels * (16/8)
-        source <- liftIO $ BL.hGet stdoutHandle clipLength
-        if not (BL.null source) then do
-            encoded <- opusEncode encoder streamCfg $ BL.toStrict source
-            liftIO $ Bounded.writeChan sends encoded
-            repeatedlySend encoder streamCfg stdoutHandle
-        else do
-            -- Send at least 5 blank frames (10 just in case)
-            liftIO $ sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
-            liftIO $ updateSpeakingStatus handle False
+        
+        -- Initialise encoder
+        let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
+        let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
+        encoder <- opusEncoderCreate enCfg
+        repeatedlySend encoder enStreamCfg stdout
+      where
+        repeatedlySend encoder streamCfg stdoutHandle = do 
+            let sends = snd (discordVoiceHandleUDP handle)
+            -- pretty much the same as playPCM, see there for more info
+            let clipLength = 48*20*2*2 -- frame size * channels * (16/8)
+            source <- BL.hGet stdoutHandle clipLength
+            if not (BL.null source) then do
+                encoded <- opusEncode encoder streamCfg $ BL.toStrict source
+                Bounded.writeChan sends encoded
+                repeatedlySend encoder streamCfg stdoutHandle
+            else do
+                -- Send at least 5 blank frames (10 just in case)
+                sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
+                updateSpeakingStatus handle False
 
 -- | Play any URL that is supported by youtube-dl, or a search query for YouTube.
 -- Extracts the stream URL using "youtube-dl -j", and passes it to playFFmpeg.
