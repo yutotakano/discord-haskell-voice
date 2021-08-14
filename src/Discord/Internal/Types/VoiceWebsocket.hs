@@ -82,7 +82,7 @@ instance FromJSON VoiceWebsocketReceivable where
                 port <- od .: "port"
                 modes <- od .: "modes"
                 pure $ Ready $ ReadyPayload ssrc ip port modes
-            3 -> do 
+            3 -> do
                 od <- o .: "d"
                 pure $ HeartbeatR od
             4 -> do
@@ -92,7 +92,7 @@ instance FromJSON VoiceWebsocketReceivable where
                 pure $ SessionDescription mode secretKey
             5 -> do
                 od <- o .: "d"
-                speaking <- 
+                speaking <-
                     -- speaking field can be a number or a boolean.
                     -- This is undocumented in the docs. God, discord.
                     (od .: "speaking" :: Parser Int) <|>
