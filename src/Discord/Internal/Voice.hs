@@ -94,6 +94,14 @@ data DiscordVoiceHandle = DiscordVoiceHandle
     , discordVoiceMutEx             :: MVar ()
     }
 
+updateStatusVoice
+    :: GuildId
+    -> Maybe ChannelId
+    -> Bool
+    -> Bool
+    -> DiscordHandler ()
+updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts a b c d
+
 -- | Joins a voice channel and initialises all the threads, ready to stream.
 --
 -- @
@@ -116,37 +124,27 @@ joinVoice
     -- ^ Whether the bot should join deafened
     -> DiscordHandler (Either VoiceError DiscordVoiceHandle)
 joinVoice gid cid mute deaf = do
-    -- Duplicate the event channel, so we can read without taking data from event handlers
     h <- ask
+    -- Duplicate the event channel, so we can read without taking data from event handlers
     let (_events, _, _) = discordHandleGateway h
     events <- liftIO $ dupChan _events
-    
+
     -- Send opcode 4
-    sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts
-        { updateStatusVoiceOptsGuildId = gid
-        , updateStatusVoiceOptsChannelId = Just cid
-        , updateStatusVoiceOptsIsMuted = mute
-        , updateStatusVoiceOptsIsDeaf = deaf
-        }
+    updateStatusVoice gid (Just cid) mute deaf
 
     -- Wait for Opcode 0 Voice State Update and Voice Server Update
     -- for a maximum of 5 seconds
-    result <- liftIO $ loopUntilEvents events
+    result <- liftIO $ whenOrTimeout 5 (loopUntilEvents events)
 
     case result of
         Nothing -> do
-            -- did not respond in time: no permission? or discord offline?
+            -- it spond in time: no permission? or discord offline?
             pure $ Left VoiceNotAvailable
         Just (_, _, _, Nothing) -> do
             -- If endpoint is null, according to Docs, no servers are available.
             pure $ Left NoServerAvailable
         Just (sessionId, token, guildId, Just endpoint) -> do
-            let connInfo = WSConnInfo
-                    { wsInfoSessionId = sessionId
-                    , wsInfoToken     = token
-                    , wsInfoGuildId   = guildId
-                    , wsInfoEndpoint  = endpoint
-                    }
+            let connInfo = WSConnInfo sessionId token guildId endpoint
             -- Get the current user ID, and pass it on with all the other data
             uid <- getCacheUserId
             liftIO $ startVoiceThreads connInfo uid $ discordHandleLog h
@@ -157,19 +155,25 @@ getCacheUserId = do
     cache <- readCache
     pure $ userId $ _currentUser cache
 
--- | Loop a maximum of 5 seconds, or until both Voice State Update and
--- Voice Server Update has been received.
+whenOrTimeout :: Int -> IO a -> IO (Maybe a)
+whenOrTimeout sec longAction = rightToMaybe <$> race waitSecs longAction
+  where
+    waitSecs :: IO ()
+    waitSecs = threadDelay (sec * 10^(6 :: Int))
+
+-- | Selects the right element as a Maybe
+rightToMaybe :: Either a b -> Maybe b
+rightToMaybe (Left _)  = Nothing
+rightToMaybe (Right x) = Just x
+
+-- | Loop until both VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE are received.
+-- The order is undefined in docs, so this function will recursively fill
+-- up two Maybe arguments until both are Just.
 loopUntilEvents
     :: Chan (Either GatewayException Event)
-    -> IO (Maybe (T.Text, T.Text, GuildId, Maybe T.Text))
-loopUntilEvents events = rightToMaybe <$> race wait5 (waitForBoth Nothing Nothing)
+    -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
+loopUntilEvents events = waitForBoth Nothing Nothing
   where
-    wait5 :: IO ()
-    wait5 = threadDelay (5 * 10^(6 :: Int))
-
-    -- | Wait for both VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE.
-    -- The order is undefined in docs, so this function will recursively fill
-    -- up the two Maybe arguments until both are Just.
     waitForBoth
         :: Maybe T.Text
         -> Maybe (T.Text, GuildId, Maybe T.Text)
@@ -192,13 +196,7 @@ loopUntilEvents events = rightToMaybe <$> race wait5 (waitForBoth Nothing Nothin
                         endpoint <- o .: "endpoint"
                         pure (token, guildId, endpoint)
                 waitForBoth mb1 result
-            Right _ -> waitForBoth mb1 mb2
-            Left _  -> waitForBoth mb1 mb2
-
--- | Selects the right element as a Maybe
-rightToMaybe :: Either a b -> Maybe b
-rightToMaybe (Left _)  = Nothing
-rightToMaybe (Right x) = Just x
+            _ -> waitForBoth mb1 mb2
 
 -- | Start the Websocket thread, which will create the UDP thread
 startVoiceThreads
@@ -215,7 +213,7 @@ startVoiceThreads connInfo uid log = do
     sends <- newChan
     syncKey <- newEmptyMVar
     websocketId <- forkIO $ voiceWebsocketLoop (events, sends) (connInfo, uid) log
-    
+
     -- The first event is either a Right (Ready payload) or Left errors
     e <- readChan events
     case e of
@@ -228,14 +226,14 @@ startVoiceThreads connInfo uid log = do
                     , udpInfoMode = "xsalsa20_poly1305"
                     -- ^ Too much hassle to implement all encryption modes.
                     }
-            
+
             byteReceives <- newChan
             byteSends <- Bounded.newBoundedChan 500 -- 10 seconds worth of 20ms
             udpId <- forkIO $ udpLoop (byteReceives, byteSends) udpInfo syncKey log
 
             -- the first packet is a IP Discovery response.
             (IPDiscovery _ ip port) <- readChan byteReceives
-            
+
             -- signal to the voice websocket using Opcode 1 Select Protocol
             writeChan sends $ SelectProtocol $ SelectProtocolPayload
                 { selectProtocolPayloadProtocol = "udp"
@@ -287,14 +285,7 @@ startVoiceThreads connInfo uid log = do
 leaveVoice :: DiscordVoiceHandle -> DiscordHandler ()
 leaveVoice handle = do
     mapM_ (liftIO . killThread . toId) (discordVoiceThreads handle)
-    
-    sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts
-        { updateStatusVoiceOptsGuildId = discordVoiceGuildId handle
-        , updateStatusVoiceOptsChannelId = Nothing
-        , updateStatusVoiceOptsIsMuted = False
-        , updateStatusVoiceOptsIsDeaf = False
-        }
-
+    updateStatusVoice (discordVoiceGuildId handle) Nothing False False
   where
     toId t = case t of
         DiscordVoiceThreadIdWebsocket a -> a
@@ -343,23 +334,24 @@ playPCM handle source =
         let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
         encoder <- opusEncoderCreate enCfg
         repeatedlySend encoder enStreamCfg source
-      where
-        repeatedlySend encoder streamCfg restSource = do
-            let sends = snd (discordVoiceHandleUDP handle)
-            if not (BL.null restSource) then do
-                -- bytestrings are made of CChar (Int8) but the data is 16-bit so
-                -- multiply by two to get the right amount
-                let clipLength = 48*20*2*2 -- frame size * channels * (16/8)
-                let (clip, remains) = BL.splitAt clipLength restSource
-                -- encode the audio
-                encoded <- opusEncode encoder streamCfg $ BL.toStrict clip
-                -- send it
-                Bounded.writeChan sends encoded
-                repeatedlySend encoder streamCfg remains
-            else do
-                -- Send at least 5 blank frames (10 just in case)
-                sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
-                updateSpeakingStatus handle False
+
+  where
+    repeatedlySend encoder streamCfg restSource = do
+        let sends = snd (discordVoiceHandleUDP handle)
+        if not (BL.null restSource) then do
+            -- bytestrings are made of CChar (Int8) but the data is 16-bit so
+            -- multiply by two to get the right amount
+            let clipLength = 48*20*2*2 -- frame size * channels * (16/8)
+            let (clip, remains) = BL.splitAt clipLength restSource
+            -- encode the audio
+            encoded <- opusEncode encoder streamCfg $ BL.toStrict clip
+            -- send it
+            Bounded.writeChan sends encoded
+            repeatedlySend encoder streamCfg remains
+        else do
+            -- Send at least 5 blank frames (10 just in case)
+            sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
+            updateSpeakingStatus handle False
 
 -- | Play any type of audio that FFmpeg supports, by launching a FFmpeg
 -- subprocess and reading the stdout stream lazily.
@@ -373,7 +365,7 @@ playPCM handle source =
 --         playFFmpeg vc "awesome.mp3" "ffmpeg"
 --         'leaveVoice' vc
 -- @
-playFFmpeg 
+playFFmpeg
     :: DiscordVoiceHandle
     -> FilePath
     -- ^ The file to play
@@ -397,19 +389,21 @@ playFFmpeg handle fp exe =
             , "-loglevel", "warning"
             , "pipe:1"
             ]) { std_out = CreatePipe }
-        
+
         -- Initialise encoder
         let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
         let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
         encoder <- opusEncoderCreate enCfg
         repeatedlySend encoder enStreamCfg stdout
-      where
-        repeatedlySend encoder streamCfg stdoutHandle = do 
-            let sends = snd (discordVoiceHandleUDP handle)
-            -- pretty much the same as playPCM, see there for more info
-            let clipLength = 48*20*2*2 -- frame size * channels * (16/8)
-            source <- BL.hGet stdoutHandle clipLength
-            if not (BL.null source) then do
+
+  where
+    repeatedlySend encoder streamCfg stdoutHandle = do
+        let sends = snd (discordVoiceHandleUDP handle)
+        -- pretty much the same as playPCM, see there for more info
+        let clipLength = 48*20*2*2 -- frame size * channels * (16/8)
+        source <- BL.hGet stdoutHandle clipLength
+        if not (BL.null source)
+            then do
                 encoded <- opusEncode encoder streamCfg $ BL.toStrict source
                 Bounded.writeChan sends encoded
                 repeatedlySend encoder streamCfg stdoutHandle
@@ -441,7 +435,7 @@ playYTDL handle query exe ffmpegexe = do
 
     -- read all of it lazily
     extractedInfo <- liftIO $ BL.hGetContents stdout
-    
+
     -- extract stream url, send to playFFmpeg
     let perhapsUrl = do
             result <- decode extractedInfo
@@ -449,6 +443,5 @@ playYTDL handle query exe ffmpegexe = do
     case perhapsUrl of
         -- no matching url found
         Nothing -> pure ()
-        Just url -> 
+        Just url ->
             playFFmpeg handle url ffmpegexe
-

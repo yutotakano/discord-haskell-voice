@@ -161,7 +161,7 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
     waitForHelloReadyOr10Seconds conn =
         either id id <$> race wait10Seconds (waitForHelloReady conn Nothing Nothing)
 
-    -- | Wait 10 seconds, this is for fallback when Discord never sends the msgs
+    -- | Wait 11 seconds, this is for fallback when Discord never sends the msgs
     -- to prevent deadlocking. Type signature is generic to accommodate any
     -- kind of response (both for Resumed and Ready)
     wait10Seconds :: IO (Maybe a)
@@ -179,6 +179,7 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
     waitForHelloReady conn (Just x) (Just y) = pure $ Just (x, y)
     waitForHelloReady conn mb1 mb2 = do
         msg <- getPayload conn log
+        print msg
         case msg of
             Right (Ready payload) ->
                 waitForHelloReady conn mb1 (Just payload)
