@@ -27,6 +27,7 @@ import           Control.Concurrent                 ( ThreadId
                                                     , readMVar
                                                     , putMVar
                                                     , withMVar
+                                                    , tryPutMVar
                                                     )
 import           Control.Exception.Safe             ( SomeException
                                                     , handle
@@ -37,6 +38,7 @@ import           Control.Monad.Reader               ( ask
                                                     , liftIO
                                                     )
 import           Control.Monad                      ( when
+                                                    , void
                                                     )
 import           Data.Aeson
 import           Data.Aeson.Types                   ( parseMaybe
@@ -68,8 +70,7 @@ import           Discord.Internal.Types             ( GuildId
                                                     , UpdateStatusVoiceOpts(..)
                                                     , Event( UnknownEvent )
                                                     )
-import           Discord.Internal.Gateway.EventLoop
-                                                    ( GatewayException(..)
+import           Discord.Internal.Gateway.EventLoop ( GatewayException(..)
                                                     )
 import           Discord.Internal.Gateway.Cache     ( Cache(..)
                                                     )
@@ -94,11 +95,17 @@ data DiscordVoiceHandle = DiscordVoiceHandle
     , discordVoiceMutEx             :: MVar ()
     }
 
+-- | Send a Gateway Websocket Update Voice State command (Opcode 4). Used when
+-- the client wants to join, move, or disconnect from a voice channel.
 updateStatusVoice
     :: GuildId
+    -- ^ Id of Guild
     -> Maybe ChannelId
+    -- ^ Id of the voice channel client wants to join (Nothing if disconnecting)
     -> Bool
+    -- ^ Is the client muted
     -> Bool
+    -- ^ Is the client deafened
     -> DiscordHandler ()
 updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts a b c d
 
@@ -129,16 +136,16 @@ joinVoice gid cid mute deaf = do
     let (_events, _, _) = discordHandleGateway h
     events <- liftIO $ dupChan _events
 
-    -- Send opcode 4
+    -- Send opcode 4 in Gateway
     updateStatusVoice gid (Just cid) mute deaf
 
     -- Wait for Opcode 0 Voice State Update and Voice Server Update
     -- for a maximum of 5 seconds
-    result <- liftIO $ whenOrTimeout 5 (loopUntilEvents events)
+    result <- liftIO $ doOrTimeout 5 (getStateServerUpdateEvents events)
 
     case result of
         Nothing -> do
-            -- it spond in time: no permission? or discord offline?
+            -- did not respond in time: no permission? or discord offline?
             pure $ Left VoiceNotAvailable
         Just (_, _, _, Nothing) -> do
             -- If endpoint is null, according to Docs, no servers are available.
@@ -147,7 +154,7 @@ joinVoice gid cid mute deaf = do
             let connInfo = WSConnInfo sessionId token guildId endpoint
             -- Get the current user ID, and pass it on with all the other data
             uid <- getCacheUserId
-            liftIO $ startVoiceThreads connInfo uid $ discordHandleLog h
+            liftIO $ startVoiceThreads connInfo events uid $ discordHandleLog h
 
 -- | Get the user ID of the bot from the cache.
 getCacheUserId :: DiscordHandler UserId
@@ -155,8 +162,9 @@ getCacheUserId = do
     cache <- readCache
     pure $ userId $ _currentUser cache
 
-whenOrTimeout :: Int -> IO a -> IO (Maybe a)
-whenOrTimeout sec longAction = rightToMaybe <$> race waitSecs longAction
+-- | Perform an IO action for a maximum of @sec@ seconds.
+doOrTimeout :: Int -> IO a -> IO (Maybe a)
+doOrTimeout sec longAction = rightToMaybe <$> race waitSecs longAction
   where
     waitSecs :: IO ()
     waitSecs = threadDelay (sec * 10^(6 :: Int))
@@ -169,17 +177,17 @@ rightToMaybe (Right x) = Just x
 -- | Loop until both VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE are received.
 -- The order is undefined in docs, so this function will recursively fill
 -- up two Maybe arguments until both are Just.
-loopUntilEvents
+getStateServerUpdateEvents
     :: Chan (Either GatewayException Event)
     -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
-loopUntilEvents events = waitForBoth Nothing Nothing
+getStateServerUpdateEvents events = loopForBoth Nothing Nothing
   where
-    waitForBoth
+    loopForBoth
         :: Maybe T.Text
         -> Maybe (T.Text, GuildId, Maybe T.Text)
         -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
-    waitForBoth (Just a) (Just (b, c, d)) = pure (a, b, c, d)
-    waitForBoth mb1 mb2 = do
+    loopForBoth (Just a) (Just (b, c, d)) = pure (a, b, c, d)
+    loopForBoth mb1 mb2 = do
         top <- readChan events
         case top of
             -- Parse UnknownEvent, which are events not handled by discord-haskell.
@@ -188,31 +196,33 @@ loopUntilEvents events = waitForBoth Nothing Nothing
                 -- back recursively.
                 let sessionId = flip parseMaybe obj $ \o -> do
                         o .: "session_id"
-                waitForBoth sessionId mb2
+                loopForBoth sessionId mb2
             Right (UnknownEvent "VOICE_SERVER_UPDATE" obj) -> do
                 let result = flip parseMaybe obj $ \o -> do
                         token <- o .: "token"
                         guildId <- o .: "guild_id"
                         endpoint <- o .: "endpoint"
                         pure (token, guildId, endpoint)
-                waitForBoth mb1 result
-            _ -> waitForBoth mb1 mb2
+                loopForBoth mb1 result
+            _ -> loopForBoth mb1 mb2
 
 -- | Start the Websocket thread, which will create the UDP thread
 startVoiceThreads
     :: WebsocketConnInfo
     -- ^ Connection details for the websocket
+    -> Chan (Either GatewayException Event)
+    -- ^ Gateway events
     -> UserId
     -- ^ The current user ID
     -> Chan T.Text
     -- ^ The channel to log errors
     -> IO (Either VoiceError DiscordVoiceHandle)
-startVoiceThreads connInfo uid log = do
+startVoiceThreads connInfo gatewayEvents uid log = do
     -- First create the websocket (which will automatically try to identify)
     events <- newChan -- types are inferred from line below
     sends <- newChan
     syncKey <- newEmptyMVar
-    websocketId <- forkIO $ voiceWebsocketLoop (events, sends) (connInfo, uid) log
+    websocketId <- forkIO $ voiceWebsocketLoop gatewayEvents (events, sends) (connInfo, uid) log
 
     -- The first event is either a Right (Ready payload) or Left errors
     e <- readChan events
@@ -286,6 +296,7 @@ leaveVoice :: DiscordVoiceHandle -> DiscordHandler ()
 leaveVoice handle = do
     mapM_ (liftIO . killThread . toId) (discordVoiceThreads handle)
     updateStatusVoice (discordVoiceGuildId handle) Nothing False False
+    void $ liftIO $ tryPutMVar (discordVoiceMutEx handle) ()
   where
     toId t = case t of
         DiscordVoiceThreadIdWebsocket a -> a
