@@ -9,6 +9,10 @@ import           Control.Concurrent         ( Chan
                                             , threadDelay
                                             , forkIO
                                             , killThread
+                                            , MVar
+                                            , putMVar
+                                            , tryReadMVar
+                                            , newEmptyMVar
                                             )
 import           Control.Exception.Safe     ( try
                                             , SomeException
@@ -32,9 +36,10 @@ import           Network.WebSockets         ( ConnectionException(..)
                                             , receiveData
                                             , sendTextData
                                             )
-
+import           Discord.Internal.Gateway   ( GatewayException )
 import           Discord.Internal.Types     ( GuildId
                                             , UserId
+                                            , Event(..)
                                             )
 import           Discord.Internal.Types.VoiceWebsocket
 
@@ -81,11 +86,12 @@ connect endpoint = runSecureClient url port "/"
 
 -- | Attempt to connect (and reconnect on disconnects) to the voice websocket.
 voiceWebsocketLoop
-    :: DiscordVoiceHandleWebsocket
+    :: Chan (Either GatewayException Event)
+    -> DiscordVoiceHandleWebsocket
     -> (WebsocketConnInfo, UserId)
     -> Chan T.Text
     -> IO ()
-voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
+voiceWebsocketLoop gatewayEvents (receives, sends) (info, userId) log = loop ConnStart 0
   where
     loop :: ConnLoopState -> Int -> IO ()
     loop s retries = do
@@ -113,9 +119,9 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
                             pure ConnClosed
                         Just (interval, payload) -> do
                             -- All good! Start the heartbeating and send loops.
-                            writeChan receives $ Right (Ready payload)
+                            writeChan receives $ Right (Discord.Internal.Types.VoiceWebsocket.Ready payload)
                             startEternalStream (WSConn conn info receives)
-                                interval sends log
+                                gatewayEvents interval sends log
                 -- Connection is now closed.
                 case next :: Either SomeException ConnLoopState of
                     Left e -> do
@@ -144,7 +150,7 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
                             pure ConnClosed
                         Just interval -> do
                             startEternalStream (WSConn conn info receives)
-                                interval sends log
+                                gatewayEvents interval sends log
                 -- Connection is now closed.
                 case next :: Either SomeException ConnLoopState of
                     Left _ -> do
@@ -181,18 +187,20 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
         msg <- getPayload conn log
         print msg
         case msg of
-            Right (Ready payload) ->
+            Right (Discord.Internal.Types.VoiceWebsocket.Ready payload) ->
                 waitForHelloReady conn mb1 (Just payload)
-            Right (Hello interval) ->
+            Right (Discord.Internal.Types.VoiceWebsocket.Hello interval) ->
                 waitForHelloReady conn (Just interval) mb2
             Right _ ->
                 waitForHelloReady conn mb1 mb2
+            Left ConnectionClosed ->
+                pure Nothing
             Left _  ->
                 waitForHelloReady conn mb1 mb2
 
     -- | Wait for 10 seconds or received Resumed and Hello, whichever comes first.
     -- Discrod Docs does not specify the order here again, and does not even
-    -- specify that Hello will be sent. Anyway, Hello sometimes comes before 
+    -- specify that Hello will be sent. Anyway, Hello sometimes comes before
     -- Resumed (as I've found out) so the logic is identical to
     -- waitForHelloReadyor10Seconds.
     waitForHelloResumedOr10Seconds :: Connection -> IO (Maybe Int)
@@ -210,9 +218,9 @@ voiceWebsocketLoop (receives, sends) (info, userId) log = loop ConnStart 0
     waitForHelloResumed conn mb1 bool = do
         msg <- getPayload conn log
         case msg of
-            Right (Hello interval) ->
+            Right (Discord.Internal.Types.VoiceWebsocket.Hello interval) ->
                 waitForHelloResumed conn (Just interval) bool
-            Right Resumed ->
+            Right Discord.Internal.Types.VoiceWebsocket.Resumed ->
                 waitForHelloResumed conn mb1 True
             Right _ ->
                 waitForHelloResumed conn mb1 bool
@@ -225,7 +233,7 @@ getPayload
     -> IO (Either ConnectionException VoiceWebsocketReceivable)
 getPayload conn log = try $ do
     msg' <- receiveData conn
-    case eitherDecode msg' of 
+    case eitherDecode msg' of
         Right msg -> pure msg
         Left err  -> do
             writeChan log $ "Voice Websocket parse error - " <> T.pack err
@@ -247,11 +255,13 @@ getPayloadTimeout conn interval log = do
 -- | Create the sendable and heartbeat loops.
 startEternalStream
     :: WebsocketConn
+    -> Chan (Either GatewayException Event)
+    -- ^ gateway events
     -> Int
     -> Chan VoiceWebsocketSendable
     -> Chan T.Text
     -> IO ConnLoopState
-startEternalStream wsconn interval sends log = do
+startEternalStream wsconn gatewayEvents interval sends log = do
     let err :: SomeException -> IO ConnLoopState
         err e = do
             writeChan log $ wsError $ "event stream error: " <> T.pack (show e)
@@ -260,51 +270,59 @@ startEternalStream wsconn interval sends log = do
         sysSends <- newChan -- Chan for Heartbeat
         sendLoopId <- forkIO $ sendableLoop wsconn sysSends sends
         heartLoopId <- forkIO $ heartbeatLoop wsconn sysSends interval log
+        gatewayReconnected <- newEmptyMVar
+        gatewayCheckerId <- forkIO $ gatewayCheckerLoop gatewayEvents gatewayReconnected log
 
-        finally (eventStream wsconn interval sysSends log) $
-            (killThread heartLoopId >> killThread sendLoopId)
+        finally (eventStream wsconn gatewayReconnected interval sysSends log) $
+            (killThread heartLoopId >> killThread sendLoopId >> killThread gatewayCheckerId)
 
 -- | Eternally stay on lookout for the connection. Writes to receivables channel.
 eventStream
     :: WebsocketConn
+    -> MVar ()
+    -- ^ flag with () if gateway has reconnected
     -> Int
     -> Chan VoiceWebsocketSendable
     -> Chan T.Text
     -> IO ConnLoopState
-eventStream wsconn interval sysSends log = loop
+eventStream wsconn gatewayReconnected interval sysSends log = do
+    sem <- tryReadMVar gatewayReconnected
+    case sem of
+        Just () -> do
+            writeChan log $ wsError "gateway reconnected, doing same for voice."
+            pure ConnReconnect
+        Nothing -> do
+            eitherPayload <- getPayloadTimeout (wsDataConnection wsconn) interval log
+            print $ "<-- " <> show eitherPayload
+            case eitherPayload of
+                -- Network-WebSockets, type ConnectionException
+                Left (CloseRequest code str) -> do
+                    handleClose code str
+                Left _ -> do
+                    writeChan log $ wsError
+                        "connection exception in eventStream."
+                    pure ConnReconnect
+                Right Reconnect -> do
+                    writeChan log $ wsError
+                        "connection timed out, trying to reconnect again."
+                    pure ConnReconnect
+                Right (HeartbeatAckR _) ->
+                    -- discord docs says HeartbeatAck is sent (opcode 6) after every
+                    -- Heartbeat (3) that I send. However, this doesn't seem to be
+                    -- the case, as discord responds with another Heartbeat (3) to
+                    -- my own, and Ack is never sent back.
+                    -- I am required to send back an Ack from MY side in response to
+                    -- the Heartbeat that they send which is in response to the
+                    -- heartbeat that I send. wtf?
+                    eventStream wsconn gatewayReconnected interval sysSends log
+                Right (HeartbeatR a) -> do
+                    writeChan sysSends $ HeartbeatAck a
+                    eventStream wsconn gatewayReconnected interval sysSends log
+                Right receivable -> do
+                    writeChan (wsDataReceivesChan wsconn) (Right receivable)
+                    eventStream wsconn gatewayReconnected interval sysSends log
+
   where
-    loop :: IO ConnLoopState
-    loop = do
-        eitherPayload <- getPayloadTimeout (wsDataConnection wsconn) interval log
-        print $ "<-- " <> show eitherPayload
-        case eitherPayload of
-            -- Network-WebSockets, type ConnectionException
-            Left (CloseRequest code str) -> do
-                handleClose code str
-            Left _ -> do
-                writeChan log $ wsError
-                    "connection exception in eventStream."
-                pure ConnReconnect
-            Right Reconnect -> do
-                writeChan log $ wsError
-                    "connection timed out, trying to reconnect again."
-                pure ConnReconnect
-            Right (HeartbeatAckR _) ->
-                -- discord docs says HeartbeatAck is sent (opcode 6) after every
-                -- Heartbeat (3) that I send. However, this doesn't seem to be
-                -- the case, as discord responds with another Heartbeat (3) to
-                -- my own, and Ack is never sent back. 
-                -- I am required to send back an Ack from MY side in response to
-                -- the Heartbeat that they send which is in response to the
-                -- heartbeat that I send. wtf?
-                loop
-            Right (HeartbeatR a) -> do
-                writeChan sysSends $ HeartbeatAck a
-                loop
-            Right receivable -> do
-                writeChan (wsDataReceivesChan wsconn) (Right receivable)
-                loop
-  
     -- | Handle Websocket Close codes by logging appropriate messages and
     -- closing the connection.
     handleClose :: Word16 -> BL.ByteString -> IO ConnLoopState
@@ -367,3 +385,21 @@ heartbeatLoop wsconn sysSends interval log = do
         time <- round <$> getPOSIXTime
         writeChan sysSends $ Heartbeat $ time
         threadDelay $ interval * 1000
+
+gatewayCheckerLoop
+    :: Chan (Either GatewayException Event)
+    -- ^ Gateway events
+    -> MVar ()
+    -- ^ Binary empty semaphore, set to () when gateway has reconnected
+    -> Chan T.Text
+    -- ^ log
+    -> IO ()
+gatewayCheckerLoop gatewayEvents sem log = do
+    top <- readChan gatewayEvents
+    print top
+    case top of
+        Right (Discord.Internal.Types.Ready _ _ _ _ _) -> do
+            writeChan log "gateway ready detected, putting () in sem"
+            putMVar sem ()
+            gatewayCheckerLoop gatewayEvents sem log
+        _ -> gatewayCheckerLoop gatewayEvents sem log
