@@ -11,26 +11,55 @@ import           Control.Monad              ( when
                                             , void
                                             )
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Map as Map
+import           Data.List                  ( intercalate )
 import qualified Data.Text.IO as TIO
 import qualified Data.Text as T
 import           Discord.Voice              ( joinVoice   -- <-- This is the magic!
                                             , leaveVoice
                                             , playYTDL
-                                            , DiscordVoiceHandle
+                                            , DiscordVoiceHandle(..)
                                             )
 import qualified Discord.Requests as R
 import           Discord.Types
 import           Discord
+import           Options.Applicative
+import qualified StmContainers.Map as Map
 import           UnliftIO                   ( liftIO
+                                            , atomically
                                             )
+
+data BotAction
+    = JoinVoice GuildId ChannelId
+    | LeaveVoice ChannelId
+    | PlayInVoice ChannelId [String]
+    deriving ( Read )
+
+parser :: ParserInfo BotAction
+parser = info
+    ( helper <*> subparser
+        ( command "join"
+            ( flip info (progDesc "Join a voice channel") $
+                JoinVoice <$>
+                argument auto (metavar "GUILDID" <> help "Guild Id") <*>
+                argument auto (metavar "CHANID" <> help "Voice Channel ID"))
+        <> command "leave"
+            ( flip info (progDesc "Leave a voice channel") $
+                LeaveVoice <$>
+                argument auto (metavar "CHANID" <> help "Voice Channel ID"))
+        <> command "play"
+            ( flip info (progDesc "Play something!") $
+                PlayInVoice <$>
+                argument auto (metavar "CHANID" <> help "Voice Channel ID") <*>
+                some (argument str (metavar "QUERY" <> help "Search query/URL")))
+        )
+    ) fullDesc
 
 main :: IO ()
 main = do
-    tok <- TIO.readFile "./examples/production.secret"
+    tok <- TIO.readFile "./examples/auth-token.secret"
 
     -- store a multithreaded list of tuple maps (channelId, voice chat handle)
-    voiceHandles <- newMVar Map.empty
+    voiceHandles <- Map.newIO
 
     t <- runDiscord $ def
         { discordToken = tok
@@ -41,49 +70,41 @@ main = do
         }
     putStrLn "Exiting..."
 
-eventHandler :: MVar (Map.Map T.Text DiscordVoiceHandle) -> Event -> DiscordHandler ()
+eventHandler :: Map.Map String DiscordVoiceHandle -> Event -> DiscordHandler ()
 eventHandler voiceHandles (MessageCreate msg) = do
-    let splits = T.splitOn " " $ messageText msg
-    guard (length splits > 0)
-
-    case head splits of
-        "-join" -> do
-            guard (length splits == 3)
-
-            let (vcGid:vcCid:[]) = tail splits
-            currentHandles <- liftIO $ readMVar voiceHandles
-            if Map.member vcCid currentHandles then do
-                _ <- restCall $ R.CreateMessage (messageChannel msg) $
-                    "I'm already in that VC!"
-                pure ()
-            else do
-                eVc <- joinVoice (read $ T.unpack vcGid) (read $ T.unpack vcCid) False False
-                case eVc of
-                    Left e -> do
-                        _ <- restCall $ R.CreateMessage (messageChannel msg) $
-                            (T.pack $ "Couldn't join!" <> show e)
-                        pure ()
-                    Right vc -> do
-                        void $ liftIO $ swapMVar voiceHandles $
-                            Map.insert vcCid vc currentHandles
-        "-leave" -> do
-            guard (length splits == 2)
-
-            let (vcCid:[]) = tail splits
-            currentHandles <- liftIO $ readMVar voiceHandles
-            when (Map.member vcCid currentHandles) $ do
-                leaveVoice $ currentHandles Map.! vcCid
-                void $ liftIO $ swapMVar voiceHandles $
-                    Map.delete vcCid currentHandles
-
-        "-play" -> do
-            guard (length splits > 2)
-
-            let (vcCid:rest) = tail splits
-            currentHandles <- liftIO $ readMVar voiceHandles
-            when (Map.member vcCid currentHandles) $ do
-                playYTDL (currentHandles Map.! vcCid) (T.unpack $ T.intercalate " " rest) "youtube-dl" "ffmpeg"
-
-        _ -> pure ()
+    let args = map T.unpack $ T.words $ messageText msg
+    when (head args == "bot") $ do
+        let result = execParserPure defaultPrefs parser $ tail args
+        case result of
+            Success (JoinVoice gid cid) -> do
+                isInAlready <- liftIO $ atomically $ Map.lookup (show cid) voiceHandles
+                case isInAlready of
+                    Just _ ->
+                        void $ restCall $ R.CreateMessage (messageChannel msg) $
+                            "I'm already in that VC!"
+                    Nothing -> do
+                        eVc <- joinVoice gid cid False False
+                        case eVc of
+                            Left e ->
+                                void $ restCall $ R.CreateMessage (messageChannel msg) $
+                                    (T.pack $ "Couldn't join!" <> show e)
+                            Right vc ->
+                                liftIO $ atomically $ Map.insert vc (show cid) voiceHandles
+            Success (LeaveVoice cid) -> do
+                isInAlready <- liftIO $ atomically $ Map.lookup (show cid) voiceHandles
+                case isInAlready of
+                    Just vcHandle -> do
+                        leaveVoice vcHandle
+                        liftIO $ atomically $ Map.delete (show cid) voiceHandles
+                    _ -> pure ()
+            Success (PlayInVoice cid q) -> do
+                isInAlready <- liftIO $ atomically $ Map.lookup (show cid) voiceHandles
+                case isInAlready of
+                    Just vcHandle ->
+                        playYTDL vcHandle (intercalate " " q) "youtube-dl" "ffmpeg"
+                    _ -> pure ()
+            Failure failure ->
+                void $ restCall $ R.CreateMessage (messageChannel msg) $ T.pack $
+                    fst $ renderFailure failure "bot"
 eventHandler _ _ = pure ()
 

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 1afb00162bd1cecc47dcf8fc64cc8290057cd2790152dd2d1d0b546521d2ebb8
+-- hash: c82f07b504fc1d426de943d708199422fae4f00650657e7f0b48f1e90b0a4181
 
 name:           discord-haskell-voice
 version:        0.0.1
@@ -105,16 +105,17 @@ executable join-specific
     , base >=4.7 && <5
     , binary
     , bytestring
-    , containers
     , discord-haskell >=1.8.6
     , discord-haskell-voice
     , lens
     , mtl
     , network
+    , optparse-applicative
     , opus
     , process
     , safe-exceptions
     , saltine
+    , stm-containers
     , text
     , time
     , unliftio

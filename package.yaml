@@ -58,4 +58,5 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - discord-haskell-voice
-    - containers
+    - stm-containers
+    - optparse-applicative
