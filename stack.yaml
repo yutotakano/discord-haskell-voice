@@ -1,11 +1,12 @@
-resolver: lts-16.20
+resolver: lts-17.15
 
 packages:
 - .
 
 extra-deps:
-- discord-haskell-1.8.6
+- discord-haskell-1.8.8
+# - git: https://github.com/yutotakano/discord-haskell.git
+  # commit: 45b903db94b60e542c69e008b39d33ab65ef1545
 - emoji-0.1.0.2
 - git: https://github.com/yutotakano/opus.git
   commit: 742a6dc94300d6d8998926e2225dcb455c75cc10
-
