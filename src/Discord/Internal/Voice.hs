@@ -141,16 +141,16 @@ joinVoice gid cid mute deaf = do
 
     -- Wait for Opcode 0 Voice State Update and Voice Server Update
     -- for a maximum of 5 seconds
-    result <- liftIO $ doOrTimeout 5 (getStateServerUpdateEvents events)
+    result <- liftIO $ doOrTimeout 5 (waitOpcode2And4 events)
 
     case result of
         Nothing -> do
             -- did not respond in time: no permission? or discord offline?
             pure $ Left VoiceNotAvailable
-        Just (_, _, _, Nothing) -> do
+        Just (_, (_, _, Nothing)) -> do
             -- If endpoint is null, according to Docs, no servers are available.
             pure $ Left NoServerAvailable
-        Just (sessionId, token, guildId, Just endpoint) -> do
+        Just (sessionId, (token, guildId, Just endpoint)) -> do
             let connInfo = WSConnInfo sessionId token guildId endpoint
             -- Get the current user ID, and pass it on with all the other data
             uid <- getCacheUserId
@@ -158,9 +158,7 @@ joinVoice gid cid mute deaf = do
 
 -- | Get the user ID of the bot from the cache.
 getCacheUserId :: DiscordHandler UserId
-getCacheUserId = do
-    cache <- readCache
-    pure $ userId $ _currentUser cache
+getCacheUserId = userId . _currentUser <$> readCache
 
 -- | Perform an IO action for a maximum of @sec@ seconds.
 doOrTimeout :: Int -> IO a -> IO (Maybe a)
@@ -177,16 +175,16 @@ rightToMaybe (Right x) = Just x
 -- | Loop until both VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE are received.
 -- The order is undefined in docs, so this function will recursively fill
 -- up two Maybe arguments until both are Just.
-getStateServerUpdateEvents
+waitOpcode2And4
     :: Chan (Either GatewayException Event)
-    -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
-getStateServerUpdateEvents events = loopForBoth Nothing Nothing
+    -> IO (T.Text, (T.Text, GuildId, Maybe T.Text))
+waitOpcode2And4 events = loopForBoth Nothing Nothing
   where
     loopForBoth
         :: Maybe T.Text
         -> Maybe (T.Text, GuildId, Maybe T.Text)
-        -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
-    loopForBoth (Just a) (Just (b, c, d)) = pure (a, b, c, d)
+        -> IO (T.Text, (T.Text, GuildId, Maybe T.Text))
+    loopForBoth (Just a) (Just (b, c, d)) = pure (a, (b, c, d))
     loopForBoth mb1 mb2 = do
         top <- readChan events
         case top of
