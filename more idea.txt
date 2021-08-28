@@ -1,0 +1,20 @@
+runVoice $ do
+    join 12341534123
+    join 51241251223 -- join multiple channels and play same thing
+    play "joe"
+
+runVoice $ do -- start with volume 50, play thing for 4 seconds and set volume to 20
+    join 12412552454
+    volume 50
+    lowPass 10 20
+    play "thing"
+    liftIO $ threadDelay 4
+    volume 20
+
+
+joinVoice = 
+    runConduit
+    $ playFile
+
+
+ConduitT _ _ DiscordHandler ()
