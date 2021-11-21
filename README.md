@@ -8,7 +8,7 @@ Currently implemented experimentally:
 - Playing PCM audio data through encoding as OPUS, and encrypting, then sending over UDP
 - Playing other format audio data through calling ffmpeg as a subprocess, then piping its PCM-format stdout into the above procedure
 - Playing arbitrary YouTube videos/search queries through calling youtube-dl as a subprocess, then using ffmpeg to pipe it to the above procedures in real-time
-- Decrypting OPUS audio packet data send from Discord (other people's voices), and decoding them to PCM
+- Decrypting OPUS audio packet data sent from Discord (other people's voices), and decoding them to PCM
 
 Stuff in my todo-list:
 - Currently in-progress: rewrite the entire experimental dirty code into a more structured and planned code
