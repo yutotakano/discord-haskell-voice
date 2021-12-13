@@ -48,25 +48,10 @@ import           Network.Socket.ByteString.Lazy
                                             , recv
                                             )
 
+import           Discord.Internal.Types.Common
 import           Discord.Internal.Types.VoiceUDP
 
 
-type DiscordVoiceHandleUDP
-  = ( Chan VoiceUDPPacket -- can receive various stuff
-    , Bounded.BoundedChan B.ByteString   -- but can only send audio
-    )
-
-data UDPConnInfo = UDPConnInfo
-    { udpInfoSSRC :: Integer
-    , udpInfoAddr :: T.Text
-    , udpInfoPort :: Integer
-    , udpInfoMode :: T.Text
-    }
-
-data UDPConn = UDPConn
-    { udpDataInfo :: UDPConnInfo
-    , udpDataSocket :: Socket
-    }
 
 data ConnLoopState
     = ConnClosed
@@ -114,7 +99,7 @@ udpLoop (receives, sends) connInfo syncKey log = loop ConnStart 0
 
                 case next :: Either SomeException ConnLoopState of
                     Left e -> do
-                        writeChan log $ udpError $ 
+                        writeChan log $ udpError $
                             "could not start UDP conn due to an exception: " <>
                             (T.pack $ show e)
                         loop ConnClosed 0
@@ -204,11 +189,11 @@ receivableLoop conn receives syncKey log = do
                     pure $ MalformedPacket $ BL.append (BL.fromStrict header) og
                 Just x  -> pure $ SpeakingData $ B.drop 8 x
         other -> pure other
-   
+
     -- decode speaking data's OPUS to raw PCM
     msg <- case msg' of
         SpeakingData bytes -> decodeOpusData bytes
-        other -> pure other
+        other -> print other >> pure other
 
     writeChan receives msg
     receivableLoop conn receives syncKey log
@@ -227,7 +212,7 @@ sendableLoop
     -- ^ The encryption key
     -> Chan T.Text
     -- ^ Logs
-    -> Integer 
+    -> Integer
     -- ^ Sequence number, modulo 65535
     -> Integer
     -- ^ Timestamp number, modulo 4294967295
@@ -250,7 +235,7 @@ sendableLoop conn sends syncKey log sequence timestamp startTime = do
             let nonce = createNonceFromHeader header
             byteKey <- readMVar syncKey
             let encryptedOpus = BL.fromStrict $ encrypt byteKey nonce opusBytes
-            
+
             -- send the header and the encrypted opus data
             sendAll (udpDataSocket conn) $
                 encode $ SpeakingDataEncrypted header encryptedOpus
