@@ -36,7 +36,7 @@ import Network.WebSockets
 import Wuss ( runSecureClient )
 import Discord.Internal.Gateway ( GatewayException )
 import Discord
-import Discord.Internal.Types ( GuildId, UserId, Event(..) )
+import Discord.Internal.Types ( GuildId, UserId, User(..), Event(..) )
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types.VoiceWebsocket
 
@@ -59,10 +59,14 @@ connect endpoint = runSecureClient url port "/"
 -- | Attempt to connect (and reconnect on disconnects) to the voice websocket.
 -- Also launches the UDP thread after the initialisation.
 launchWebsocket :: WebsocketLaunchOpts -> Chan T.Text -> DiscordHandler ()
-launchWebsocket opts log = liftIO $ loop WSStart 0
+launchWebsocket opts log = getCacheUserId >>= liftIO . loop WSStart 0
   where
-    loop :: WSLoopState -> Int -> IO ()
-    loop s retries = do
+      -- | Get the user ID of the bot from the cache.
+    getCacheUserId :: DiscordHandler UserId
+    getCacheUserId = userId . cacheCurrentUser <$> readCache
+
+    loop :: WSLoopState -> Int -> UserId -> IO ()
+    loop s retries uid = do
         case s of
             WSClosed -> pure ()
             -- Legitimate closure. We're done.
@@ -102,8 +106,8 @@ launchWebsocket opts log = liftIO $ loop WSStart 0
                         writeChan (opts ^. wsHandle . _1) $ Left $
                             VoiceWebsocketCouldNotConnect
                                 "could not connect due to an exception"
-                        loop WSClosed 0
-                    Right n -> loop n 0
+                        loop WSClosed 0 uid
+                    Right n -> loop n 0 uid
 
             WSResume -> do
                 next <- try $ connect (opts ^. endpoint) $ \conn -> do
@@ -128,8 +132,8 @@ launchWebsocket opts log = liftIO $ loop WSStart 0
                         writeChan log $ wsError
                             "could not resume, retrying after 10 seconds"
                         threadDelay $ 10 * (10^(6 :: Int))
-                        loop WSResume (retries + 1)
-                    Right n -> loop n 1
+                        loop WSResume (retries + 1) uid
+                    Right n -> loop n 1 uid
 
     -- | Wait for 10 seconds or received Ready and Hello, whichever comes first.
     -- Discord Docs does not specify the order in which Ready and Hello can
