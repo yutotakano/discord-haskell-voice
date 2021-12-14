@@ -1,50 +1,41 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 module Discord.Internal.Voice.WebsocketLoop where
 
-import           Control.Concurrent.Async   ( race
-                                            )
-import           Control.Concurrent         ( Chan
-                                            , newChan
-                                            , writeChan
-                                            , readChan
-                                            , threadDelay
-                                            , forkIO
-                                            , killThread
-                                            , MVar
-                                            , putMVar
-                                            , tryReadMVar
-                                            , newEmptyMVar, ThreadId
-                                            )
-import           Control.Exception.Safe     ( try
-                                            , SomeException
-                                            , finally
-                                            , handle
-                                            )
-import           Control.Monad              ( forever
-                                            )
-import           Data.Aeson                 ( encode
-                                            , eitherDecode
-                                            )
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import           Data.Time.Clock.POSIX
-import           Data.Word                  ( Word16
-                                            )
-import           Wuss                       ( runSecureClient )
-import           Network.WebSockets         ( ConnectionException(..)
-                                            , Connection
-                                            , sendClose
-                                            , receiveData
-                                            , sendTextData
-                                            )
-import           Discord.Internal.Gateway   ( GatewayException )
-import           Discord.Internal.Types     ( GuildId
-                                            , UserId
-                                            , Event(..)
-                                            )
-import           Discord.Internal.Types.VoiceCommon
-import           Discord.Internal.Types.VoiceWebsocket
-
+import Control.Concurrent.Async ( race )
+import Control.Concurrent
+    ( Chan
+    , newChan
+    , writeChan
+    , readChan
+    , threadDelay
+    , forkIO
+    , killThread
+    , MVar
+    , putMVar
+    , tryReadMVar
+    , newEmptyMVar
+    , ThreadId
+    )
+import Control.Exception.Safe ( try, SomeException, finally, handle )
+import Control.Monad ( forever )
+import Data.Aeson ( encode, eitherDecode )
+import Data.ByteString.Lazy qualified as BL
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Time.Clock.POSIX
+import Data.Word ( Word16 )
+import Network.WebSockets
+    ( ConnectionException(..)
+    , Connection
+    , sendClose
+    , receiveData
+    , sendTextData
+    )
+import Wuss ( runSecureClient )
+import Discord.Internal.Gateway ( GatewayException )
+import Discord.Internal.Types ( GuildId, UserId, Event(..) )
+import Discord.Internal.Types.VoiceCommon
+import Discord.Internal.Types.VoiceWebsocket
 
 
 data WSLoopState

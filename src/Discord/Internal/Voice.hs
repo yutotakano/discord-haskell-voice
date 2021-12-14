@@ -40,6 +40,11 @@ import System.Process ( CreateProcess(..), StdStream(..), proc, createProcess )
 
 import Discord ( DiscordHandler, sendCommand, readCache )
 import Discord.Handle ( discordHandleGateway, discordHandleLog )
+import Discord.Internal.Gateway.Cache ( Cache(..) )
+import Discord.Internal.Gateway.EventLoop
+    ( GatewayException(..)
+    , GatewayHandle(..)
+    )
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types
     ( GuildId
@@ -50,12 +55,6 @@ import Discord.Internal.Types
     , UpdateStatusVoiceOpts(..)
     , Event(..)
     , UpdateStatusVoiceOpts
-    )
-
-import Discord.Internal.Gateway.Cache ( Cache(..) )
-import Discord.Internal.Gateway.EventLoop
-    ( GatewayException(..)
-    , GatewayHandle(..)
     )
 import Discord.Internal.Voice.WebsocketLoop
 import Discord.Internal.Voice.UDPLoop

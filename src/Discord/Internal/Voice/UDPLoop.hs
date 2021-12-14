@@ -1,56 +1,42 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 module Discord.Internal.Voice.UDPLoop where
 
-import           Codec.Audio.Opus.Decoder
-import           Crypto.Saltine.Core.SecretBox
-                                            ( Key(..)
-                                            , Nonce(..)
-                                            , secretboxOpen
-                                            , secretbox
-                                            )
-import qualified Crypto.Saltine.Class as SC
-import qualified Control.Concurrent.BoundedChan as Bounded
-import           Control.Concurrent         ( Chan
-                                            , readChan
-                                            , writeChan
-                                            , MVar
-                                            , readMVar
-                                            , forkIO
-                                            , killThread
-                                            , threadDelay
-                                            )
-import           Control.Exception.Safe     ( handle
-                                            , SomeException
-                                            , finally
-                                            , try
-                                            )
-import           Control.Lens.Operators     ( (#)
-                                            )
-import           Control.Monad.IO.Class     ( MonadIO
-                                            )
-import           Data.Binary                ( encode
-                                            , decode
-                                            )
-import qualified Data.ByteString.Lazy as BL
-import           Data.ByteString.Builder
-import qualified Data.ByteString as B
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import           Data.Time.Clock.POSIX      ( getPOSIXTime
-                                            , POSIXTime
-                                            )
-import           Data.Maybe                 ( fromJust
-                                            )
-import           Data.Word                  ( Word8
-                                            )
-import           Network.Socket
-import           Network.Socket.ByteString.Lazy
-                                            ( sendAll
-                                            , recv
-                                            )
+import Codec.Audio.Opus.Decoder
+import Crypto.Saltine.Core.SecretBox
+    ( Key(..)
+    , Nonce(..)
+    , secretboxOpen
+    , secretbox
+    )
+import Crypto.Saltine.Class qualified as SC
+import Control.Concurrent.BoundedChan qualified as Bounded
+import Control.Concurrent 
+    ( Chan
+    , readChan
+    , writeChan
+    , MVar
+    , readMVar
+    , forkIO
+    , killThread
+    , threadDelay
+    )
+import Control.Exception.Safe ( handle, SomeException, finally, try )
+import Control.Lens
+import Control.Monad.IO.Class ( MonadIO )
+import Data.Binary ( encode, decode )
+import Data.ByteString.Lazy qualified as BL
+import Data.ByteString.Builder
+import Data.ByteString qualified as B
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Time.Clock.POSIX ( getPOSIXTime, POSIXTime )
+import Data.Maybe ( fromJust )
+import Data.Word ( Word8 )
+import Network.Socket
+import Network.Socket.ByteString.Lazy ( sendAll, recv )
 
-import           Discord.Internal.Types.VoiceCommon
-import           Discord.Internal.Types.VoiceUDP
-
+import Discord.Internal.Types.VoiceCommon
+import Discord.Internal.Types.VoiceUDP
 
 
 data ConnLoopState
