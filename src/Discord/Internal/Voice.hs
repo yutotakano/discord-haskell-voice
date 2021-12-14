@@ -117,7 +117,7 @@ join guildId channelId = do
             -- did not respond in time: no permission? or discord offline?
             throwError VoiceNotAvailable
         Just (_, _, _, Nothing) -> do
-            -- If endpoint is null, according to Docs, no server are available.
+            -- If endpoint is null, according to Docs, no servers are available.
             throwError NoServerAvailable
         Just (sessionId, token, guildId, Just endpoint) -> do
             let connInfo = WSConnInfo sessionId token guildId endpoint
@@ -131,11 +131,17 @@ join guildId channelId = do
             ssrcM <- liftIO $ newEmptyMVar
 
             -- fork a thread to start the websocket thread in the DiscordHandler
-            -- monad.
+            -- monad using the current Reader state. Not much of a problem
+            -- since many of the fields are mutable references.
             wsTid <- liftIO $ forkIO $ flip runReaderT h $
                 launchWebsocket connInfo events wsChans udpHandlesM ssrcM $ discordHandleLog h
             
+            -- modify the current Voice monad state to add the newly created
+            -- UDP and Websocket handles (a handle consists of thread id and
+            -- send/receive channels).
             voiceState <- ask
+            -- TODO: check if readMVar ever blocks if the UDP thread fails to
+            -- launch. Handle somehow? Perhaps with exception throwTo?
             udpTid <- liftIO $ readMVar $ udpHandlesM ^. _1
             udpChans <- liftIO $ readMVar $ udpHandlesM ^. _2
             ssrc <- liftIO $ readMVar ssrcM
