@@ -24,6 +24,7 @@ import Control.Concurrent
     , putMVar
     , withMVar
     , tryPutMVar
+    , modifyMVar_
     )
 import Control.Exception.Safe ( SomeException, handle, finally )
 import Control.Lens
@@ -116,13 +117,34 @@ join guildId channelId = do
             -- did not respond in time: no permission? or discord offline?
             throwError VoiceNotAvailable
         Just (_, _, _, Nothing) -> do
-            -- If endpoint is null, according to Docs, no servers are available.
+            -- If endpoint is null, according to Docs, no server are available.
             throwError NoServerAvailable
         Just (sessionId, token, guildId, Just endpoint) -> do
             let connInfo = WSConnInfo sessionId token guildId endpoint
             -- Get the current user ID, and pass it on with all the other data
             uid <- lift $ lift $ getCacheUserId
-            liftIO $ startVoiceThreads connInfo events uid $ discordHandleLog h
+            -- create the sending and receiving channels for Websocket
+            wsChans <- liftIO $ (,) <$> newChan <*> newChan
+            -- thread id and handles for UDP
+            udpChansM <- liftIO $ (,) <$> newEmptyMVar <*> newEmptyMVar
+            -- ssrc to be filled in during initial handshake
+            ssrcM <- liftIO $ newEmptyMVar
+
+            -- fork a thread to start the websocket thread in the DiscordHandler
+            -- monad.
+            wsTid <- liftIO $ forkIO $ flip runReaderT h $
+                launchWebsocket connInfo events wsChans udpChansM ssrcM $ discordHandleLog h
+            
+            voiceState <- ask
+            udpTid <- liftIO $ readMVar $ udpChansM ^. _1
+            udpChans <- liftIO $ readMVar $ udpChansM ^. _2
+            ssrc <- liftIO $ readMVar ssrcM
+
+            liftIO $ modifyMVar_ (voiceState ^. voiceHandles) $ \handles -> do
+                -- Add the new voice handles to the list of handles
+                let newHandle = DiscordVoiceHandle guildId channelId (wsTid, wsChans) (udpTid, udpChans) ssrc
+                -- Return the new handles
+                pure (newHandle : handles)
 
   where
     waitForVoiceStatusServerUpdate
@@ -172,5 +194,3 @@ doOrTimeout sec longAction = rightToMaybe <$> race waitSecs longAction
 rightToMaybe :: Either a b -> Maybe b
 rightToMaybe (Left _)  = Nothing
 rightToMaybe (Right x) = Just x
-
-startVoiceThreads = undefined
