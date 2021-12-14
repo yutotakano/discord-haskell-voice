@@ -4,7 +4,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 
-module Discord.Internal.Types.Common where
+module Discord.Internal.Types.VoiceCommon where
 
 import Control.Concurrent (Chan, MVar, ThreadId)
 import Control.Concurrent.BoundedChan qualified as Bounded
@@ -14,7 +14,7 @@ import Control.Monad.Reader
 import Data.ByteString qualified as B
 import Data.Text qualified as T
 import Discord
-import Discord.Internal.Types
+import Discord.Types
 import Discord.Internal.Types.VoiceUDP
 import Discord.Internal.Types.VoiceWebsocket
 import Network.Socket

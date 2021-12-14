@@ -1,82 +1,64 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 module Discord.Internal.Voice
     ( runVoice
     ) where
 
-import           Codec.Audio.Opus.Encoder
-import           Control.Concurrent.Async           ( race
-                                                    )
-import qualified Control.Concurrent.BoundedChan as Bounded
-import           Control.Concurrent                 ( ThreadId
-                                                    , threadDelay
-                                                    , killThread
-                                                    , forkIO
-                                                    , Chan
-                                                    , dupChan
-                                                    , newChan
-                                                    , readChan
-                                                    , writeChan
-                                                    , MVar
-                                                    , newEmptyMVar
-                                                    , newMVar
-                                                    , readMVar
-                                                    , putMVar
-                                                    , withMVar
-                                                    , tryPutMVar
-                                                    )
-import           Control.Exception.Safe             ( SomeException
-                                                    , handle
-                                                    )
-import           Control.Lens
-import           Control.Monad.Reader               ( ask
-                                                    , liftIO
-                                                    , runReaderT
-                                                    )
-import           Control.Monad.Except               ( runExceptT
-                                                    , throwError
-                                                    )
-import           Control.Monad.Trans                ( lift
-                                                    )
-import           Control.Monad                      ( when
-                                                    , void
-                                                    )
-import           Data.Aeson
-import           Data.Aeson.Types                   ( parseMaybe
-                                                    )
-import qualified Data.ByteString.Lazy as BL
-import           Data.Maybe                         ( fromJust
-                                                    )
-import qualified Data.Text as T
-import           System.Process                     ( CreateProcess(..)
-                                                    , StdStream(..)
-                                                    , proc
-                                                    , createProcess
-                                                    )
+import Codec.Audio.Opus.Encoder
+import Control.Concurrent.Async ( race )
+import Control.Concurrent.BoundedChan qualified as Bounded
+import Control.Concurrent
+    ( ThreadId
+    , threadDelay
+    , killThread
+    , forkIO
+    , Chan
+    , dupChan
+    , newChan
+    , readChan
+    , writeChan
+    , MVar
+    , newEmptyMVar
+    , newMVar
+    , readMVar
+    , putMVar
+    , withMVar
+    , tryPutMVar
+    )
+import Control.Exception.Safe ( SomeException, handle )
+import Control.Lens
+import Control.Monad.Reader ( ask, liftIO, runReaderT )
+import Control.Monad.Except ( runExceptT, throwError)
+import Control.Monad.Trans ( lift )
+import Control.Monad ( when, void )
+import Data.Aeson
+import Data.Aeson.Types ( parseMaybe )
+import Data.ByteString.Lazy qualified as BL
+import Data.Maybe ( fromJust )
+import Data.Text qualified as T
+import System.Process ( CreateProcess(..), StdStream(..), proc, createProcess )
 
-import           Discord.Internal.Voice.WebsocketLoop
-import           Discord.Internal.Voice.UDPLoop
-import           Discord.Internal.Types.Common
-import           Discord.Internal.Types             ( GuildId
-                                                    , ChannelId
-                                                    , UserId
-                                                    , User(..)
-                                                    , GatewaySendable(..)
-                                                    , UpdateStatusVoiceOpts(..)
-                                                    , Event(..)
-                                                    , UpdateStatusVoiceOpts
-                                                    )
-import           Discord.Internal.Gateway.EventLoop ( GatewayException(..)
-                                                    , GatewayHandle(..)
-                                                    )
-import           Discord.Internal.Gateway.Cache     ( Cache(..)
-                                                    )
-import           Discord.Handle                     ( discordHandleGateway
-                                                    , discordHandleLog
-                                                    )
-import           Discord                            ( DiscordHandler
-                                                    , sendCommand
-                                                    , readCache
-                                                    )
+import Discord ( DiscordHandler, sendCommand, readCache )
+import Discord.Handle ( discordHandleGateway, discordHandleLog )
+import Discord.Internal.Types.VoiceCommon
+import Discord.Internal.Types
+    ( GuildId
+    , ChannelId
+    , UserId
+    , User(..)
+    , GatewaySendable(..)
+    , UpdateStatusVoiceOpts(..)
+    , Event(..)
+    , UpdateStatusVoiceOpts
+    )
+
+import Discord.Internal.Gateway.Cache ( Cache(..) )
+import Discord.Internal.Gateway.EventLoop
+    ( GatewayException(..)
+    , GatewayHandle(..)
+    )
+import Discord.Internal.Voice.WebsocketLoop
+import Discord.Internal.Voice.UDPLoop
 
 data DiscordVoiceResult
     = Success

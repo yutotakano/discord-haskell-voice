@@ -27,7 +27,7 @@ source-repository head
 
 library
   exposed-modules:
-      Discord.Internal.Types.Common
+      Discord.Internal.Types.VoiceCommon
       Discord.Internal.Types.VoiceUDP
       Discord.Internal.Types.VoiceWebsocket
       Discord.Internal.Voice
