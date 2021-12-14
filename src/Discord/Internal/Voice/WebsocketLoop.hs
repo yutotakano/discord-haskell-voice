@@ -42,7 +42,7 @@ import           Discord.Internal.Types     ( GuildId
                                             , UserId
                                             , Event(..)
                                             )
-import           Discord.Internal.Types.Common
+import           Discord.Internal.Types.VoiceCommon
 import           Discord.Internal.Types.VoiceWebsocket
 
 

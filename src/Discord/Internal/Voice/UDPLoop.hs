@@ -48,7 +48,7 @@ import           Network.Socket.ByteString.Lazy
                                             , recv
                                             )
 
-import           Discord.Internal.Types.Common
+import           Discord.Internal.Types.VoiceCommon
 import           Discord.Internal.Types.VoiceUDP
 
 
