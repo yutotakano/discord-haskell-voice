@@ -58,10 +58,7 @@ connect endpoint = runSecureClient url port "/"
 
 -- | Attempt to connect (and reconnect on disconnects) to the voice websocket.
 -- Also launches the UDP thread after the initialisation.
-launchWebsocket
-    :: WebsocketLaunchOpts
-    -> Chan T.Text
-    -> DiscordHandler ()
+launchWebsocket :: WebsocketLaunchOpts -> Chan T.Text -> DiscordHandler ()
 launchWebsocket opts log = liftIO $ loop WSStart 0
   where
     loop :: WSLoopState -> Int -> IO ()
