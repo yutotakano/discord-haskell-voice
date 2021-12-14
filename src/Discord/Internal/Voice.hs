@@ -126,18 +126,18 @@ join guildId channelId = do
             -- create the sending and receiving channels for Websocket
             wsChans <- liftIO $ (,) <$> newChan <*> newChan
             -- thread id and handles for UDP
-            udpChansM <- liftIO $ (,) <$> newEmptyMVar <*> newEmptyMVar
+            udpHandlesM <- liftIO $ (,) <$> newEmptyMVar <*> newEmptyMVar
             -- ssrc to be filled in during initial handshake
             ssrcM <- liftIO $ newEmptyMVar
 
             -- fork a thread to start the websocket thread in the DiscordHandler
             -- monad.
             wsTid <- liftIO $ forkIO $ flip runReaderT h $
-                launchWebsocket connInfo events wsChans udpChansM ssrcM $ discordHandleLog h
+                launchWebsocket connInfo events wsChans udpHandlesM ssrcM $ discordHandleLog h
             
             voiceState <- ask
-            udpTid <- liftIO $ readMVar $ udpChansM ^. _1
-            udpChans <- liftIO $ readMVar $ udpChansM ^. _2
+            udpTid <- liftIO $ readMVar $ udpHandlesM ^. _1
+            udpChans <- liftIO $ readMVar $ udpHandlesM ^. _2
             ssrc <- liftIO $ readMVar ssrcM
 
             liftIO $ modifyMVar_ (voiceState ^. voiceHandles) $ \handles -> do
