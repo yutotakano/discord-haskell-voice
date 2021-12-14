@@ -25,7 +25,7 @@ import Control.Concurrent
     , withMVar
     , tryPutMVar
     )
-import Control.Exception.Safe ( SomeException, handle )
+import Control.Exception.Safe ( SomeException, handle, finally )
 import Control.Lens
 import Control.Monad.Reader ( ask, liftIO, runReaderT )
 import Control.Monad.Except ( runExceptT, throwError)
@@ -89,11 +89,13 @@ runVoice action = do
     sends <- liftIO $ Bounded.newBoundedChan 500 -- 10 seconds worth of 20ms
     let initialState = DiscordBroadcastHandle voiceHandles mutEx sends
 
-    result <- runExceptT $ flip runReaderT initialState $ action
+    result <- finally (runExceptT $ flip runReaderT initialState $ action) $ do
+        -- Wrap cleanup action in @finally@ to ensure we always close the
+        -- threads even if an exception occurred.
+        finalState <- liftIO $ readMVar voiceHandles
+        mapMOf_ (traverse . websocket . _1) (liftIO . killThread) finalState
+        mapMOf_ (traverse . udp . _1) (liftIO . killThread) finalState
 
-    finalState <- liftIO $ readMVar voiceHandles
-    mapMOf_ (traverse . websocket . _1) (liftIO . killThread) finalState
-    mapMOf_ (traverse . udp . _1) (liftIO . killThread) finalState
     pure result
 
 -- | Join a specific voice channel. The @guildId@ parameter will hopefully be
