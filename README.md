@@ -11,7 +11,7 @@ Currently implemented experimentally:
 - Decrypting OPUS audio packet data sent from Discord (other people's voices), and decoding them to PCM
 
 Stuff in my todo-list:
-- Currently in-progress: rewrite the entire experimental dirty code into a more structured and planned code
+- Currently in-progress: rewrite the entire experimental dirty code into a more structured and planned code. (see the relevant branch)
 - Handle unexpected errors better, like UDP connection dropping or Websocket dropping, or main Gateway dropping
 - Dedicated monad to prevent unlawful use of voice connections, and handle websocket/udp errors transparently
 - Use/Learn Conduit to implement clean packet sending through streams
