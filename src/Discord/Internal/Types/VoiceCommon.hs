@@ -15,6 +15,7 @@ import Data.ByteString qualified as B
 import Data.Text qualified as T
 import Discord
 import Discord.Types
+import Discord.Internal.Gateway.EventLoop ( GatewayException(..) )
 import Discord.Internal.Types.VoiceUDP
 import Discord.Internal.Types.VoiceWebsocket
 import Network.Socket
@@ -95,20 +96,23 @@ data UDPConn = UDPConn
     , udpDataSocket :: Socket
     }
 
--- | session_id, token, guild_id, endpoint
-data WebsocketConnInfo = WSConnInfo
-    { wsInfoSessionId :: T.Text
-    , wsInfoToken :: T.Text
-    , wsInfoGuildId :: GuildId
-    , wsInfoEndpoint :: T.Text
+data WebsocketLaunchOpts = WebsocketLaunchOpts
+    { websocketLaunchOptsSessionId :: T.Text
+    , websocketLaunchOptsToken     :: T.Text
+    , websocketLaunchOptsGuildId   :: GuildId
+    , websocketLaunchOptsEndpoint  :: T.Text
+    , websocketLaunchOptsGatewayEvents :: Chan (Either GatewayException Event)
+    , websocketLaunchOptsWsHandle  :: DiscordVoiceHandleWebsocket
+    , websocketLaunchOptsUdpInfo   :: (MVar ThreadId, MVar DiscordVoiceHandleUDP)
+    , websocketLaunchOptsSsrc      :: MVar Integer
     }
 
-data WebsocketConn = WSConn
-    { wsDataConnection :: Connection
-    , wsDataConnInfo :: WebsocketConnInfo
-    , wsDataReceivesChan ::
-        Chan (Either VoiceWebsocketException VoiceWebsocketReceivable)
+data WebsocketConn = WebsocketConn
+    { websocketConnConnection :: Connection
+    , websocketConnLaunchOpts :: WebsocketLaunchOpts
     }
 
 $(makeFields ''DiscordVoiceHandle)
 $(makeFields ''DiscordBroadcastHandle)
+$(makeFields ''WebsocketLaunchOpts)
+$(makeFields ''WebsocketConn)
