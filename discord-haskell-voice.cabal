@@ -47,7 +47,7 @@ library
     , base >=4.7 && <5
     , binary
     , bytestring
-    , discord-haskell >=1.8.6
+    , discord-haskell ==1.9.2
     , lens
     , mtl
     , network
@@ -76,7 +76,7 @@ executable join-all-on-start
     , base >=4.7 && <5
     , binary
     , bytestring
-    , discord-haskell >=1.8.6
+    , discord-haskell ==1.9.2
     , discord-haskell-voice
     , lens
     , mtl
@@ -106,7 +106,7 @@ executable join-specific
     , base >=4.7 && <5
     , binary
     , bytestring
-    , discord-haskell >=1.8.6
+    , discord-haskell ==1.9.2
     , discord-haskell-voice
     , lens
     , mtl

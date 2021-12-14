@@ -1,10 +1,14 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies #-}
 
 module Discord.Internal.Types.Common where
 
 import Control.Concurrent (Chan, MVar, ThreadId)
 import Control.Concurrent.BoundedChan qualified as Bounded
+import Control.Lens (makeFields)
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.ByteString qualified as B
@@ -16,16 +20,16 @@ import Discord.Internal.Types.VoiceWebsocket
 import Network.Socket
 import Network.WebSockets (ConnectionException, Connection)
 
--- | ExceptT outside so threads in state can be killed as necessary.
--- If it is ReaderT state (ExceptT error handler) a, then when an error occurs,
--- it will be caught by the ExceptT and returned as an Either into the ReaderT
--- monad, but what we want to do most of the time is to kill the thread stored
--- in the reader state. Mutating the state is not possible, nor is it safe to
--- kill a thread which the PID is still actively stored in a reader. So we use
--- ExceptT outside, so the error is propagated there, and since there is no
--- reader capturing the state, the thread can be killed.
+-- | ExceptT is on the base so threads in state can be killed as necessary.
+-- If it is ReaderT on the base, then when an error occurs, it will be caught by
+-- the ExceptT and returned as an Either into the ReaderT monad, but what we want
+-- to do most of the time is to kill the thread stored in the reader state.
+-- Mutating the state is not possible, nor is it safe to kill a thread which the
+-- PID is still actively stored in a reader. So we use ExceptT on the base, so
+-- the error is propagated there, and since there is no reader capturing the
+-- state, the thread can be killed.
 type Voice a =
-    ExceptT VoiceError (ReaderT DiscordMultiVoiceHandle DiscordHandler) a
+    ReaderT DiscordBroadcastHandle (ExceptT VoiceError DiscordHandler) a
 
 data VoiceError
     = VoiceNotAvailable
@@ -36,27 +40,27 @@ data VoiceError
 -- | Represents a voice connection handle to a specific voice channel.
 data DiscordVoiceHandle = DiscordVoiceHandle
     { -- | The guild id of the voice channel.
-      dvGuildId :: GuildId
+      discordVoiceHandleGuildId :: GuildId
     , -- | The channel id of the voice channel.
-      dvChannelId :: ChannelId
+      discordVoiceHandleChannelId :: ChannelId
     , -- | The websocket thread id and handle.
-      dvWebsocket :: (ThreadId, DiscordVoiceHandleWebsocket)
+      discordVoiceHandleWebsocket :: (ThreadId, DiscordVoiceHandleWebsocket)
     , -- | The UDP thread id and handle.
-      dvUDP :: (ThreadId, DiscordVoiceHandleUDP)
+      discordVoiceHandleUdp :: (ThreadId, DiscordVoiceHandleUDP)
     , -- | The SSRC of the voice connection, specified by Discord.
-      dvSSRC :: Integer
+      discordVoiceHandleSSRC :: Integer
     }
 
 {- | Represents a "stream" or a "broadcast", which is a list of voice connection
  handles that share the same audio stream.
 -}
-data DiscordMultiVoiceHandle = DiscordMultiVoiceHandle
+data DiscordBroadcastHandle = DiscordBroadcastHandle
     { -- | The list of voice connection handles.
-      dmvVoiceHandles :: MVar [DiscordVoiceHandle]
+      discordBroadcastHandleVoiceHandles :: MVar [DiscordVoiceHandle]
     , -- | The mutex used to synchronize access to the list of voice connection
-      dmvMutEx :: MVar ()
+      discordBroadcastHandleMutEx :: MVar ()
     , -- | The channel used to send audio data to the audio stream.
-      dmvSends :: Bounded.BoundedChan B.ByteString
+      discordBroadcastHandleSends :: Bounded.BoundedChan B.ByteString
     }
 
 data VoiceWebsocketException
@@ -105,3 +109,6 @@ data WebsocketConn = WSConn
     , wsDataReceivesChan ::
         Chan (Either VoiceWebsocketException VoiceWebsocketReceivable)
     }
+
+$(makeFields ''DiscordVoiceHandle)
+$(makeFields ''DiscordBroadcastHandle)
