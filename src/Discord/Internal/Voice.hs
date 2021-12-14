@@ -120,9 +120,6 @@ join guildId channelId = do
             -- If endpoint is null, according to Docs, no servers are available.
             throwError NoServerAvailable
         Just (sessionId, token, guildId, Just endpoint) -> do
-            let connInfo = WSConnInfo sessionId token guildId endpoint
-            -- Get the current user ID, and pass it on with all the other data
-            uid <- lift $ lift $ getCacheUserId
             -- create the sending and receiving channels for Websocket
             wsChans <- liftIO $ (,) <$> newChan <*> newChan
             -- thread id and handles for UDP
@@ -130,11 +127,14 @@ join guildId channelId = do
             -- ssrc to be filled in during initial handshake
             ssrcM <- liftIO $ newEmptyMVar
 
+            let wsOpts = WebsocketLaunchOpts sessionId token guildId endpoint
+                    events wsChans udpHandlesM ssrcM
+
             -- fork a thread to start the websocket thread in the DiscordHandler
             -- monad using the current Reader state. Not much of a problem
             -- since many of the fields are mutable references.
             wsTid <- liftIO $ forkIO $ flip runReaderT h $
-                launchWebsocket connInfo events wsChans udpHandlesM ssrcM $ discordHandleLog h
+                launchWebsocket wsOpts $ discordHandleLog h
             
             -- modify the current Voice monad state to add the newly created
             -- UDP and Websocket handles (a handle consists of thread id and

@@ -17,6 +17,7 @@ import Control.Concurrent
     , ThreadId
     )
 import Control.Exception.Safe ( try, SomeException, finally, handle )
+import Control.Lens
 import Control.Monad ( forever )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Aeson ( encode, eitherDecode )
@@ -58,21 +59,10 @@ connect endpoint = runSecureClient url port "/"
 -- | Attempt to connect (and reconnect on disconnects) to the voice websocket.
 -- Also launches the UDP thread after the initialisation.
 launchWebsocket
-    :: WebsocketConnInfo
-    -- ^ The connection info (session_id, token, guild_id, endpoint) for the
-    -- voice websocket.
-    -> Chan (Either GatewayException Event)
-    -- ^ The duplicated channel where main gateway events are added to. This
-    -- function is the only one that should ever take from this channel.
-    -> DiscordVoiceHandleWebsocket
-    -- ^ The tuple of received data and sending data channels for the websocket.
-    -> (MVar ThreadId, MVar DiscordVoiceHandleUDP)
-    -- ^ An MVar tuple containing the thread ID of the UDP loop receive/send
-    -- Chans, to report back to startThreads in Voice.hs.
-    -> MVar Integer
+    :: WebsocketLaunchOpts
     -> Chan T.Text
     -> DiscordHandler ()
-launchWebsocket info gatewayEvents (receives, sends) (udpTidM, udpHandleM) ssrcM log = liftIO $ loop WSStart 0
+launchWebsocket opts log = liftIO $ loop WSStart 0
   where
     loop :: WSLoopState -> Int -> IO ()
     loop s retries = do
@@ -84,13 +74,13 @@ launchWebsocket info gatewayEvents (receives, sends) (udpTidM, udpHandleM) ssrcM
                 -- then create the UDP thread (fill in the MVars to report back
                 -- immediately upon creation, so it can be killed if any errors
                 -- happen down the line).
-                next <- try $ connect (wsInfoEndpoint info) $ \conn -> do
+                next <- try $ connect (opts ^. endpoint) $ \conn -> do
                     -- Send opcode 0 Identify
                     sendTextData conn $ encode $ Identify $ IdentifyPayload
-                        { identifyPayloadServerId = wsInfoGuildId info
+                        { identifyPayloadServerId = (opts ^. guildId)
                         , identifyPayloadUserId = undefined
-                        , identifyPayloadSessionId = wsInfoSessionId info
-                        , identifyPayloadToken = wsInfoToken info
+                        , identifyPayloadSessionId = (opts ^. sessionId)
+                        , identifyPayloadToken = (opts ^. token)
                         }
                     -- Attempt to get opcode 2 Ready and Opcode 8 Hello in an
                     -- undefined order.
@@ -103,26 +93,26 @@ launchWebsocket info gatewayEvents (receives, sends) (udpTidM, udpHandleM) ssrcM
                             pure WSClosed
                         Just (interval, payload) -> do
                             -- All good! Start the heartbeating and send loops.
-                            writeChan receives $ Right (Discord.Internal.Types.VoiceWebsocket.Ready payload)
-                            startEternalStream (WSConn conn info receives)
-                                gatewayEvents interval sends log
+                            writeChan (opts ^. wsHandle . _1) $ Right (Discord.Internal.Types.VoiceWebsocket.Ready payload)
+                            startEternalStream (WebsocketConn conn opts)
+                                (opts ^. gatewayEvents) interval (opts ^. wsHandle . _2) log
                 -- Connection is now closed.
                 case next :: Either SomeException WSLoopState of
                     Left e -> do
                         writeChan log $ wsError $
                             "could not connect due to an exception: " <>
                                 (T.pack $ show e)
-                        writeChan receives $ Left $
+                        writeChan (opts ^. wsHandle . _1) $ Left $
                             VoiceWebsocketCouldNotConnect
                                 "could not connect due to an exception"
                         loop WSClosed 0
                     Right n -> loop n 0
 
             WSResume -> do
-                next <- try $ connect (wsInfoEndpoint info) $ \conn -> do
+                next <- try $ connect (opts ^. endpoint) $ \conn -> do
                     -- Send opcode 7 Resume
                     sendTextData conn $ encode $
-                        Resume (wsInfoGuildId info) (wsInfoSessionId info) (wsInfoToken info)
+                        Resume (opts ^. guildId) (opts ^. sessionId) (opts ^. token)
                     -- Attempt to get opcode 9 Resumed and Opcode 8 Hello in an
                     -- undefined order
                     result <- waitForHelloResumedOr10Seconds conn
@@ -133,8 +123,8 @@ launchWebsocket info gatewayEvents (receives, sends) (udpTidM, udpHandleM) ssrcM
                                     "after reconnection within 10 seconds"
                             pure WSStart
                         Just interval -> do
-                            startEternalStream (WSConn conn info receives)
-                                gatewayEvents interval sends log
+                            startEternalStream (WebsocketConn conn opts)
+                                (opts ^. gatewayEvents) interval (opts ^. wsHandle . _2) log
                 -- Connection is now closed.
                 case next :: Either SomeException WSLoopState of
                     Left _ -> do
@@ -278,10 +268,10 @@ eventStream wsconn gatewayReconnected interval sysSends log = do
     case sem of
         Just () -> do
             writeChan log $ wsError "gateway reconnected, doing same for voice."
-            sendClose (wsDataConnection wsconn) $ T.pack "Hey Discord, we're reconnecting in a bit."
+            sendClose (wsconn ^. connection) $ T.pack "Hey Discord, we're reconnecting in a bit."
             pure WSResume
         Nothing -> do
-            eitherPayload <- getPayloadTimeout (wsDataConnection wsconn) interval log
+            eitherPayload <- getPayloadTimeout (wsconn ^. connection) interval log
             putStrLn $ "<-- " <> show eitherPayload
             case eitherPayload of
                 -- Network-WebSockets, type ConnectionException
@@ -308,7 +298,7 @@ eventStream wsconn gatewayReconnected interval sysSends log = do
                     writeChan sysSends $ HeartbeatAck a
                     eventStream wsconn gatewayReconnected interval sysSends log
                 Right receivable -> do
-                    writeChan (wsDataReceivesChan wsconn) (Right receivable)
+                    writeChan (wsconn ^. launchOpts . wsHandle . _1) (Right receivable)
                     eventStream wsconn gatewayReconnected interval sysSends log
 
   where
@@ -357,7 +347,7 @@ sendableLoop wsconn sysSends usrSends = do
     -- Get whichever possible, and send it
     payload <- either id id <$> race (readChan sysSends) (readChan usrSends)
     print $ "--> " <> show payload
-    sendTextData (wsDataConnection wsconn) $ encode payload
+    sendTextData (wsconn ^. connection) $ encode payload
     sendableLoop wsconn sysSends usrSends
 
 -- | Eternally send heartbeats through the sysSends channel
