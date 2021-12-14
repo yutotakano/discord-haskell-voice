@@ -18,6 +18,7 @@ import Control.Concurrent
     )
 import Control.Exception.Safe ( try, SomeException, finally, handle )
 import Control.Monad ( forever )
+import Control.Monad.IO.Class ( liftIO )
 import Data.Aeson ( encode, eitherDecode )
 import Data.ByteString.Lazy qualified as BL
 import Data.Text qualified as T
@@ -33,6 +34,7 @@ import Network.WebSockets
     )
 import Wuss ( runSecureClient )
 import Discord.Internal.Gateway ( GatewayException )
+import Discord
 import Discord.Internal.Types ( GuildId, UserId, Event(..) )
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types.VoiceWebsocket
@@ -67,9 +69,10 @@ launchWebsocket
     -> (MVar ThreadId, MVar DiscordVoiceHandleUDP)
     -- ^ An MVar tuple containing the thread ID of the UDP loop receive/send
     -- Chans, to report back to startThreads in Voice.hs.
+    -> MVar Integer
     -> Chan T.Text
-    -> IO ()
-launchWebsocket info gatewayEvents (receives, sends) (udpTidM, udpHandleM) log = loop WSStart 0
+    -> DiscordHandler ()
+launchWebsocket info gatewayEvents (receives, sends) (udpTidM, udpHandleM) ssrcM log = liftIO $ loop WSStart 0
   where
     loop :: WSLoopState -> Int -> IO ()
     loop s retries = do
