@@ -79,7 +79,7 @@ launchWebsocket opts log = getCacheUserId >>= liftIO . loop WSStart 0
                     -- Send opcode 0 Identify
                     sendTextData conn $ encode $ Identify $ IdentifyPayload
                         { identifyPayloadServerId = (opts ^. guildId)
-                        , identifyPayloadUserId = undefined
+                        , identifyPayloadUserId = uid
                         , identifyPayloadSessionId = (opts ^. sessionId)
                         , identifyPayloadToken = (opts ^. token)
                         }
