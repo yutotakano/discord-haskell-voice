@@ -4,8 +4,8 @@ import           Control.Monad              ( forM_
                                             )
 import qualified Data.Text.IO as TIO
 import           Discord
-import           Discord.Voice              ( joinVoice
-                                            )
+-- import           Discord.Voice              ( joinVoice
+--                                             )
 import qualified Discord.Requests as R
 import           Discord.Types
 import           UnliftIO                   ( liftIO
@@ -27,17 +27,17 @@ eventHandler :: Event -> DiscordHandler ()
 eventHandler event = pure ()
 
 startHandler :: DiscordHandler ()
-startHandler = do
-    Right partialGuilds <- restCall R.GetCurrentUserGuilds
+startHandler = pure ()
+    -- Right partialGuilds <- restCall R.GetCurrentUserGuilds
 
-    forM_ partialGuilds $ \pg -> do
-        Right guild <- restCall $ R.GetGuild (partialGuildId pg)
-        Right chans <- restCall $ R.GetGuildChannels (guildId guild)
-        case filter isVoiceChannel chans of
-            (c:_) -> do
-                _ <- joinVoice (guildId guild) (channelId c) False False
-                pure ()
-            _ -> pure ()
+    -- forM_ partialGuilds $ \pg -> do
+    --     Right guild <- restCall $ R.GetGuild (partialGuildId pg)
+    --     Right chans <- restCall $ R.GetGuildChannels (guildId guild)
+    --     case filter isVoiceChannel chans of
+    --         (c:_) -> do
+    --             _ <- joinVoice (guildId guild) (channelId c) False False
+    --             pure ()
+    --         _ -> pure ()
 
 
 isTextChannel :: Channel -> Bool

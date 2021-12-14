@@ -23,7 +23,7 @@ dependencies:
 - BoundedChan
 - binary
 - bytestring
-- discord-haskell >= 1.8.6
+- discord-haskell == 1.9.2
 - lens
 - mtl
 - network

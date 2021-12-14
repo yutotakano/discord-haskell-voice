@@ -76,10 +76,11 @@ launchWebsocket
     -> (MVar ThreadId, MVar DiscordVoiceHandleUDP)
     -- ^ An MVar tuple containing the thread ID of the UDP loop receive/send
     -- Chans, to report back to startThreads in Voice.hs.
-    -> Voice ()
-launchWebsocket info gatewayEvents (receives, sends) (udpTidM, udpHandleM) = loop WSStart 0
+    -> Chan T.Text
+    -> IO ()
+launchWebsocket info gatewayEvents (receives, sends) (udpTidM, udpHandleM) log = loop WSStart 0
   where
-    loop :: WSLoopState -> Int -> Voice ()
+    loop :: WSLoopState -> Int -> IO ()
     loop s retries = do
         case s of
             WSClosed -> pure ()
