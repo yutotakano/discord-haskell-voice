@@ -146,22 +146,23 @@ join guildId channelId = do
             udpChans <- liftIO $ readMVar $ udpHandlesM ^. _2
             ssrc <- liftIO $ readMVar ssrcM
 
+            -- Add the new voice handles to the list of handles
             liftIO $ modifyMVar_ (voiceState ^. voiceHandles) $ \handles -> do
-                -- Add the new voice handles to the list of handles
-                let newHandle = DiscordVoiceHandle guildId channelId (wsTid, wsChans) (udpTid, udpChans) ssrc
-                -- Return the new handles
+                let newHandle = DiscordVoiceHandle guildId channelId
+                    (wsTid, wsChans) (udpTid, udpChans) ssrc
                 pure (newHandle : handles)
 
+-- | Continuously take the top item in the gateway event channel until both
+-- Dispatch Event VOICE_STATE_UPDATE and Dispatch Event VOICE_SERVER_UPDATE
+-- are received.
+--
+-- The order is undefined in docs, so this function will block until both
+-- are received in any order.
+waitForVoiceStatusServerUpdate
+    :: Chan (Either GatewayException Event)
+    -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
+waitForVoiceStatusServerUpdate = loopForBothEvents Nothing Nothing
   where
-    waitForVoiceStatusServerUpdate
-        :: Chan (Either GatewayException Event)
-        -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
-    waitForVoiceStatusServerUpdate = loopForBothEvents Nothing Nothing
-    
-    -- | Loop until both VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE event
-    -- dispatches are received.
-    -- The order is undefined in docs, so this function will recursively fill
-    -- up two Maybe arguments until both are Just.
     loopForBothEvents
         :: Maybe T.Text
         -> Maybe (T.Text, GuildId, Maybe T.Text)
