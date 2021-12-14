@@ -149,7 +149,7 @@ join guildId channelId = do
             -- Add the new voice handles to the list of handles
             liftIO $ modifyMVar_ (voiceState ^. voiceHandles) $ \handles -> do
                 let newHandle = DiscordVoiceHandle guildId channelId
-                    (wsTid, wsChans) (udpTid, udpChans) ssrc
+                        (wsTid, wsChans) (udpTid, udpChans) ssrc
                 pure (newHandle : handles)
 
 -- | Continuously take the top item in the gateway event channel until both
