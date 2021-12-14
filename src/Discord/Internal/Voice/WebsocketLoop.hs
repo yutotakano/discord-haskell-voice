@@ -15,6 +15,7 @@ import Control.Concurrent
     , tryReadMVar
     , newEmptyMVar
     , ThreadId
+    , myThreadId
     )
 import Control.Exception.Safe ( try, SomeException, finally, handle )
 import Control.Lens
@@ -25,6 +26,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time.Clock.POSIX
+import Data.Time.Clock
 import Data.Word ( Word16 )
 import Network.WebSockets
     ( ConnectionException(..)
@@ -46,6 +48,17 @@ data WSLoopState
     | WSClosed
     | WSResume
     deriving Show
+
+-- | A custom logging function that writes the date/time and the thread ID.
+(✍) :: Chan T.Text -> T.Text -> IO ()
+logChan ✍ log = do
+    t <- getCurrentTime
+    tid <- myThreadId
+    writeChan logChan $ (T.pack $ show t) <> " " <> (T.pack $ show tid) <> " " <> log
+
+-- | A variant of (✍) that prepends the wsError text.
+(✍!) :: Chan T.Text -> T.Text -> IO ()
+logChan ✍! log = logChan ✍ (wsError log)
 
 wsError :: T.Text -> T.Text
 wsError t = "Voice Websocket error - " <> t
@@ -88,9 +101,8 @@ launchWebsocket opts log = getCacheUserId >>= liftIO . loop WSStart 0
                     result <- waitForHelloReadyOr10Seconds conn
                     case result of
                         Nothing -> do
-                            writeChan log $ wsError $
-                                "did not receive a valid Opcode 2 and 8 " <>
-                                    "after connection within 10 seconds"
+                            (✍!) log $ "did not receive a valid Opcode 2 and 8 "
+                                <> "after connection within 10 seconds"
                             pure WSClosed
                         Just (interval, payload) -> do
                             -- All good! Start the heartbeating and send loops.
@@ -100,9 +112,8 @@ launchWebsocket opts log = getCacheUserId >>= liftIO . loop WSStart 0
                 -- Connection is now closed.
                 case next :: Either SomeException WSLoopState of
                     Left e -> do
-                        writeChan log $ wsError $
-                            "could not connect due to an exception: " <>
-                                (T.pack $ show e)
+                        (✍!) log $ "could not connect due to an exception: " <>
+                            (T.pack $ show e)
                         writeChan (opts ^. wsHandle . _1) $ Left $
                             VoiceWebsocketCouldNotConnect
                                 "could not connect due to an exception"
@@ -119,9 +130,8 @@ launchWebsocket opts log = getCacheUserId >>= liftIO . loop WSStart 0
                     result <- waitForHelloResumedOr10Seconds conn
                     case result of
                         Nothing -> do
-                            writeChan log $ wsError $
-                                "did not receive a valid Opcode 9 and 8 " <>
-                                    "after reconnection within 10 seconds"
+                            (✍!) log $ "did not receive a valid Opcode 9 and 8 " <>
+                                "after reconnection within 10 seconds"
                             pure WSStart
                         Just interval -> do
                             startEternalStream (WebsocketConn conn opts)
@@ -129,8 +139,7 @@ launchWebsocket opts log = getCacheUserId >>= liftIO . loop WSStart 0
                 -- Connection is now closed.
                 case next :: Either SomeException WSLoopState of
                     Left _ -> do
-                        writeChan log $ wsError
-                            "could not resume, retrying after 10 seconds"
+                        (✍!) log $ "could not resume, retrying after 10 seconds"
                         threadDelay $ 10 * (10^(6 :: Int))
                         loop WSResume (retries + 1) uid
                     Right n -> loop n 1 uid
@@ -215,7 +224,7 @@ getPayload conn log = try $ do
     case eitherDecode msg' of
         Right msg -> pure msg
         Left err  -> do
-            writeChan log $ "Voice Websocket parse error - " <> T.pack err
+            (✍) log $ "Voice Websocket parse error - " <> T.pack err
                 <> " while decoding " <> TE.decodeUtf8 (BL.toStrict msg')
             pure $ ParseError $ T.pack err
 
@@ -243,7 +252,7 @@ startEternalStream
 startEternalStream wsconn gatewayEvents interval sends log = do
     let err :: SomeException -> IO WSLoopState
         err e = do
-            writeChan log $ wsError $ "event stream error: " <> T.pack (show e)
+            (✍!) log $ "event stream error: " <> T.pack (show e)
             pure WSResume
     handle err $ do
         sysSends <- newChan -- Chan for Heartbeat
@@ -268,7 +277,7 @@ eventStream wsconn gatewayReconnected interval sysSends log = do
     sem <- tryReadMVar gatewayReconnected
     case sem of
         Just () -> do
-            writeChan log $ wsError "gateway reconnected, doing same for voice."
+            log ✍! "gateway reconnected, doing same for voice."
             sendClose (wsconn ^. connection) $ T.pack "Hey Discord, we're reconnecting in a bit."
             pure WSResume
         Nothing -> do
@@ -279,12 +288,10 @@ eventStream wsconn gatewayReconnected interval sysSends log = do
                 Left (CloseRequest code str) -> do
                     handleClose code str
                 Left _ -> do
-                    writeChan log $ wsError
-                        "connection exception in eventStream."
+                    log ✍! "connection exception in eventStream."
                     pure WSResume
                 Right Reconnect -> do
-                    writeChan log $ wsError
-                        "connection timed out, trying to reconnect again."
+                    log ✍! "connection timed out, trying to reconnect again."
                     pure WSResume
                 Right (HeartbeatAckR _) ->
                     -- discord docs says HeartbeatAck is sent (opcode 6) after every
@@ -312,26 +319,22 @@ eventStream wsconn gatewayReconnected interval sysSends log = do
             -- from discord.py voice_client.py#L421
             1000 -> do
                 -- Normal close
-                writeChan log $ wsError $
-                    "websocket closed normally."
+                log ✍! "websocket closed normally."
                 pure WSClosed
             4001 -> do
                 -- Unknown opcode
-                writeChan log $ wsError $
-                    "websocket closed due to unknown opcode"
+                log ✍! "websocket closed due to unknown opcode"
                 pure WSClosed
             4014 -> do
                 -- VC deleted, main gateway closed, or bot kicked. Do not resume.
                 -- Instead, restart from zero.
-                writeChan log $ wsError $
-                    "vc deleted or bot forcefully disconnected... Restarting gateway"
+                log ✍! "vc deleted or bot forcefully disconnected... Restarting gateway"
                 pure WSStart
             4015 -> do
                 -- "The server crashed. Our bad! Try resuming."
                 pure WSResume
             x    -> do
-                writeChan log $ wsError $
-                    "connection closed with code: [" <> T.pack (show code) <>
+                (✍!) log $ "connection closed with code: [" <> T.pack (show code) <>
                         "] " <> reason
                 pure WSClosed
 
@@ -379,7 +382,7 @@ gatewayCheckerLoop gatewayEvents sem log = do
     print top
     case top of
         Right (Discord.Internal.Types.Ready _ _ _ _ _) -> do
-            writeChan log "gateway ready detected, putting () in sem"
+            log ✍ "gateway ready detected, putting () in sem"
             putMVar sem ()
             gatewayCheckerLoop gatewayEvents sem log
         _ -> gatewayCheckerLoop gatewayEvents sem log
