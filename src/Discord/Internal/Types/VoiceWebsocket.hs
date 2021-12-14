@@ -1,15 +1,14 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 module Discord.Internal.Types.VoiceWebsocket where
 
-import           Control.Applicative            ( (<|>)
-                                                )
-import           Data.Aeson
-import           Data.Aeson.Types
-import qualified Data.Text as T
-import qualified Data.ByteString as B
-import           Data.Word                      ( Word8
-                                                )
+import Control.Applicative ( (<|>) )
+import Data.Aeson
+import Data.Aeson.Types
+import Data.Text qualified as T
+import Data.ByteString qualified as B
+import Data.Word ( Word8 )
 
-import           Discord.Internal.Types.Prelude
+import Discord.Internal.Types.Prelude
 
 data VoiceWebsocketReceivable
     = Ready ReadyPayload                            -- Opcode 2

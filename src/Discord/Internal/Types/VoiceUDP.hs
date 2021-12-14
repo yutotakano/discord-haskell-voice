@@ -1,12 +1,13 @@
+{-# LANGUAGE ImportQualifiedPost #-}
 module Discord.Internal.Types.VoiceUDP where
 
-import           Data.Binary.Get
-import           Data.Binary.Put
-import           Data.Binary
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString as B
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
+import Data.Binary.Get
+import Data.Binary.Put
+import Data.Binary
+import Data.ByteString.Lazy qualified as BL
+import Data.ByteString qualified as B
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 
 data VoiceUDPPacket
     = IPDiscovery Integer T.Text Integer
