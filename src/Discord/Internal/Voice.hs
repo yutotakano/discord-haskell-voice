@@ -185,10 +185,6 @@ join guildId channelId = do
             loopForBothEvents mb1 result events
         _ -> loopForBothEvents mb1 mb2 events
 
--- | Get the user ID of the bot from the cache.
-getCacheUserId :: DiscordHandler UserId
-getCacheUserId = userId . cacheCurrentUser <$> readCache
-
 -- | Perform an IO action for a maximum of @sec@ seconds.
 doOrTimeout :: Int -> IO a -> IO (Maybe a)
 doOrTimeout sec longAction = rightToMaybe <$> race waitSecs longAction
