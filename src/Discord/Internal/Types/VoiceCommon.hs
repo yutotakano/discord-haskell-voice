@@ -20,6 +20,7 @@ import Discord.Internal.Types.VoiceUDP
 import Discord.Internal.Types.VoiceWebsocket
 import Network.Socket
 import Network.WebSockets (ConnectionException, Connection)
+import GHC.Weak (Weak)
 
 -- | ExceptT is on the base so threads in state can be killed as necessary.
 -- If it is ReaderT on the base, then when an error occurs, it will be caught by
@@ -45,9 +46,9 @@ data DiscordVoiceHandle = DiscordVoiceHandle
     , -- | The channel id of the voice channel.
       discordVoiceHandleChannelId :: ChannelId
     , -- | The websocket thread id and handle.
-      discordVoiceHandleWebsocket :: (ThreadId, DiscordVoiceHandleWebsocket)
+      discordVoiceHandleWebsocket :: (Weak ThreadId, DiscordVoiceHandleWebsocket)
     , -- | The UDP thread id and handle.
-      discordVoiceHandleUdp :: (ThreadId, DiscordVoiceHandleUDP)
+      discordVoiceHandleUdp :: (Weak ThreadId, DiscordVoiceHandleUDP)
     , -- | The SSRC of the voice connection, specified by Discord.
       discordVoiceHandleSSRC :: Integer
     }
@@ -103,7 +104,7 @@ data WebsocketLaunchOpts = WebsocketLaunchOpts
     , websocketLaunchOptsEndpoint  :: T.Text
     , websocketLaunchOptsGatewayEvents :: Chan (Either GatewayException Event)
     , websocketLaunchOptsWsHandle  :: DiscordVoiceHandleWebsocket
-    , websocketLaunchOptsUdpInfo   :: (MVar ThreadId, MVar DiscordVoiceHandleUDP)
+    , websocketLaunchOptsUdpInfo   :: (MVar (Weak ThreadId), MVar DiscordVoiceHandleUDP)
     , websocketLaunchOptsSsrc      :: MVar Integer
     }
 

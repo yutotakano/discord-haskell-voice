@@ -14,6 +14,7 @@ import Control.Concurrent
     , putMVar
     , tryReadMVar
     , newEmptyMVar
+    , tryTakeMVar
     , ThreadId
     , myThreadId
     )
@@ -74,20 +75,25 @@ connect endpoint = runSecureClient url port "/"
 launchWebsocket :: WebsocketLaunchOpts -> Chan T.Text -> DiscordHandler ()
 launchWebsocket opts log = getCacheUserId >>= liftIO . loop WSStart 0
   where
-      -- | Get the user ID of the bot from the cache.
+    -- | Get the user ID of the bot from the cache.
     getCacheUserId :: DiscordHandler UserId
     getCacheUserId = userId . cacheCurrentUser <$> readCache
 
     loop :: WSLoopState -> Int -> UserId -> IO ()
     loop s retries uid = do
         case s of
-            WSClosed -> pure ()
+            WSClosed ->
+                -- Websocket closed legitimately. The UDP thread and this thread
+                -- will be closed by the cleanup in runVoice.
+                pure ()
             -- Legitimate closure. We're done.
             WSStart -> do
-                -- First-timer. Open a Websocket connection, do all the routine,
-                -- then create the UDP thread (fill in the MVars to report back
-                -- immediately upon creation, so it can be killed if any errors
-                -- happen down the line).
+                -- First time. Let's open a Websocket connection to the Voice
+                -- Gateway, do the initial Websocket handshake routine, then
+                -- ask to open the UDP connection.
+                -- When creating the UDP thread, we will fill in the MVars in
+                -- @opts@ to report back to runVoice, so it can be killed in the
+                -- future.
                 next <- try $ connect (opts ^. endpoint) $ \conn -> do
                     -- Send opcode 0 Identify
                     sendTextData conn $ encode $ Identify $ IdentifyPayload

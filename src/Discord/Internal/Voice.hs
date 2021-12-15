@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 module Discord.Internal.Voice
     ( runVoice
+    , join
     ) where
 
 import Codec.Audio.Opus.Encoder
@@ -12,6 +13,7 @@ import Control.Concurrent
     , threadDelay
     , killThread
     , forkIO
+    , mkWeakThreadId
     , Chan
     , dupChan
     , newChan
@@ -59,6 +61,7 @@ import Discord.Internal.Types
     )
 import Discord.Internal.Voice.WebsocketLoop
 import Discord.Internal.Voice.UDPLoop
+import GHC.Weak (deRefWeak, Weak)
 
 data DiscordVoiceResult
     = Success
@@ -94,8 +97,14 @@ runVoice action = do
         -- Wrap cleanup action in @finally@ to ensure we always close the
         -- threads even if an exception occurred.
         finalState <- liftIO $ readMVar voiceHandles
-        mapMOf_ (traverse . websocket . _1) (liftIO . killThread) finalState
-        mapMOf_ (traverse . udp . _1) (liftIO . killThread) finalState
+        
+        let killWkThread :: Weak ThreadId -> IO ()
+            killWkThread tid = deRefWeak tid >>= \case
+                Nothing -> pure ()
+                Just x  -> killThread x
+
+        mapMOf_ (traverse . websocket . _1) (liftIO . killWkThread) finalState
+        mapMOf_ (traverse . udp . _1) (liftIO . killWkThread) finalState
 
     pure result
 
@@ -136,6 +145,8 @@ join guildId channelId = do
             wsTid <- liftIO $ forkIO $ flip runReaderT h $
                 launchWebsocket wsOpts $ discordHandleLog h
             
+            wsTidWeak <- liftIO $ mkWeakThreadId wsTid
+
             -- modify the current Voice monad state to add the newly created
             -- UDP and Websocket handles (a handle consists of thread id and
             -- send/receive channels).
@@ -149,7 +160,7 @@ join guildId channelId = do
             -- Add the new voice handles to the list of handles
             liftIO $ modifyMVar_ (voiceState ^. voiceHandles) $ \handles -> do
                 let newHandle = DiscordVoiceHandle guildId channelId
-                        (wsTid, wsChans) (udpTid, udpChans) ssrc
+                        (wsTidWeak, wsChans) (udpTid, udpChans) ssrc
                 pure (newHandle : handles)
 
 -- | Continuously take the top item in the gateway event channel until both
