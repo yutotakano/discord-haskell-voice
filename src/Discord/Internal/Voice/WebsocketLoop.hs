@@ -44,7 +44,7 @@ import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types.VoiceWebsocket
 
 
-data WSLoopState
+data WSState
     = WSStart
     | WSClosed
     | WSResume
@@ -73,82 +73,79 @@ connect endpoint = runSecureClient url port "/"
 -- | Attempt to connect (and reconnect on disconnects) to the voice websocket.
 -- Also launches the UDP thread after the initialisation.
 launchWebsocket :: WebsocketLaunchOpts -> Chan T.Text -> DiscordHandler ()
-launchWebsocket opts log = getCacheUserId >>= liftIO . loop WSStart 0
+launchWebsocket opts log = getCacheUserId >>= liftIO . websocketFsm WSStart 0
   where
     -- | Get the user ID of the bot from the cache.
     getCacheUserId :: DiscordHandler UserId
     getCacheUserId = userId . cacheCurrentUser <$> readCache
 
-    loop :: WSLoopState -> Int -> UserId -> IO ()
-    loop s retries uid = do
-        case s of
-            WSClosed ->
-                -- Websocket closed legitimately. The UDP thread and this thread
-                -- will be closed by the cleanup in runVoice.
-                pure ()
-            -- Legitimate closure. We're done.
-            WSStart -> do
-                -- First time. Let's open a Websocket connection to the Voice
-                -- Gateway, do the initial Websocket handshake routine, then
-                -- ask to open the UDP connection.
-                -- When creating the UDP thread, we will fill in the MVars in
-                -- @opts@ to report back to runVoice, so it can be killed in the
-                -- future.
-                next <- try $ connect (opts ^. endpoint) $ \conn -> do
-                    -- Send opcode 0 Identify
-                    sendTextData conn $ encode $ Identify $ IdentifyPayload
-                        { identifyPayloadServerId = (opts ^. guildId)
-                        , identifyPayloadUserId = uid
-                        , identifyPayloadSessionId = (opts ^. sessionId)
-                        , identifyPayloadToken = (opts ^. token)
-                        }
-                    -- Attempt to get opcode 2 Ready and Opcode 8 Hello in an
-                    -- undefined order.
-                    result <- waitForHelloReadyOr10Seconds conn
-                    case result of
-                        Nothing -> do
-                            (✍!) log $ "did not receive a valid Opcode 2 and 8 "
-                                <> "after connection within 10 seconds"
-                            pure WSClosed
-                        Just (interval, payload) -> do
-                            -- All good! Start the heartbeating and send loops.
-                            writeChan (opts ^. wsHandle . _1) $ Right (Discord.Internal.Types.VoiceWebsocket.Ready payload)
-                            startEternalStream (WebsocketConn conn opts)
-                                (opts ^. gatewayEvents) interval (opts ^. wsHandle . _2) log
-                -- Connection is now closed.
-                case next :: Either SomeException WSLoopState of
-                    Left e -> do
-                        (✍!) log $ "could not connect due to an exception: " <>
-                            (T.pack $ show e)
-                        writeChan (opts ^. wsHandle . _1) $ Left $
-                            VoiceWebsocketCouldNotConnect
-                                "could not connect due to an exception"
-                        loop WSClosed 0 uid
-                    Right n -> loop n 0 uid
+    websocketFsm :: WSState -> Int -> UserId -> IO ()
+    -- Websocket closed legitimately. The UDP thread and this thread
+    -- will be closed by the cleanup in runVoice.
+    websocketFsm WSClosed retries uid = pure ()
 
-            WSResume -> do
-                next <- try $ connect (opts ^. endpoint) $ \conn -> do
-                    -- Send opcode 7 Resume
-                    sendTextData conn $ encode $
-                        Resume (opts ^. guildId) (opts ^. sessionId) (opts ^. token)
-                    -- Attempt to get opcode 9 Resumed and Opcode 8 Hello in an
-                    -- undefined order
-                    result <- waitForHelloResumedOr10Seconds conn
-                    case result of
-                        Nothing -> do
-                            (✍!) log $ "did not receive a valid Opcode 9 and 8 " <>
-                                "after reconnection within 10 seconds"
-                            pure WSStart
-                        Just interval -> do
-                            startEternalStream (WebsocketConn conn opts)
-                                (opts ^. gatewayEvents) interval (opts ^. wsHandle . _2) log
-                -- Connection is now closed.
-                case next :: Either SomeException WSLoopState of
-                    Left _ -> do
-                        (✍!) log $ "could not resume, retrying after 10 seconds"
-                        threadDelay $ 10 * (10^(6 :: Int))
-                        loop WSResume (retries + 1) uid
-                    Right n -> loop n 1 uid
+    -- First time. Let's open a Websocket connection to the Voice
+    -- Gateway, do the initial Websocket handshake routine, then
+    -- ask to open the UDP connection.
+    -- When creating the UDP thread, we will fill in the MVars in
+    -- @opts@ to report back to runVoice, so it can be killed in the
+    -- future.
+    websocketFsm WSStart retries uid = do
+        next <- try $ connect (opts ^. endpoint) $ \conn -> do
+            -- Send opcode 0 Identify
+            sendTextData conn $ encode $ Identify $ IdentifyPayload
+                { identifyPayloadServerId = (opts ^. guildId)
+                , identifyPayloadUserId = uid
+                , identifyPayloadSessionId = (opts ^. sessionId)
+                , identifyPayloadToken = (opts ^. token)
+                }
+            -- Attempt to get opcode 2 Ready and Opcode 8 Hello in an
+            -- undefined order.
+            result <- waitForHelloReadyOr10Seconds conn
+            case result of
+                Nothing -> do
+                    (✍!) log $ "did not receive a valid Opcode 2 and 8 "
+                        <> "after connection within 10 seconds"
+                    pure WSClosed
+                Just (interval, payload) -> do
+                    -- All good! Start the heartbeating and send loops.
+                    writeChan (opts ^. wsHandle . _1) $ Right (Discord.Internal.Types.VoiceWebsocket.Ready payload)
+                    startEternalStream (WebsocketConn conn opts)
+                        (opts ^. gatewayEvents) interval (opts ^. wsHandle . _2) log
+        -- Connection is now closed.
+        case next :: Either SomeException WSState of
+            Left e -> do
+                (✍!) log $ "could not connect due to an exception: " <>
+                    (T.pack $ show e)
+                writeChan (opts ^. wsHandle . _1) $ Left $
+                    VoiceWebsocketCouldNotConnect
+                        "could not connect due to an exception"
+                websocketFsm WSClosed 0 uid
+            Right n -> websocketFsm n 0 uid
+
+    websocketFsm WSResume retries uid = do
+        next <- try $ connect (opts ^. endpoint) $ \conn -> do
+            -- Send opcode 7 Resume
+            sendTextData conn $ encode $
+                Resume (opts ^. guildId) (opts ^. sessionId) (opts ^. token)
+            -- Attempt to get opcode 9 Resumed and Opcode 8 Hello in an
+            -- undefined order
+            result <- waitForHelloResumedOr10Seconds conn
+            case result of
+                Nothing -> do
+                    (✍!) log $ "did not receive a valid Opcode 9 and 8 " <>
+                        "after reconnection within 10 seconds"
+                    pure WSStart
+                Just interval -> do
+                    startEternalStream (WebsocketConn conn opts)
+                        (opts ^. gatewayEvents) interval (opts ^. wsHandle . _2) log
+        -- Connection is now closed.
+        case next :: Either SomeException WSState of
+            Left _ -> do
+                (✍!) log $ "could not resume, retrying after 10 seconds"
+                threadDelay $ 10 * (10^(6 :: Int))
+                websocketFsm WSResume (retries + 1) uid
+            Right n -> websocketFsm n 1 uid
 
     -- | Wait for 10 seconds or received Ready and Hello, whichever comes first.
     -- Discord Docs does not specify the order in which Ready and Hello can
@@ -254,9 +251,9 @@ startEternalStream
     -> Int
     -> Chan VoiceWebsocketSendable
     -> Chan T.Text
-    -> IO WSLoopState
+    -> IO WSState
 startEternalStream wsconn gatewayEvents interval sends log = do
-    let err :: SomeException -> IO WSLoopState
+    let err :: SomeException -> IO WSState
         err e = do
             (✍!) log $ "event stream error: " <> T.pack (show e)
             pure WSResume
@@ -278,7 +275,7 @@ eventStream
     -> Int
     -> Chan VoiceWebsocketSendable
     -> Chan T.Text
-    -> IO WSLoopState
+    -> IO WSState
 eventStream wsconn gatewayReconnected interval sysSends log = do
     sem <- tryReadMVar gatewayReconnected
     case sem of
@@ -318,7 +315,7 @@ eventStream wsconn gatewayReconnected interval sysSends log = do
   where
     -- | Handle Websocket Close codes by logging appropriate messages and
     -- closing the connection.
-    handleClose :: Word16 -> BL.ByteString -> IO WSLoopState
+    handleClose :: Word16 -> BL.ByteString -> IO WSState
     handleClose code str = do
         let reason = TE.decodeUtf8 $ BL.toStrict str
         case code of
