@@ -85,18 +85,6 @@ type DiscordVoiceHandleUDP =
     , Bounded.BoundedChan B.ByteString -- but can only send audio
     )
 
-data UDPConnInfo = UDPConnInfo
-    { udpInfoSSRC :: Integer
-    , udpInfoAddr :: T.Text
-    , udpInfoPort :: Integer
-    , udpInfoMode :: T.Text
-    }
-
-data UDPConn = UDPConn
-    { udpDataInfo :: UDPConnInfo
-    , udpDataSocket :: Socket
-    }
-
 data WebsocketLaunchOpts = WebsocketLaunchOpts
     { websocketLaunchOptsSessionId :: T.Text
     , websocketLaunchOptsToken     :: T.Text
@@ -109,11 +97,26 @@ data WebsocketLaunchOpts = WebsocketLaunchOpts
     }
 
 data WebsocketConn = WebsocketConn
-    { websocketConnConnection :: Connection
-    , websocketConnLaunchOpts :: WebsocketLaunchOpts
+    { websocketConnConnection    :: Connection
+    , websocketConnLaunchOpts    :: WebsocketLaunchOpts
+    , websocketConnUdpLaunchOpts :: ReadyPayload
+    }
+
+data UDPLaunchOpts = UDPLaunchOpts
+    { udpLaunchOptsSsrc :: Integer
+    , udpLaunchOptsIp   :: T.Text
+    , udpLaunchOptsPort :: Integer
+    , udpLaunchOptsMode :: T.Text
+    }
+
+data UDPConn = UDPConn
+    { udpConnLaunchOpts :: UDPLaunchOpts
+    , udpConnSocket     :: Socket
     }
 
 $(makeFields ''DiscordVoiceHandle)
 $(makeFields ''DiscordBroadcastHandle)
 $(makeFields ''WebsocketLaunchOpts)
 $(makeFields ''WebsocketConn)
+$(makeFields ''UDPLaunchOpts)
+$(makeFields ''UDPConn)

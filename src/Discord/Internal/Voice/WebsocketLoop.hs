@@ -16,7 +16,7 @@ import Control.Concurrent
     , newEmptyMVar
     , tryTakeMVar
     , ThreadId
-    , myThreadId
+    , myThreadId, modifyMVar_, newMVar, readMVar
     )
 import Control.Exception.Safe ( try, SomeException, finally, handle )
 import Control.Lens
@@ -73,16 +73,19 @@ connect endpoint = runSecureClient url port "/"
 -- | Attempt to connect (and reconnect on disconnects) to the voice websocket.
 -- Also launches the UDP thread after the initialisation.
 launchWebsocket :: WebsocketLaunchOpts -> Chan T.Text -> DiscordHandler ()
-launchWebsocket opts log = getCacheUserId >>= liftIO . websocketFsm WSStart 0
+launchWebsocket opts log = do
+    uid <- getCacheUserId
+    udpOpts <- liftIO $ newMVar undefined
+    liftIO $ websocketFsm WSStart 0 udpOpts uid
   where
     -- | Get the user ID of the bot from the cache.
     getCacheUserId :: DiscordHandler UserId
     getCacheUserId = userId . cacheCurrentUser <$> readCache
 
-    websocketFsm :: WSState -> Int -> UserId -> IO ()
+    websocketFsm :: WSState -> Int -> MVar ReadyPayload -> UserId -> IO ()
     -- Websocket closed legitimately. The UDP thread and this thread
     -- will be closed by the cleanup in runVoice.
-    websocketFsm WSClosed retries uid = pure ()
+    websocketFsm WSClosed retries udpInfo uid = pure ()
 
     -- First time. Let's open a Websocket connection to the Voice
     -- Gateway, do the initial Websocket handshake routine, then
@@ -90,7 +93,7 @@ launchWebsocket opts log = getCacheUserId >>= liftIO . websocketFsm WSStart 0
     -- When creating the UDP thread, we will fill in the MVars in
     -- @opts@ to report back to runVoice, so it can be killed in the
     -- future.
-    websocketFsm WSStart retries uid = do
+    websocketFsm WSStart retries udpInfo uid = do
         next <- try $ connect (opts ^. endpoint) $ \conn -> do
             -- Send opcode 0 Identify
             sendTextData conn $ encode $ Identify $ IdentifyPayload
@@ -101,17 +104,23 @@ launchWebsocket opts log = getCacheUserId >>= liftIO . websocketFsm WSStart 0
                 }
             -- Attempt to get opcode 2 Ready and Opcode 8 Hello in an
             -- undefined order.
-            result <- waitForHelloReadyOr10Seconds conn
+            result <- doOrTimeout 10 $ waitForHelloReady conn Nothing Nothing
             case result of
                 Nothing -> do
                     (✍!) log $ "did not receive a valid Opcode 2 and 8 "
                         <> "after connection within 10 seconds"
                     pure WSClosed
-                Just (interval, payload) -> do
-                    -- All good! Start the heartbeating and send loops.
-                    writeChan (opts ^. wsHandle . _1) $ Right (Discord.Internal.Types.VoiceWebsocket.Ready payload)
-                    startEternalStream (WebsocketConn conn opts)
-                        (opts ^. gatewayEvents) interval (opts ^. wsHandle . _2) log
+                Just (Left e) -> do
+                    (✍!) log $ "network error occurred while waiting for " <>
+                        "Opcode 2 and 8: " <> (T.pack $ show e)
+                    pure WSClosed
+                Just (Right (interval, payload)) -> do
+                    -- Websocket responded with a valid Opcode 2 Ready, which
+                    -- contains the UDP connection info that we write to the
+                    -- MVar, so we can keep the info if we loop and resume.
+                    modifyMVar_ udpInfo (pure . const payload)
+                    startEternalStream (WebsocketConn conn opts payload) interval log
+
         -- Connection is now closed.
         case next :: Either SomeException WSState of
             Left e -> do
@@ -120,47 +129,47 @@ launchWebsocket opts log = getCacheUserId >>= liftIO . websocketFsm WSStart 0
                 writeChan (opts ^. wsHandle . _1) $ Left $
                     VoiceWebsocketCouldNotConnect
                         "could not connect due to an exception"
-                websocketFsm WSClosed 0 uid
-            Right n -> websocketFsm n 0 uid
+                websocketFsm WSClosed 0 udpInfo uid
+            Right n -> websocketFsm n 0 udpInfo uid
 
-    websocketFsm WSResume retries uid = do
+    websocketFsm WSResume retries udpInfo uid = do
         next <- try $ connect (opts ^. endpoint) $ \conn -> do
             -- Send opcode 7 Resume
             sendTextData conn $ encode $
                 Resume (opts ^. guildId) (opts ^. sessionId) (opts ^. token)
             -- Attempt to get opcode 9 Resumed and Opcode 8 Hello in an
             -- undefined order
-            result <- waitForHelloResumedOr10Seconds conn
+            result <- doOrTimeout 10 $ waitForHelloResumed conn Nothing False
             case result of
                 Nothing -> do
                     (✍!) log $ "did not receive a valid Opcode 9 and 8 " <>
-                        "after reconnection within 10 seconds"
+                        "after reconnection within 10 seconds, restarting " <>
+                        "connection"
                     pure WSStart
-                Just interval -> do
-                    startEternalStream (WebsocketConn conn opts)
-                        (opts ^. gatewayEvents) interval (opts ^. wsHandle . _2) log
+                Just (Left e) -> do
+                    (✍!) log $ "network error occurred while waiting for " <>
+                        "Opcode 9 and 8: " <> (T.pack $ show e)
+                    pure WSStart
+                Just (Right interval) -> do
+                    -- use the previous UDP launch options since it's not resent
+                    readyPayload <- readMVar udpInfo
+                    startEternalStream (WebsocketConn conn opts readyPayload) interval log
+
         -- Connection is now closed.
         case next :: Either SomeException WSState of
             Left _ -> do
                 (✍!) log $ "could not resume, retrying after 10 seconds"
                 threadDelay $ 10 * (10^(6 :: Int))
-                websocketFsm WSResume (retries + 1) uid
-            Right n -> websocketFsm n 1 uid
+                websocketFsm WSResume (retries + 1) udpInfo uid
+            Right n -> websocketFsm n 1 udpInfo uid
 
-    -- | Wait for 10 seconds or received Ready and Hello, whichever comes first.
-    -- Discord Docs does not specify the order in which Ready and Hello can
-    -- arrive, hence the complicated recursive logic and racing.
-    waitForHelloReadyOr10Seconds :: Connection -> IO (Maybe (Int, ReadyPayload))
-    waitForHelloReadyOr10Seconds conn =
-        either id id <$> race wait10Seconds (waitForHelloReady conn Nothing Nothing)
-
-    -- | Wait 11 seconds, this is for fallback when Discord never sends the msgs
-    -- to prevent deadlocking. Type signature is generic to accommodate any
-    -- kind of response (both for Resumed and Ready)
-    wait10Seconds :: IO (Maybe a)
-    wait10Seconds = do
-        threadDelay $ 10 * 10^(6 :: Int)
-        pure $ Nothing
+    
+    -- | Perform an IO action for a maximum of @sec@ seconds.
+    doOrTimeout :: Int -> IO a -> IO (Maybe a)
+    doOrTimeout sec longAction = (^? _Right) <$> race waitSecs longAction
+      where
+        waitSecs :: IO (Maybe b)
+        waitSecs = threadDelay (sec * 10^(6 :: Int)) >> pure Nothing
 
     -- | Wait for both Opcode 2 Ready and Opcode 8 Hello, and return both
     -- responses in a Maybe (so that the type signature matches wait10seconds)
@@ -168,11 +177,11 @@ launchWebsocket opts log = getCacheUserId >>= liftIO . websocketFsm WSStart 0
         :: Connection
         -> Maybe Int
         -> Maybe ReadyPayload
-        -> IO (Maybe (Int, ReadyPayload))
-    waitForHelloReady conn (Just x) (Just y) = pure $ Just (x, y)
+        -> IO (Either ConnectionException (Int, ReadyPayload))
+    waitForHelloReady conn (Just x) (Just y) = pure $ Right (x, y)
     waitForHelloReady conn mb1 mb2 = do
         msg <- getPayload conn log
-        print msg
+        print msg -- TODO: debug, remove.
         case msg of
             Right (Discord.Internal.Types.VoiceWebsocket.Ready payload) ->
                 waitForHelloReady conn mb1 (Just payload)
@@ -180,19 +189,8 @@ launchWebsocket opts log = getCacheUserId >>= liftIO . websocketFsm WSStart 0
                 waitForHelloReady conn (Just interval) mb2
             Right _ ->
                 waitForHelloReady conn mb1 mb2
-            Left ConnectionClosed ->
-                pure Nothing
-            Left _  ->
-                waitForHelloReady conn mb1 mb2
-
-    -- | Wait for 10 seconds or received Resumed and Hello, whichever comes first.
-    -- Discrod Docs does not specify the order here again, and does not even
-    -- specify that Hello will be sent. Anyway, Hello sometimes comes before
-    -- Resumed (as I've found out) so the logic is identical to
-    -- waitForHelloReadyor10Seconds.
-    waitForHelloResumedOr10Seconds :: Connection -> IO (Maybe Int)
-    waitForHelloResumedOr10Seconds conn =
-        either id id <$> race wait10Seconds (waitForHelloResumed conn Nothing False)
+            Left e ->
+                pure $ Left e
 
     -- | Wait for both Opcode 9 Resumed and Opcode 8 Hello, and return the
     -- Hello interval. There is no body in Resumed.
@@ -200,8 +198,8 @@ launchWebsocket opts log = getCacheUserId >>= liftIO . websocketFsm WSStart 0
         :: Connection
         -> Maybe Int
         -> Bool
-        -> IO (Maybe Int)
-    waitForHelloResumed conn (Just x) True = pure $ Just x
+        -> IO (Either ConnectionException Int)
+    waitForHelloResumed conn (Just x) True = pure $ Right x
     waitForHelloResumed conn mb1 bool = do
         msg <- getPayload conn log
         case msg of
@@ -211,8 +209,8 @@ launchWebsocket opts log = getCacheUserId >>= liftIO . websocketFsm WSStart 0
                 waitForHelloResumed conn mb1 True
             Right _ ->
                 waitForHelloResumed conn mb1 bool
-            Left _ ->
-                waitForHelloResumed conn mb1 bool
+            Left e ->
+                pure $ Left e
 
     -- userId :: IO UserId
     -- userId = (lift . lift) getCacheUserId
@@ -243,29 +241,28 @@ getPayloadTimeout conn interval log = do
     Left () -> pure (Right Reconnect)
     Right other -> pure other
 
--- | Create the sendable and heartbeat loops.
+                        -- (opts ^. gatewayEvents) interval (opts ^. wsHandle . _2) log
+
+-- | Fork and start the sendable and heartbeat loops, then once we've established
+-- and stabilised the Websocket connection, continue into the UDP creation and
+-- handshaking procedure.
 startEternalStream
     :: WebsocketConn
-    -> Chan (Either GatewayException Event)
-    -- ^ gateway events
+    -- ^ Websocket connection, its launch options, and UDP launch options
     -> Int
-    -> Chan VoiceWebsocketSendable
+    -- ^ Heartbeat interval specified by initially received Ready or Resume
     -> Chan T.Text
+    -- ^ Log channel
     -> IO WSState
-startEternalStream wsconn gatewayEvents interval sends log = do
-    let err :: SomeException -> IO WSState
-        err e = do
-            (✍!) log $ "event stream error: " <> T.pack (show e)
-            pure WSResume
-    handle err $ do
-        sysSends <- newChan -- Chan for Heartbeat
-        sendLoopId <- forkIO $ sendableLoop wsconn sysSends sends
-        heartLoopId <- forkIO $ heartbeatLoop wsconn sysSends interval log
-        gatewayReconnected <- newEmptyMVar
-        gatewayCheckerId <- forkIO $ gatewayCheckerLoop gatewayEvents gatewayReconnected log
+startEternalStream wsconn interval log = undefined
+    -- sysSends <- newChan -- Chan for Heartbeat
+    -- sendLoopId <- forkIO $ sendableLoop wsconn sysSends sends
+    -- heartLoopId <- forkIO $ heartbeatLoop wsconn sysSends interval log
+    -- gatewayReconnected <- newEmptyMVar
+    -- gatewayCheckerId <- forkIO $ gatewayCheckerLoop gatewayEvents gatewayReconnected log
 
-        finally (eventStream wsconn gatewayReconnected interval sysSends log) $
-            (killThread heartLoopId >> killThread sendLoopId >> killThread gatewayCheckerId)
+    -- finally (eventStream wsconn gatewayReconnected interval sysSends log) $
+    --     (killThread heartLoopId >> killThread sendLoopId >> killThread gatewayCheckerId)
 
 -- | Eternally stay on lookout for the connection. Writes to receivables channel.
 eventStream
