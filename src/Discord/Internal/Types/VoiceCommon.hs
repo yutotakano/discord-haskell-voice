@@ -53,7 +53,7 @@ data DiscordVoiceHandle = DiscordVoiceHandle
     , -- | The SSRC of the voice connection, specified by Discord. This is
     -- required in the packet sent when updating the Speaking indicator, so is
     -- maintained in this handle.
-      discordVoiceHandleSSRC :: Integer
+      discordVoiceHandleSsrc :: Integer
     }
 
 {- | Represents a "stream" or a "broadcast", which is a list of voice connection
