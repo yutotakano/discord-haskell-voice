@@ -263,6 +263,7 @@ getPayload conn = try $ do
 -- handshake stages (Hello and identification/resumption). It will continuously
 -- read the top packet in the Websocket receives, and handle closures, and
 -- packet responses (like heartbeat responses).
+-- TODO: a separate ADT for this? what to call it
 eventStream
     :: Connection
     -> WebsocketLaunchOpts
