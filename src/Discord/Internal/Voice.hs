@@ -84,6 +84,12 @@ updateStatusVoice
     -> DiscordHandler ()
 updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts a b c d
 
+-- | @liftDiscord@ lifts a computation in DiscordHandler into a computation in
+-- Voice. This is useful for performing DiscordHandler/IO actions inside the
+-- Voice monad.
+liftDiscord :: DiscordHandler a -> Voice a
+liftDiscord = lift . lift
+
 -- | Execute the voice actions stored in the Voice monad, by first initialising
 -- a Bounded chan and a mutex for sending. These are universal across all actions
 -- within a voice monad (e.g. multiple joins), and this is what enables things

@@ -50,7 +50,9 @@ data DiscordVoiceHandle = DiscordVoiceHandle
       discordVoiceHandleWebsocket :: (Weak ThreadId, (VoiceWebsocketReceiveChan, VoiceWebsocketSendChan))
     , -- | The UDP thread id and handle.
       discordVoiceHandleUdp :: (Weak ThreadId, (VoiceUDPReceiveChan, VoiceUDPSendChan))
-    , -- | The SSRC of the voice connection, specified by Discord.
+    , -- | The SSRC of the voice connection, specified by Discord. This is
+    -- required in the packet sent when updating the Speaking indicator, so is
+    -- maintained in this handle.
       discordVoiceHandleSSRC :: Integer
     }
 

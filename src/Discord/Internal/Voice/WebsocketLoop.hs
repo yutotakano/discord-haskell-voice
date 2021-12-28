@@ -28,7 +28,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time.Clock.POSIX
-import Data.Time.Clock
+import Data.Time
 import Data.Word ( Word16 )
 import Network.WebSockets
     ( ConnectionException(..)
@@ -60,9 +60,9 @@ data WSState
 -- | A custom logging function that writes the date/time and the thread ID.
 (✍) :: Chan T.Text -> T.Text -> IO ()
 logChan ✍ log = do
-    t <- getCurrentTime
+    t <- formatTime defaultTimeLocale "%F %T %q" <$> getCurrentTime
     tid <- myThreadId
-    writeChan logChan $ (tshow t) <> " " <> (tshow tid) <> " " <> log
+    writeChan logChan $ (T.pack t) <> " " <> (tshow tid) <> " " <> log
 
 -- | A variant of (✍) that prepends the wsError text.
 (✍!) :: Chan T.Text -> T.Text -> IO ()
@@ -128,14 +128,17 @@ launchWebsocket opts log = do
 
                 secretKey <- lift $ newEmptyMVar
                 let udpLaunchOpts = UDPLaunchOpts
-                        { uDPLaunchOptsSsrc = readyPayloadSSRC p
-                        , uDPLaunchOptsIp   = readyPayloadIP p
-                        , uDPLaunchOptsPort = readyPayloadPort p
-                        , uDPLaunchOptsMode = "xsalsa20_poly1305"
+                        { uDPLaunchOptsSsrc      = readyPayloadSSRC p
+                        , uDPLaunchOptsIp        = readyPayloadIP p
+                        , uDPLaunchOptsPort      = readyPayloadPort p
+                        , uDPLaunchOptsMode      = "xsalsa20_poly1305"
                         , uDPLaunchOptsUdpHandle = opts ^. udpHandle
                         , uDPLaunchOptsSecretKey = secretKey
                         -- TODO: support all encryption modes
                         }
+                -- We should be putting SSRC into the MVar to report back to
+                -- the websocket (TODO: why was this again), but we hold it off
+                -- until the ssrcCheck guard a few lines below.
                 lift $ modifyMVar_ udpInfo (pure . const udpLaunchOpts)
                             
                 -- Pass not the MVar but the raw options, since
@@ -154,6 +157,7 @@ launchWebsocket opts log = do
                             ipDiscovery ^? _IPDiscovery
                     
                     guard (ssrcCheck == udpLaunchOpts ^. ssrc)
+                    lift $ putMVar (opts ^. ssrc) ssrcCheck
                     
                     -- TODO: currently, we await the Opcode 4 SD right after
                     -- Select Protocol, blocking the start of heartbeats until
