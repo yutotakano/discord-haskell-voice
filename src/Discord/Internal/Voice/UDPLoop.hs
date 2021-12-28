@@ -32,6 +32,7 @@ import Data.ByteString qualified as B
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time.Clock.POSIX
+import Data.Time
 import Data.Maybe ( fromJust )
 import Data.Word ( Word8 )
 import Network.Socket hiding ( socket )
@@ -182,7 +183,7 @@ receivableLoop conn log = do
     log ✍ (tshow msg')
     -- decode speaking data's OPUS to raw PCM
     msg <- case msg' of
-        SpeakingData bytes -> decodeOpusData bytes
+        SpeakingData bytes -> SpeakingData <$> decodeOpusData bytes
         other -> pure other
 
     writeChan (conn ^. launchOpts . udpHandle . _1) msg
@@ -259,10 +260,10 @@ encrypt byteKey byteNonce og = secretbox key nonce og
     key = fromJust $ SC.decode $ B.pack byteKey
     nonce = fromJust $ SC.decode byteNonce
 
-decodeOpusData :: B.ByteString -> IO VoiceUDPPacket
+decodeOpusData :: B.ByteString -> IO B.ByteString
 decodeOpusData bytes = do
     let deCfg = _DecoderConfig # (opusSR48k, True)
     let deStreamCfg = _DecoderStreamConfig # (deCfg, 48*20, 0)
     decoder <- opusDecoderCreate deCfg
     decoded <- opusDecode decoder deStreamCfg bytes
-    pure $ SpeakingData decoded
+    pure decoded
