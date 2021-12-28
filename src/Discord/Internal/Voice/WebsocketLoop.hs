@@ -34,6 +34,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time.Clock.POSIX
+import Data.Time
 import Data.Word ( Word16 )
 import Network.WebSockets
     ( ConnectionException(..)
