@@ -155,11 +155,25 @@ launchWebsocket opts log = do
                     
                     guard (ssrcCheck == udpLaunchOpts ^. ssrc)
                     
-                    lift $ sendSelectProtocol conn ip port (udpLaunchOpts ^. mode)
-                    -- Move to eternal websocket event loop, where we will
-                    -- receive the Opcode 4 Session Description together with
-                    -- the secret key. It will write to the secret key MVar
-                    -- accessible inside udpLaunchOpts.
+                    -- TODO: currently, we await the Opcode 4 SD right after
+                    -- Select Protocol, blocking the start of heartbeats until
+                    -- eventStream. This means there's a delay, so TODO to check
+                    -- if this delay causes any problems. If it does, keep the
+                    -- sending here, but receive the SD event in eventStream.
+                    sessionDescPacket <- ExceptT $
+                        over _Left ((<> "Failed to get Opcode 4 SD: ") . tshow) <$>
+                            sendSelectProtocol conn ip port (udpLaunchOpts ^. mode)
+                    
+                    (modeCheck, key) <- ExceptT $ pure $
+                        maybeToRight ("First packet after Identify not " <> "Opcode 2 Ready " <> tshow readyPacket) $
+                            sessionDescPacket ^? _SessionDescription
+                    
+                    guard (modeCheck == udpLaunchOpts ^. mode)
+
+                    lift $ putMVar secretKey key
+
+                    -- Move to eternal websocket event loop, mainly for the
+                    -- heartbeats, but also for any user-generated packets.
                     lift $ eventStream conn opts interval udpLaunchOpts libSends log
 
             case result of
@@ -284,8 +298,23 @@ performResumption conn opts = do
     
     getPayload conn
 
-sendSelectProtocol :: Connection -> T.Text -> Integer -> T.Text -> IO ()
-sendSelectProtocol = undefined
+-- | Send the Opcode 1 Select Protocol to Discord. Does not wait for a payload.
+sendSelectProtocol
+    :: Connection
+    -> T.Text
+    -> Integer
+    -> T.Text
+    -> IO (Either ConnectionException VoiceWebsocketReceivable)
+sendSelectProtocol conn ip port mode = do
+    sendTextData conn $ encode $ SelectProtocol $ 
+        SelectProtocolPayload "udp" ip port mode
+    
+    getPayload conn
+
+    -- We do not do getPayload here, since there's no guarantee the next
+    -- received packet is an Opcode 4 Session Description, when heartbeats
+    -- has began already.
+    -- TODO: remove if the above is not a problem
 
 -- | Get one packet from the Websocket Connection, parsing it into a
 -- VoiceWebsocketReceivable using Aeson. If the packet is not validly
