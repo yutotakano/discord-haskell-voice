@@ -265,7 +265,7 @@ eventStream
     -> WebsocketLaunchOpts
     -> Int
     -> UDPLaunchOpts
-    -> Chan VoiceWebsocketSendable
+    -> VoiceWebsocketSendChan
     -> Chan T.Text
     -> IO WSState
 eventStream conn opts interval udpLaunchOpts libSends log = do
@@ -322,8 +322,8 @@ eventStream conn opts interval udpLaunchOpts libSends log = do
 -- | Eternally send data from sysSends and usrSends channels
 sendableLoop
     :: Connection
-    -> Chan VoiceWebsocketSendable
-    -> Chan VoiceWebsocketSendable
+    -> VoiceWebsocketSendChan
+    -> VoiceWebsocketSendChan
     -> IO ()
 sendableLoop conn sysSends usrSends = do
     -- Wait-time taken from discord-haskell/Internal.Gateway.EventLoop
@@ -336,7 +336,7 @@ sendableLoop conn sysSends usrSends = do
 
 -- | Eternally send heartbeats through the sysSends channel
 heartbeatLoop
-    :: Chan VoiceWebsocketSendable
+    :: VoiceWebsocketSendChan
     -> Int
     -- ^ milliseconds
     -> Chan T.Text
