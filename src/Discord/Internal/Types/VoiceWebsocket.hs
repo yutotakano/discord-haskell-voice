@@ -12,8 +12,6 @@ import Discord.Internal.Types.Prelude
 
 data VoiceWebsocketReceivable
     = Ready ReadyPayload                            -- Opcode 2
-    -- | HeartbeatR Int                                -- Opcode 3
-      -- ^ For some reason Discord sends us this, even though it's not in docs
     | SessionDescription T.Text [Word8]             -- Opcode 4
     | SpeakingR SpeakingPayload                     -- Opcode 5
     | HeartbeatAck Int                              -- Opcode 6
@@ -31,7 +29,6 @@ data VoiceWebsocketSendable
     | SelectProtocol SelectProtocolPayload          -- Opcode 1
     | Heartbeat Int                                 -- Opcode 3
       -- ^ Int because threadDelay uses it
-    -- | HeartbeatAck Int
     | Speaking SpeakingPayload                      -- Opcode 5
     | Resume GuildId T.Text T.Text                  -- Opcode 7
     deriving (Show, Eq)
@@ -81,9 +78,6 @@ instance FromJSON VoiceWebsocketReceivable where
                 port <- od .: "port"
                 modes <- od .: "modes"
                 pure $ Ready $ ReadyPayload ssrc ip port modes
-            -- 3 -> do
-            --     od <- o .: "d"
-            --     pure $ HeartbeatR od
             4 -> do
                 od <- o .: "d"
                 mode <- od .: "mode"
@@ -155,10 +149,6 @@ instance ToJSON VoiceWebsocketSendable where
         [ "op" .= (3 :: Int)
         , "d"  .= i
         ]
-    -- toJSON (HeartbeatAck i) = object
-    --     [ "op" .= (6 :: Int)
-    --     , "d"  .= i
-        -- ]
     toJSON (Speaking payload) = object
         [ "op" .= (5 :: Int)
         , "d"  .= object
