@@ -63,10 +63,6 @@ import Discord.Internal.Types
 import Discord.Internal.Voice.WebsocketLoop
 import GHC.Weak (deRefWeak, Weak)
 
-data DiscordVoiceResult
-    = Success
-    | Failure VoiceError
-
 -- | Send a Gateway Websocket Update Voice State command (Opcode 4). Used to
 -- indicate that the client voice status (deaf/mute) as well as the channel
 -- they are active on.
@@ -91,10 +87,24 @@ updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceO
 liftDiscord :: DiscordHandler a -> Voice a
 liftDiscord = lift . lift
 
--- | Execute the voice actions stored in the Voice monad, by first initialising
--- a Bounded chan and a mutex for sending. These are universal across all actions
--- within a voice monad (e.g. multiple joins), and this is what enables things
--- like multi-vc broadcast streaming.
+-- | Execute the voice actions stored in the Voice monad.
+--
+-- A single mutex and sending packet channel is used throughout all voice
+-- connections within the actions, which enables multi-channel broadcasting.
+-- The following demonstrates how a single playback is streamed to multiple
+-- connections.
+--
+-- @@
+-- runVoice $ do
+--     join (read "123456789012345") (read "67890123456789012")
+--     join (read "098765432123456") (read "12345698765456709")
+--     play "http://example.com/audio"
+-- @@
+--
+-- The return type of @runVoice@ represents result status of the voice computation.
+-- It is isomorphic to @Maybe@, but the use of Either explicitly denotes that
+-- the correct/successful/"Right" behaviour is (), and that the potentially-
+-- existing value is of failure.
 runVoice :: Voice () -> DiscordHandler (Either VoiceError ())
 runVoice action = do
     voiceHandles <- liftIO $ newMVar []
