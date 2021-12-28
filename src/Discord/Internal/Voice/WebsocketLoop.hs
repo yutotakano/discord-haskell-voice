@@ -278,7 +278,7 @@ eventStream
     -> IO WSState
 eventStream conn opts interval udpLaunchOpts libSends log = do
     -- there has to be at least one packet every @interval@ milliseconds (which
-    -- is the hearbeat response), so if we don't get that, it's a sign of
+    -- is the heartbeat response), so if we don't get that, it's a sign of
     -- the connection gone, we should reconnect. For a quick heuristic accounting
     -- for any network delays, allow for a tolerance of double the time.
     payload <- doOrTimeout (interval * 2) $ getPayload conn
