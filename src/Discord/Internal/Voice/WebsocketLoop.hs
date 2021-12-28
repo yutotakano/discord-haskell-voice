@@ -280,22 +280,24 @@ eventStream conn opts interval udpLaunchOpts libSends log = do
             pure WSResume
         -- Network-WebSockets, type ConnectionException
         Just (Left (CloseRequest code str)) -> do
+            -- Whether we resume or gracefully close depends on the close code,
+            -- so offload the decision to the close code handler.
             handleClose code str
         Just (Left _) -> do
-            log ✍! "connection exception in eventStream."
+            log ✍! "connection exception in eventStream, trying to reconnect."
             pure WSResume
-        Just (Right (HeartbeatAckR _)) ->
-            -- discord docs says HeartbeatAck is sent (opcode 6) after every
-            -- Heartbeat (3) that I send. However, this doesn't seem to be
-            -- the case, as discord responds with another Heartbeat (3) to
-            -- my own, and Ack is never sent back.
-            -- I am required to send back an Ack from MY side in response to
-            -- the Heartbeat that they send which is in response to the
-            -- heartbeat that I send. wtf?
+        Just (Right (HeartbeatAck _)) ->
             eventStream conn opts interval udpLaunchOpts libSends log
-        Just (Right (HeartbeatR a)) -> do
-            writeChan libSends $ HeartbeatAck a
-            eventStream conn opts interval udpLaunchOpts libSends log
+        -- discord docs says HeartbeatAck is sent (opcode 6) after every
+        -- Heartbeat (3) that I send. However, this doesn't seem to be
+        -- the case, as discord responds with another Heartbeat (3) to
+        -- my own, and Ack is never sent back.
+        -- I am required to send back an Ack from MY side in response to
+        -- the Heartbeat that they send which is in response to the
+        -- heartbeat that I send. wtf?
+        -- Just (Right (HeartbeatR a)) -> do
+        --     writeChan libSends $ HeartbeatAck a
+        --     eventStream conn opts interval udpLaunchOpts libSends log
         Just (Right receivable) -> do
             writeChan (opts ^. wsHandle . _1) (Right receivable)
             eventStream conn opts interval udpLaunchOpts libSends log
@@ -304,31 +306,18 @@ eventStream conn opts interval udpLaunchOpts libSends log = do
     -- | Handle Websocket Close codes by logging appropriate messages and
     -- closing the connection.
     handleClose :: Word16 -> BL.ByteString -> IO WSState
-    handleClose code str = do
-        let reason = TE.decodeUtf8 $ BL.toStrict str
-        case code of
-            -- from discord.py voice_client.py#L421
-            1000 -> do
-                -- Normal close
-                log ✍! "websocket closed normally."
-                pure WSClosed
-            4001 -> do
-                -- Unknown opcode
-                log ✍! "websocket closed due to unknown opcode"
-                pure WSClosed
-            4014 -> do
-                -- VC deleted, main gateway closed, or bot kicked. Do not resume.
-                -- Instead, restart from zero.
-                log ✍! "vc deleted or bot forcefully disconnected... Restarting gateway"
-                pure WSStart
-            4015 -> do
-                -- "The server crashed. Our bad! Try resuming."
-                pure WSResume
-            x    -> do
-                (✍!) log $ "connection closed with code: [" <> T.pack (show code) <>
-                        "] " <> reason
-                pure WSClosed
-
+    handleClose 1000 str = log ✍! "websocket closed normally."
+        >> pure WSClosed
+    handleClose 4001 str = log ✍! "websocket closed due to unknown opcode"
+        >> pure WSClosed
+    handleClose 4014 str = log ✍! ("vc deleted, main gateway closed, or bot " <>
+        "forcefully disconnected... Restarting voice.")
+        >> pure WSStart
+    handleClose 4015 str = log ✍! "server crashed on Discord side, resuming"
+        >> pure WSResume
+    handleClose code str = (✍!) log ("connection closed with code: [" <>
+        tshow code <> "] " <> (TE.decodeUtf8 $ BL.toStrict str))
+        >> pure WSClosed
 
 -- | Eternally send data from sysSends and usrSends channels
 sendableLoop
