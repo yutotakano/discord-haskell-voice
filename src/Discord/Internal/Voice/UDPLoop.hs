@@ -32,7 +32,7 @@ import Data.ByteString qualified as B
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time.Clock.POSIX
-import Data.Time.Clock
+import Data.Time
 import Data.Maybe ( fromJust )
 import Data.Word ( Word8 )
 import Network.Socket hiding ( socket )
@@ -53,9 +53,9 @@ data UDPState
 -- | A custom logging function that writes the date/time and the thread ID.
 (✍) :: Chan T.Text -> T.Text -> IO ()
 logChan ✍ log = do
-    t <- getCurrentTime
+    t <- formatTime defaultTimeLocale "%F %T %q" <$> getCurrentTime
     tid <- myThreadId
-    writeChan logChan $ (tshow t) <> " " <> (tshow tid) <> " " <> log
+    writeChan logChan $ (T.pack t) <> " " <> (tshow tid) <> " " <> log
 
 -- | A variant of (✍) that prepends the udpError text.
 (✍!) :: Chan T.Text -> T.Text -> IO ()
