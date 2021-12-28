@@ -17,11 +17,11 @@ import Control.Concurrent
     , newEmptyMVar
     , tryTakeMVar
     , ThreadId
-    , myThreadId, modifyMVar_, newMVar, readMVar
+    , myThreadId, modifyMVar_, newMVar, readMVar, mkWeakThreadId
     )
 import Control.Exception.Safe ( try, SomeException, finally, handle )
 import Control.Lens
-import Control.Monad ( forever )
+import Control.Monad ( forever, guard )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Aeson ( encode, eitherDecode )
 import Data.ByteString.Lazy qualified as BL
@@ -43,7 +43,10 @@ import Discord
 import Discord.Internal.Types ( GuildId, UserId, User(..), Event(..) )
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types.VoiceWebsocket
+import Discord.Internal.Types.VoiceUDP
 import Discord.Internal.Voice.UDPLoop
+import Control.Monad.Except (runExceptT, ExceptT (ExceptT))
+import Control.Monad.Trans (lift)
 
 tshow :: Show a => a -> T.Text
 tshow = T.pack . show
@@ -103,24 +106,34 @@ launchWebsocket opts log = do
             (libSends, sendTid) <- flip (setupSendLoop conn) log $ opts ^. wsHandle . _2
             
             result <- runExceptT $ do
-                helloPacket <- lift $ either ((<> "Failed to get Opcode 8 Hello: ") . tshow) id $ getPayload conn
-                interval <- maybeToRight ("First packet not Opcode 8 Hello: " <> tshow helloPacket) $
-                    helloPacket ^? Hello
+                helloPacket <- ExceptT $
+                    over _Left ((<> "Failed to get Opcode 8 Hello: ") . tshow) <$>
+                    getPayload conn
+
+                interval <- ExceptT $ pure $
+                    maybeToRight ("First packet not Opcode 8 Hello: " <> tshow helloPacket) $
+                        helloPacket ^? _Hello
+
                 -- Create a thread to add heartbeating packets to the
                 -- libSends Chan.
                 heartGenTid <- lift $ forkIO $ heartbeatLoop libSends interval log
                 -- Perform the Identify/Ready handshake
-                readyPacket <- lift $ either ((<> "Failed to get Opcode 2 Ready: ") . tshow) id $ performIdentification conn opts
-                p <- maybeToRight ("First packet after Identify not " <> "Opcode 2 Ready " <> tshow readyPacket) $
-                    readyPacket ^.Discord.Internal.Types.VoiceWebsocket.Ready
+                readyPacket <- ExceptT $
+                    over _Left ((<> "Failed to get Opcode 2 Ready: ") . tshow) <$>
+                    performIdentification conn opts
+
+                p <- ExceptT $ pure $
+                    maybeToRight ("First packet after Identify not " <> "Opcode 2 Ready " <> tshow readyPacket) $
+                        readyPacket ^? _Ready
+
                 secretKey <- lift $ newEmptyMVar
                 let udpLaunchOpts = UDPLaunchOpts
-                        { udpLaunchOptsSsrc = readyPayloadSSRC p
-                        , udpLaunchOptsIp   = readyPayloadIP p
-                        , udpLaunchOptsPort = readyPayloadPort p
-                        , udpLaunchOptsMode = "xsalsa20_poly1305"
-                        , udpLaunchOptsUdpHandle = opts ^. udpHandle
-                        , udpLaunchOptsSyncKey = secretKey
+                        { uDPLaunchOptsSsrc = readyPayloadSSRC p
+                        , uDPLaunchOptsIp   = readyPayloadIP p
+                        , uDPLaunchOptsPort = readyPayloadPort p
+                        , uDPLaunchOptsMode = "xsalsa20_poly1305"
+                        , uDPLaunchOptsUdpHandle = opts ^. udpHandle
+                        , uDPLaunchOptsSecretKey = secretKey
                         -- TODO: support all encryption modes
                         }
                 lift $ modifyMVar_ udpInfo (pure . const udpLaunchOpts)
@@ -131,12 +144,16 @@ launchWebsocket opts log = do
                     -- Launch the UDP thread, automatically perform 
                     -- IP discovery, which will write the result
                     -- to the receiving Chan.
-                    udpTid <- lift $ forkIO $ launchUdp udpLaunchOpts log
-                    lift $ writeMVar (opts ^. udpTid) udpTid
+                    forkedId <- lift $ forkIO $ launchUdp udpLaunchOpts log
+                    udpTidWeak <- liftIO $ mkWeakThreadId forkedId
+                    lift $ putMVar (opts ^. udpTid) udpTidWeak
 
                     ipDiscovery <- lift $ readChan $ opts ^. udpHandle . _1
-                    IPDiscovery ssrc ip port <- maybeToRight ("First UDP Packet not IP Discovery " <> tshow ipDiscovery) $
-                        ipDiscovery ^? IPDiscovery
+                    (ssrcCheck, ip, port) <- ExceptT $ pure $
+                        maybeToRight ("First UDP Packet not IP Discovery " <> tshow ipDiscovery) $
+                            ipDiscovery ^? _IPDiscovery
+                    
+                    guard (ssrcCheck == udpLaunchOpts ^. ssrc)
                     
                     lift $ sendSelectProtocol conn ip port (udpLaunchOpts ^. mode)
                     -- Move to eternal websocket event loop, where we will
@@ -202,6 +219,9 @@ launchWebsocket opts log = do
                 websocketFsm WSResume (retries + 1) udpInfo
             Right n -> websocketFsm n 1 udpInfo
 
+maybeToRight :: a -> Maybe b -> Either a b
+maybeToRight b = maybe (Left b) Right
+
 -- | Perform an IO action for a maximum of @sec@ seconds.
 doOrTimeout :: Int -> IO a -> IO (Maybe a)
 doOrTimeout millisec longAction = (^? _Right) <$> race waitSecs longAction
@@ -264,7 +284,8 @@ performResumption conn opts = do
     
     getPayload conn
 
-sendSelectProtocol = undefined 
+sendSelectProtocol :: Connection -> T.Text -> Integer -> T.Text -> IO ()
+sendSelectProtocol = undefined
 
 -- | Get one packet from the Websocket Connection, parsing it into a
 -- VoiceWebsocketReceivable using Aeson. If the packet is not validly

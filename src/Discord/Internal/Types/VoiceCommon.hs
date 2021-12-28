@@ -8,7 +8,7 @@ module Discord.Internal.Types.VoiceCommon where
 
 import Control.Concurrent (Chan, MVar, ThreadId)
 import Control.Concurrent.MSemN qualified as MSemN
-import Control.Lens (makeFields)
+import Control.Lens ( makeFields, makeLensesWith, abbreviatedFields )
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.ByteString qualified as B
@@ -100,18 +100,21 @@ data WebsocketConn = WebsocketConn
     , websocketConnLaunchOpts    :: WebsocketLaunchOpts
     }
 
+-- I want to keep the "UDP" part uppercase in the type.
+-- Since field accessors are rarely used (lenses instead), we
+-- can compromise by writing the field prefixes as "uDP"
 data UDPLaunchOpts = UDPLaunchOpts
-    { udpLaunchOptsSsrc :: Integer
-    , udpLaunchOptsIp   :: T.Text
-    , udpLaunchOptsPort :: Integer
-    , udpLaunchOptsMode :: T.Text
-    , udpLaunchOptsUdpHandle :: (VoiceUDPReceiveChan, VoiceUDPSendChan)
-    , udpLaunchOptsSyncKey :: MVar [Word8]
+    { uDPLaunchOptsSsrc :: Integer
+    , uDPLaunchOptsIp   :: T.Text
+    , uDPLaunchOptsPort :: Integer
+    , uDPLaunchOptsMode :: T.Text
+    , uDPLaunchOptsUdpHandle :: (VoiceUDPReceiveChan, VoiceUDPSendChan)
+    , uDPLaunchOptsSecretKey :: MVar [Word8]
     }
 
 data UDPConn = UDPConn
-    { udpConnLaunchOpts :: UDPLaunchOpts
-    , udpConnSocket     :: Socket
+    { uDPConnLaunchOpts :: UDPLaunchOpts
+    , uDPConnSocket     :: Socket
     }
 
 $(makeFields ''DiscordVoiceHandle)
