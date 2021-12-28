@@ -191,7 +191,7 @@ doOrTimeout :: Int -> IO a -> IO (Maybe a)
 doOrTimeout millisec longAction = (^? _Right) <$> race waitSecs longAction
   where
     waitSecs :: IO (Maybe b)
-    waitSecs = threadDelay (millisec * 10^(6 :: Int)) >> pure Nothing
+    waitSecs = threadDelay (millisec * 10^(3 :: Int)) >> pure Nothing
     
 -- | Create the library-specific sending packets Chan, and then create the
 -- thread for eternally sending contents in the said Chan, as well as the
