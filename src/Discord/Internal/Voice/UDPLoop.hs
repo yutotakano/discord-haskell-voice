@@ -190,10 +190,11 @@ receivableLoop conn log = do
                 Just x  -> pure $ SpeakingData $ B.drop 8 x
         other -> pure other
 
+    log ✍ (tshow msg')
     -- decode speaking data's OPUS to raw PCM
     msg <- case msg' of
         SpeakingData bytes -> decodeOpusData bytes
-        other -> print other >> pure other
+        other -> pure other
 
     writeChan (conn ^. launchOpts . udpHandle . _1) msg
     receivableLoop conn log
