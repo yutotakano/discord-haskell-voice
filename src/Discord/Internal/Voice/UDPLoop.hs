@@ -38,11 +38,21 @@ import Network.Socket.ByteString.Lazy ( sendAll, recv )
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types.VoiceUDP
 
-
 data ConnLoopState
-    = ConnClosed
-    | ConnStart
-    | ConnReconnect
+    = UDPClosed
+    | UDPStart
+    | UDPReconnect
+
+-- | A custom logging function that writes the date/time and the thread ID.
+(✍) :: Chan T.Text -> T.Text -> IO ()
+logChan ✍ log = do
+    t <- getCurrentTime
+    tid <- myThreadId
+    writeChan logChan $ (tshow t) <> " " <> (tshow tid) <> " " <> log
+
+-- | A variant of (✍) that prepends the udpError text.
+(✍!) :: Chan T.Text -> T.Text -> IO ()
+logChan ✍! log = logChan ✍ (udpError log)
 
 -- | Simple function to prepend error messages with a template.
 udpError :: T.Text -> T.Text
