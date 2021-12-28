@@ -1,7 +1,9 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 module Discord.Internal.Types.VoiceWebsocket where
 
 import Control.Applicative ( (<|>) )
+import Control.Lens ( makePrisms )
 import Data.Aeson
 import Data.Aeson.Types
 import Data.Text qualified as T
@@ -169,3 +171,5 @@ instance ToJSON VoiceWebsocketSendable where
             , "token"      .= token
             ]
         ]
+
+$(makePrisms ''VoiceWebsocketReceivable)

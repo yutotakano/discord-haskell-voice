@@ -1,6 +1,8 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 module Discord.Internal.Types.VoiceUDP where
 
+import Control.Lens ( makePrisms )
 import Data.Binary.Get
 import Data.Binary.Put
 import Data.Binary
@@ -80,3 +82,5 @@ instance Binary VoiceUDPPacket where
         putByteString header
         putLazyByteString a
     put (MalformedPacket a) = putLazyByteString a
+
+$(makePrisms ''VoiceUDPPacket)
