@@ -7,7 +7,6 @@ module Discord.Internal.Voice
 
 import Codec.Audio.Opus.Encoder
 import Control.Concurrent.Async ( race )
-import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Concurrent
     ( ThreadId
     , threadDelay
@@ -28,6 +27,7 @@ import Control.Concurrent
     , tryPutMVar
     , modifyMVar_
     )
+import Control.Concurrent.MSemN qualified as MSemN
 import Control.Exception.Safe ( SomeException, handle, finally )
 import Control.Lens
 import Control.Monad.Reader ( ask, liftIO, runReaderT )
@@ -92,8 +92,16 @@ runVoice :: Voice () -> DiscordHandler (Either VoiceError ())
 runVoice action = do
     voiceHandles <- liftIO $ newMVar []
     mutEx <- liftIO $ newMVar ()
-    sends <- liftIO $ Bounded.newBoundedChan 500 -- 10 seconds worth of 20ms
-    let initialState = DiscordBroadcastHandle voiceHandles mutEx sends
+    -- The following initialises a semaphore-limited bounded channel to limit
+    -- the number of data in the UDP broadcast socket. This is to handle the case
+    -- where the writer of voice data is much faster than the consumer (i.e.
+    -- realtime). Using a MSemN is easier than BoundedChan because it allows
+    -- dupChan in the many reader fork threads, whereas BoundedChan does not
+    -- support dupChan and it would be very complicated to work around it.
+    sends <- liftIO $ newChan
+    sendsLim <- liftIO $ MSemN.new 500 -- 10 seconds worth of 20ms
+
+    let initialState = DiscordBroadcastHandle voiceHandles mutEx (sendsLim, sends)
 
     result <- finally (runExceptT $ flip runReaderT initialState $ action) $ do
         -- Wrap cleanup action in @finally@ to ensure we always close the
@@ -135,13 +143,15 @@ join guildId channelId = do
             -- create the sending and receiving channels for Websocket
             wsChans <- liftIO $ (,) <$> newChan <*> newChan
             -- thread id and handles for UDP
-            udpHandlesM <- liftIO $ (,) <$> newEmptyMVar <*> newEmptyMVar
+            udpSends <- (^. sends . _2) <$> ask
+            udpChans <- liftIO $ (,) <$> newChan <*> dupChan udpSends
+            udpTidM <- liftIO newEmptyMVar
             -- ssrc to be filled in during initial handshake
             ssrcM <- liftIO $ newEmptyMVar
 
             uid <- userId . cacheCurrentUser <$> (lift $ lift $ readCache)
             let wsOpts = WebsocketLaunchOpts uid sessionId token guildId endpoint
-                    events wsChans udpHandlesM ssrcM
+                    events wsChans udpTidM udpChans ssrcM
 
             -- fork a thread to start the websocket thread in the DiscordHandler
             -- monad using the current Reader state. Not much of a problem
@@ -156,8 +166,7 @@ join guildId channelId = do
             voiceState <- ask
             -- TODO: check if readMVar ever blocks if the UDP thread fails to
             -- launch. Handle somehow? Perhaps with exception throwTo?
-            udpTid <- liftIO $ readMVar $ udpHandlesM ^. _1
-            udpChans <- liftIO $ readMVar $ udpHandlesM ^. _2
+            udpTid <- liftIO $ readMVar udpTidM
             ssrc <- liftIO $ readMVar ssrcM
 
             -- Add the new voice handles to the list of handles

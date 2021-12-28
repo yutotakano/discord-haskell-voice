@@ -43,6 +43,7 @@ import Discord
 import Discord.Internal.Types ( GuildId, UserId, User(..), Event(..) )
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types.VoiceWebsocket
+import Discord.Internal.Voice.UDPLoop
 
 tshow :: Show a => a -> T.Text
 tshow = T.pack . show
@@ -100,42 +101,53 @@ launchWebsocket opts log = do
     websocketFsm WSStart retries udpInfo = do
         next <- try $ connect (opts ^. endpoint) $ \conn -> do
             (libSends, sendTid) <- flip (setupSendLoop conn) log $ opts ^. wsHandle . _2
-            helloPacket <- getPayload conn
-            case helloPacket of
-                Left e -> do
-                    (✍!) log $ "Failed to get Opcode 8 Hello: " <> (tshow e)
-                    pure WSClosed
-                Right (Hello interval) -> do
-                    -- Create a thread to add heartbeating packets to the
-                    -- libSends Chan.
-                    heartGenTid <- forkIO $ heartbeatLoop libSends interval log
-                    -- Perform the Identify/Ready handshake
-                    readyPacket <- performIdentification conn opts
-                    case readyPacket of
-                        Left e -> do
-                            (✍!) log $ "Failed to get Opcode 2 Ready: " <> (tshow e)
-                            pure WSClosed
-                        Right (Discord.Internal.Types.VoiceWebsocket.Ready p) -> do
-                            let udpLaunchOpts = UDPLaunchOpts
-                                    { udpLaunchOptsSsrc = readyPayloadSSRC p
-                                    , udpLaunchOptsIp   = readyPayloadIP p
-                                    , udpLaunchOptsPort = readyPayloadPort p
-                                    , udpLaunchOptsMode = "xsalsa20_poly1305"
-                                    -- TODO: support all encryption modes
-                                    }
-                            modifyMVar_ udpInfo (pure . const udpLaunchOpts)
+            
+            result <- runExceptT $ do
+                helloPacket <- lift $ either ((<> "Failed to get Opcode 8 Hello: ") . tshow) id $ getPayload conn
+                interval <- maybeToRight ("First packet not Opcode 8 Hello: " <> tshow helloPacket) $
+                    helloPacket ^? Hello
+                -- Create a thread to add heartbeating packets to the
+                -- libSends Chan.
+                heartGenTid <- lift $ forkIO $ heartbeatLoop libSends interval log
+                -- Perform the Identify/Ready handshake
+                readyPacket <- lift $ either ((<> "Failed to get Opcode 2 Ready: ") . tshow) id $ performIdentification conn opts
+                p <- maybeToRight ("First packet after Identify not " <> "Opcode 2 Ready " <> tshow readyPacket) $
+                    readyPacket ^.Discord.Internal.Types.VoiceWebsocket.Ready
+                secretKey <- lift $ newEmptyMVar
+                let udpLaunchOpts = UDPLaunchOpts
+                        { udpLaunchOptsSsrc = readyPayloadSSRC p
+                        , udpLaunchOptsIp   = readyPayloadIP p
+                        , udpLaunchOptsPort = readyPayloadPort p
+                        , udpLaunchOptsMode = "xsalsa20_poly1305"
+                        , udpLaunchOptsUdpHandle = opts ^. udpHandle
+                        , udpLaunchOptsSyncKey = secretKey
+                        -- TODO: support all encryption modes
+                        }
+                lift $ modifyMVar_ udpInfo (pure . const udpLaunchOpts)
                             
-                            -- Pass not the MVar but the raw options, since
-                            -- there's no writing to be done.
-                            finally (eventStream conn opts interval udpLaunchOpts libSends log) $
-                                (killThread heartGenTid >> killThread sendTid)
-                        Right p -> do
-                            (✍!) log $ "First packet after Identify not " <> 
-                                "Opcode 2 Ready: " <> (tshow p)
-                            pure WSClosed
-                Right p -> do
-                    (✍!) log $ "First packet not Opcode 8 Hello: " <> (tshow p)
-                    pure WSClosed
+                -- Pass not the MVar but the raw options, since
+                -- there's no writing to be done.
+                flip finally (lift $ killThread heartGenTid >> killThread sendTid) $ do
+                    -- Launch the UDP thread, automatically perform 
+                    -- IP discovery, which will write the result
+                    -- to the receiving Chan.
+                    udpTid <- lift $ forkIO $ launchUdp udpLaunchOpts log
+                    lift $ writeMVar (opts ^. udpTid) udpTid
+
+                    ipDiscovery <- lift $ readChan $ opts ^. udpHandle . _1
+                    IPDiscovery ssrc ip port <- maybeToRight ("First UDP Packet not IP Discovery " <> tshow ipDiscovery) $
+                        ipDiscovery ^? IPDiscovery
+                    
+                    sendSelectProtocol conn ip port (udpLaunchOpts ^. mode)
+                    -- Move to eternal websocket event loop, where we will
+                    -- receive the Opcode 4 Session Description together with
+                    -- the secret key. It will write to the secret key MVar
+                    -- accessible inside udpLaunchOpts.
+                    eventStream conn opts interval udpLaunchOpts libSends log
+
+            case result of
+                Left reason -> log ✍! reason >> pure WSClosed
+                Right state -> pure state
 
         -- Connection is now closed.
         case next :: Either SomeException WSState of
