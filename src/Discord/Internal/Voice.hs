@@ -69,6 +69,9 @@ data DiscordVoiceResult
 -- | Send a Gateway Websocket Update Voice State command (Opcode 4). Used to
 -- indicate that the client voice status (deaf/mute) as well as the channel
 -- they are active on.
+-- This is not in the Voice monad because it has to be used after all voice
+-- actions end, to quit the voice channels. It also has no benefit, since it
+-- would cause extra transformer wrapping/unwrapping.
 updateStatusVoice
     :: GuildId
     -- ^ Id of Guild
@@ -78,8 +81,8 @@ updateStatusVoice
     -- ^ Whether the client muted
     -> Bool
     -- ^ Whether the client deafened
-    -> Voice ()
-updateStatusVoice a b c d = lift $ lift $ sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts a b c d
+    -> DiscordHandler ()
+updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts a b c d
 
 -- | Execute the voice actions stored in the Voice monad, by first initialising
 -- a Bounded chan and a mutex for sending. These are universal across all actions
@@ -104,6 +107,7 @@ runVoice action = do
 
         mapMOf_ (traverse . websocket . _1) (liftIO . killWkThread) finalState
         mapMOf_ (traverse . udp . _1) (liftIO . killWkThread) finalState
+        mapMOf_ (traverse . guildId) (\x -> updateStatusVoice x Nothing False False) finalState
 
     pure result
 
@@ -118,7 +122,7 @@ join guildId channelId = do
     -- To join a voice channel, we first need to send Voice State Update (Opcode
     -- 4) to the gateway, which will then send us two responses, Dispatch Event
     -- (Voice State Update) and Dispatch Event (Voice Server Update).
-    updateStatusVoice guildId (Just channelId) False False
+    lift $ lift $ updateStatusVoice guildId (Just channelId) False False
 
     (liftIO . doOrTimeout 5000) (waitForVoiceStatusServerUpdate events) >>= \case
         Nothing -> do
