@@ -297,16 +297,6 @@ eventStream conn opts interval udpLaunchOpts libSends log = do
             pure WSResume
         Just (Right (HeartbeatAck _)) ->
             eventStream conn opts interval udpLaunchOpts libSends log
-        -- discord docs says HeartbeatAck is sent (opcode 6) after every
-        -- Heartbeat (3) that I send. However, this doesn't seem to be
-        -- the case, as discord responds with another Heartbeat (3) to
-        -- my own, and Ack is never sent back.
-        -- I am required to send back an Ack from MY side in response to
-        -- the Heartbeat that they send which is in response to the
-        -- heartbeat that I send. wtf?
-        -- Just (Right (HeartbeatR a)) -> do
-        --     writeChan libSends $ HeartbeatAck a
-        --     eventStream conn opts interval udpLaunchOpts libSends log
         Just (Right receivable) -> do
             writeChan (opts ^. wsHandle . _1) (Right receivable)
             eventStream conn opts interval udpLaunchOpts libSends log
