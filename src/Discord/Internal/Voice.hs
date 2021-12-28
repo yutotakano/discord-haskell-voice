@@ -60,7 +60,6 @@ import Discord.Internal.Types
     , UpdateStatusVoiceOpts
     )
 import Discord.Internal.Voice.WebsocketLoop
-import Discord.Internal.Voice.UDPLoop
 import GHC.Weak (deRefWeak, Weak)
 
 data DiscordVoiceResult
@@ -121,7 +120,7 @@ join guildId channelId = do
     -- (Voice State Update) and Dispatch Event (Voice Server Update).
     updateStatusVoice guildId (Just channelId) False False
 
-    (liftIO . doOrTimeout 5) (waitForVoiceStatusServerUpdate events) >>= \case
+    (liftIO . doOrTimeout 5000) (waitForVoiceStatusServerUpdate events) >>= \case
         Nothing -> do
             -- did not respond in time: no permission? or discord offline?
             throwError VoiceNotAvailable
@@ -196,13 +195,6 @@ waitForVoiceStatusServerUpdate = loopForBothEvents Nothing Nothing
                     pure (token, guildId, endpoint)
             loopForBothEvents mb1 result events
         _ -> loopForBothEvents mb1 mb2 events
-
--- | Perform an IO action for a maximum of @sec@ seconds.
-doOrTimeout :: Int -> IO a -> IO (Maybe a)
-doOrTimeout sec longAction = rightToMaybe <$> race waitSecs longAction
-  where
-    waitSecs :: IO ()
-    waitSecs = threadDelay (sec * 10^(6 :: Int))
 
 -- | Selects the right element as a Maybe
 rightToMaybe :: Either a b -> Maybe b
