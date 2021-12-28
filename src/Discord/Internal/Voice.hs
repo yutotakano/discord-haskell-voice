@@ -4,6 +4,7 @@ module Discord.Internal.Voice
     ( liftDiscord
     , runVoice
     , join
+    , updateSpeakingStatus
     ) where
 
 import Codec.Audio.Opus.Encoder
@@ -60,6 +61,10 @@ import Discord.Internal.Types
     , Event(..)
     )
 import Discord.Internal.Types.VoiceCommon
+import Discord.Internal.Types.VoiceWebsocket
+    ( VoiceWebsocketSendable(Speaking)
+    , SpeakingPayload(..)
+    )
 import Discord.Internal.Voice.CommonUtils
 import Discord.Internal.Voice.WebsocketLoop
 
@@ -230,12 +235,15 @@ waitForVoiceStatusServerUpdate = loopForBothEvents Nothing Nothing
 --
 -- Soundshare and priority are const as False, don't see bots needing them.
 -- If and when required, add Bool signatures to this function.
-updateSpeakingStatus :: DiscordVoiceHandle -> Bool -> IO ()
-updateSpeakingStatus handle micStatus =
-    writeChan (snd $ discordVoiceHandleWebsocket handle) $ Speaking $ SpeakingPayload
-        { speakingPayloadMicrophone = micStatus
-        , speakingPayloadSoundshare = False
-        , speakingPayloadPriority   = False
-        , speakingPayloadDelay      = 0
-        , speakingPayloadSSRC       = (discordVoiceSSRC handle)
-        }
+updateSpeakingStatus :: Bool -> Voice ()
+updateSpeakingStatus micStatus = do
+    h <- (^. voiceHandles) <$> ask
+    handles <- liftIO $ readMVar h
+    flip (mapMOf_ traverse) handles $ \handle ->
+        liftIO $ writeChan (handle ^. websocket . _2 . _2) $ Speaking $ SpeakingPayload
+            { speakingPayloadMicrophone = micStatus
+            , speakingPayloadSoundshare = False
+            , speakingPayloadPriority   = False
+            , speakingPayloadDelay      = 0
+            , speakingPayloadSSRC       = handle ^. ssrc
+            }
