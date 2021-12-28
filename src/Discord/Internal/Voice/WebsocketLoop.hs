@@ -17,18 +17,23 @@ import Control.Concurrent
     , newEmptyMVar
     , tryTakeMVar
     , ThreadId
-    , myThreadId, modifyMVar_, newMVar, readMVar, mkWeakThreadId
+    , myThreadId
+    , modifyMVar_
+    , newMVar
+    , readMVar
+    , mkWeakThreadId
     )
 import Control.Exception.Safe ( try, SomeException, finally, handle )
 import Control.Lens
 import Control.Monad ( forever, guard )
 import Control.Monad.IO.Class ( liftIO )
+import Control.Monad.Except ( runExceptT, ExceptT (ExceptT) )
+import Control.Monad.Trans ( lift )
 import Data.Aeson ( encode, eitherDecode )
 import Data.ByteString.Lazy qualified as BL
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time.Clock.POSIX
-import Data.Time
 import Data.Word ( Word16 )
 import Network.WebSockets
     ( ConnectionException(..)
@@ -38,18 +43,15 @@ import Network.WebSockets
     , sendTextData
     )
 import Wuss ( runSecureClient )
-import Discord.Internal.Gateway ( GatewayException )
+
 import Discord
+import Discord.Internal.Gateway ( GatewayException )
 import Discord.Internal.Types ( GuildId, UserId, User(..), Event(..) )
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types.VoiceWebsocket
 import Discord.Internal.Types.VoiceUDP
+import Discord.Internal.Voice.CommonUtils
 import Discord.Internal.Voice.UDPLoop
-import Control.Monad.Except (runExceptT, ExceptT (ExceptT))
-import Control.Monad.Trans (lift)
-
-tshow :: Show a => a -> T.Text
-tshow = T.pack . show
 
 data WSState
     = WSStart
@@ -66,10 +68,7 @@ logChan ✍ log = do
 
 -- | A variant of (✍) that prepends the wsError text.
 (✍!) :: Chan T.Text -> T.Text -> IO ()
-logChan ✍! log = logChan ✍ (wsError log)
-
-wsError :: T.Text -> T.Text
-wsError t = "Voice Websocket error - " <> t
+logChan ✍! log = logChan ✍ ("!!! Voice Websocket Error - " <> log)
 
 -- Alias for running a websocket connection using the Discord endpoint URL
 -- (which contains the port as well). Makes sure to connect to the correct
@@ -237,16 +236,6 @@ launchWebsocket opts log = do
                 websocketFsm WSResume (retries + 1) udpInfo
             Right n -> websocketFsm n 1 udpInfo
 
-maybeToRight :: a -> Maybe b -> Either a b
-maybeToRight b = maybe (Left b) Right
-
--- | Perform an IO action for a maximum of @sec@ seconds.
-doOrTimeout :: Int -> IO a -> IO (Maybe a)
-doOrTimeout millisec longAction = (^? _Right) <$> race waitSecs longAction
-  where
-    waitSecs :: IO (Maybe b)
-    waitSecs = threadDelay (millisec * 10^(3 :: Int)) >> pure Nothing
-    
 -- | Create the library-specific sending packets Chan, and then create the
 -- thread for eternally sending contents in the said Chan, as well as the
 -- user-generated packet Chan.

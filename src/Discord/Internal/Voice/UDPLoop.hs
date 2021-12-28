@@ -19,9 +19,9 @@ import Control.Concurrent
     , readMVar
     , forkIO
     , killThread
-    , threadDelay, myThreadId
+    , threadDelay
+    , myThreadId
     )
-import Control.Concurrent.Async ( race )
 import Control.Exception.Safe ( handle, SomeException, finally, try, bracket )
 import Control.Lens
 import Control.Monad.IO.Class ( MonadIO )
@@ -32,7 +32,6 @@ import Data.ByteString qualified as B
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time.Clock.POSIX
-import Data.Time
 import Data.Maybe ( fromJust )
 import Data.Word ( Word8 )
 import Network.Socket hiding ( socket )
@@ -41,9 +40,7 @@ import Network.Socket.ByteString.Lazy ( sendAll, recv )
 
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types.VoiceUDP
-
-tshow :: Show a => a -> T.Text
-tshow = T.pack . show
+import Discord.Internal.Voice.CommonUtils
 
 data UDPState
     = UDPClosed
@@ -59,11 +56,7 @@ logChan ✍ log = do
 
 -- | A variant of (✍) that prepends the udpError text.
 (✍!) :: Chan T.Text -> T.Text -> IO ()
-logChan ✍! log = logChan ✍ (udpError log)
-
--- | Simple function to prepend error messages with a template.
-udpError :: T.Text -> T.Text
-udpError t = "Voice UDP error - " <> t
+logChan ✍! log = logChan ✍ ("!!! Voice UDP Error - " <> log)
 
 -- Alias for opening a UDP socket connection using the Discord endpoint.
 runUDPClient :: AddrInfo -> (Socket -> IO a) -> IO a
@@ -277,10 +270,3 @@ decodeOpusData bytes = do
     decoder <- opusDecoderCreate deCfg
     decoded <- opusDecode decoder deStreamCfg bytes
     pure $ SpeakingData decoded
-
--- | Perform an IO action for a maximum of @sec@ seconds.
-doOrTimeout :: Int -> IO a -> IO (Maybe a)
-doOrTimeout millisec longAction = (^? _Right) <$> race waitSecs longAction
-  where
-    waitSecs :: IO (Maybe b)
-    waitSecs = threadDelay (millisec * 10^(3 :: Int)) >> pure Nothing
