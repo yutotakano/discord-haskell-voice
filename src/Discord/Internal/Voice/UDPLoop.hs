@@ -100,8 +100,7 @@ launchUdp opts log = loop UDPStart 0
 
         case next :: Either SomeException UDPState of
             Left e -> do
-                writeChan log $ udpError $
-                    "could not start UDP conn due to an exception: " <>
+                (✍!) log $ "could not start UDP conn due to an exception: " <>
                     (T.pack $ show e)
                 loop UDPClosed 0
             Right n -> loop n 0
@@ -125,8 +124,7 @@ launchUdp opts log = loop UDPStart 0
 
         case next :: Either SomeException UDPState of
             Left e -> do
-                writeChan log $ udpError $
-                    "could not reconnect to UDP, will restart in 10 secs."
+                log ✍! "could not reconnect to UDP, will restart in 10 secs."
                 threadDelay $ 10 * (10^(6 :: Int))
                 loop UDPReconnect (retries + 1)
             Right n -> loop n 1
@@ -166,8 +164,7 @@ receivableLoop conn log = do
             let deciphered = decrypt byteKey nonce $ BL.toStrict og
             case deciphered of
                 Nothing -> do
-                    writeChan log $ udpError $
-                        "could not decipher audio message!"
+                    log ✍! "could not decipher audio message!"
                     pure $ MalformedPacket $ BL.append (BL.fromStrict header) og
                 Just x  -> pure $ SpeakingData x
         SpeakingDataEncryptedExtra header og -> do
@@ -177,8 +174,7 @@ receivableLoop conn log = do
             let deciphered = decrypt byteKey nonce $ BL.toStrict og
             case deciphered of
                 Nothing -> do
-                    writeChan log $ udpError $
-                        "could not decipher audio message!"
+                    log ✍! "could not decipher audio message!"
                     pure $ MalformedPacket $ BL.append (BL.fromStrict header) og
                 Just x  -> pure $ SpeakingData $ B.drop 8 x
         other -> pure other
