@@ -40,6 +40,7 @@ import Data.Aeson.Types ( parseMaybe )
 import Data.ByteString.Lazy qualified as BL
 import Data.Maybe ( fromJust )
 import Data.Text qualified as T
+import GHC.Weak ( deRefWeak, Weak )
 import System.Process ( CreateProcess(..), StdStream(..), proc, createProcess )
 
 import Discord ( DiscordHandler, sendCommand, readCache )
@@ -49,7 +50,6 @@ import Discord.Internal.Gateway.EventLoop
     ( GatewayException(..)
     , GatewayHandle(..)
     )
-import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types
     ( GuildId
     , ChannelId
@@ -58,10 +58,10 @@ import Discord.Internal.Types
     , GatewaySendable(..)
     , UpdateStatusVoiceOpts(..)
     , Event(..)
-    , UpdateStatusVoiceOpts
     )
+import Discord.Internal.Types.VoiceCommon
+import Discord.Internal.Voice.CommonUtils
 import Discord.Internal.Voice.WebsocketLoop
-import GHC.Weak (deRefWeak, Weak)
 
 -- | Send a Gateway Websocket Update Voice State command (Opcode 4). Used to
 -- indicate that the client voice status (deaf/mute) as well as the channel
