@@ -70,10 +70,10 @@ logChan ✍ log = do
 (✍!) :: Chan T.Text -> T.Text -> IO ()
 logChan ✍! log = logChan ✍ ("!!! Voice Websocket Error - " <> log)
 
--- Alias for running a websocket connection using the Discord endpoint URL
--- (which contains the port as well). Makes sure to connect to the correct
--- voice gateway version as well, as the default version of 1 is severely out of
--- date (the opcode behaviours are not according to docs).
+-- | @connect@ is an alias for running a websocket connection using the Discord
+-- endpoint URL (which contains the port as well). It makes sure to connect to
+-- the correct voice gateway version as well, as the default version of 1 is
+-- severely out of date (the opcode behaviours are not according to docs).
 connect :: T.Text -> (Connection -> IO a) -> IO a
 connect endpoint = runSecureClient url port "/?v=4"
   where
