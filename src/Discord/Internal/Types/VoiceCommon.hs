@@ -7,12 +7,13 @@
 module Discord.Internal.Types.VoiceCommon where
 
 import Control.Concurrent (Chan, MVar, ThreadId)
-import Control.Concurrent.BoundedChan qualified as Bounded
+import Control.Concurrent.MSemN qualified as MSemN
 import Control.Lens (makeFields)
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.ByteString qualified as B
 import Data.Text qualified as T
+import Data.Word ( Word8 )
 import Discord
 import Discord.Types
 import Discord.Internal.Gateway.EventLoop ( GatewayException(..) )
@@ -62,7 +63,7 @@ data DiscordBroadcastHandle = DiscordBroadcastHandle
     , -- | The mutex used to synchronize access to the list of voice connection
       discordBroadcastHandleMutEx :: MVar ()
     , -- | The channel used to send audio data to the audio stream.
-      discordBroadcastHandleSends :: Bounded.BoundedChan B.ByteString
+      discordBroadcastHandleSends :: (MSemN.MSemN Int, VoiceUDPSendChan)
     }
 
 data VoiceWebsocketException
@@ -79,7 +80,7 @@ type VoiceWebsocketSendChan = Chan VoiceWebsocketSendable
 
 type VoiceUDPReceiveChan = Chan VoiceUDPPacket
 
-type VoiceUDPSendChan = Bounded.BoundedChan B.ByteString
+type VoiceUDPSendChan = Chan B.ByteString
 
 data WebsocketLaunchOpts = WebsocketLaunchOpts
     { websocketLaunchOptsBotUserId     :: UserId
@@ -89,7 +90,8 @@ data WebsocketLaunchOpts = WebsocketLaunchOpts
     , websocketLaunchOptsEndpoint      :: T.Text
     , websocketLaunchOptsGatewayEvents :: Chan (Either GatewayException Event)
     , websocketLaunchOptsWsHandle      :: (VoiceWebsocketReceiveChan, VoiceWebsocketSendChan)
-    , websocketLaunchOptsUdpInfo       :: (MVar (Weak ThreadId), MVar (VoiceUDPReceiveChan, VoiceUDPSendChan))
+    , websocketLaunchOptsUdpTid        :: MVar (Weak ThreadId)
+    , websocketLaunchOptsUdpHandle     :: (VoiceUDPReceiveChan, VoiceUDPSendChan)
     , websocketLaunchOptsSsrc          :: MVar Integer
     }
 
@@ -103,6 +105,8 @@ data UDPLaunchOpts = UDPLaunchOpts
     , udpLaunchOptsIp   :: T.Text
     , udpLaunchOptsPort :: Integer
     , udpLaunchOptsMode :: T.Text
+    , udpLaunchOptsUdpHandle :: (VoiceUDPReceiveChan, VoiceUDPSendChan)
+    , udpLaunchOptsSyncKey :: MVar [Word8]
     }
 
 data UDPConn = UDPConn
