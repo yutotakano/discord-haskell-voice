@@ -136,9 +136,7 @@ join guildId channelId = do
             ssrcM <- liftIO $ newEmptyMVar
 
             uid <- userId . cacheCurrentUser <$> (lift $ lift $ readCache)
-            -- Use version 4 of the gateway (default is 1, and is out of date)
-            let versionedEndpoint = endpoint <> "?v=4"
-            let wsOpts = WebsocketLaunchOpts uid sessionId token guildId versionedEndpoint
+            let wsOpts = WebsocketLaunchOpts uid sessionId token guildId endpoint
                     events wsChans udpHandlesM ssrcM
 
             -- fork a thread to start the websocket thread in the DiscordHandler

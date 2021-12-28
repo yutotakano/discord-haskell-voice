@@ -67,8 +67,12 @@ logChan ✍! log = logChan ✍ (wsError log)
 wsError :: T.Text -> T.Text
 wsError t = "Voice Websocket error - " <> t
 
+-- Alias for running a websocket connection using the Discord endpoint URL
+-- (which contains the port as well). Makes sure to connect to the correct
+-- voice gateway version as well, as the default version of 1 is severely out of
+-- date (the opcode behaviours are not according to docs).
 connect :: T.Text -> (Connection -> IO a) -> IO a
-connect endpoint = runSecureClient url port "/"
+connect endpoint = runSecureClient url port "/?v=4"
   where
     url = (T.unpack . T.takeWhile (/= ':')) endpoint
     port = (read . T.unpack . T.takeWhileEnd (/= ':')) endpoint
