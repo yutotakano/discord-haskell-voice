@@ -264,6 +264,8 @@ performResumption conn opts = do
     
     getPayload conn
 
+sendSelectProtocol = undefined 
+
 -- | Get one packet from the Websocket Connection, parsing it into a
 -- VoiceWebsocketReceivable using Aeson. If the packet is not validly
 -- parsed, it will be a @Right (ParseError info)@.
