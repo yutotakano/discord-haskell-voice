@@ -138,12 +138,12 @@ launchWebsocket opts log = do
                     IPDiscovery ssrc ip port <- maybeToRight ("First UDP Packet not IP Discovery " <> tshow ipDiscovery) $
                         ipDiscovery ^? IPDiscovery
                     
-                    sendSelectProtocol conn ip port (udpLaunchOpts ^. mode)
+                    lift $ sendSelectProtocol conn ip port (udpLaunchOpts ^. mode)
                     -- Move to eternal websocket event loop, where we will
                     -- receive the Opcode 4 Session Description together with
                     -- the secret key. It will write to the secret key MVar
                     -- accessible inside udpLaunchOpts.
-                    eventStream conn opts interval udpLaunchOpts libSends log
+                    lift $ eventStream conn opts interval udpLaunchOpts libSends log
 
             case result of
                 Left reason -> log ✍! reason >> pure WSClosed
