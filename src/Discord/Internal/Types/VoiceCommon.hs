@@ -86,7 +86,8 @@ type DiscordVoiceHandleUDP =
     )
 
 data WebsocketLaunchOpts = WebsocketLaunchOpts
-    { websocketLaunchOptsSessionId :: T.Text
+    { websocketLaunchOptsBotUserId    :: UserId
+    , websocketLaunchOptsSessionId :: T.Text
     , websocketLaunchOptsToken     :: T.Text
     , websocketLaunchOptsGuildId   :: GuildId
     , websocketLaunchOptsEndpoint  :: T.Text
@@ -99,7 +100,6 @@ data WebsocketLaunchOpts = WebsocketLaunchOpts
 data WebsocketConn = WebsocketConn
     { websocketConnConnection    :: Connection
     , websocketConnLaunchOpts    :: WebsocketLaunchOpts
-    , websocketConnUdpLaunchOpts :: ReadyPayload
     }
 
 data UDPLaunchOpts = UDPLaunchOpts
