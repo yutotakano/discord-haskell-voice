@@ -265,6 +265,54 @@ getPayload conn = try $ do
         Left err  -> pure $ ParseError $ T.pack err
             <> " while decoding " <> TE.decodeUtf8 (BL.toStrict msg')
 
+-- | Eternally send data from libSends and usrSends channels
+sendableLoop
+    :: Connection
+    -> VoiceWebsocketSendChan
+    -> VoiceWebsocketSendChan
+    -> Chan T.Text
+    -> IO ()
+sendableLoop conn libSends usrSends log = do
+    -- Wait-time taken from discord-haskell/Internal.Gateway.EventLoop
+    threadDelay $ round ((10^(6 :: Int)) * (62 / 120) :: Double)
+    -- Get whichever possible, and send it
+    payload <- either id id <$> race (readChan libSends) (readChan usrSends)
+    log ✍ ("(send) " <> tshow payload) -- TODO: debug, remove.
+    sendTextData conn $ encode payload
+    sendableLoop conn libSends usrSends log
+
+-- | Eternally send heartbeats through the libSends channel
+heartbeatLoop
+    :: VoiceWebsocketSendChan
+    -> Int
+    -- ^ milliseconds
+    -> Chan T.Text
+    -> IO ()
+heartbeatLoop libSends interval log = do
+    threadDelay $ 1 * 10^(6 :: Int)
+    forever $ do
+        time <- round <$> getPOSIXTime
+        writeChan libSends $ Heartbeat $ time
+        threadDelay $ interval * 1000
+
+gatewayCheckerLoop
+    :: Chan (Either GatewayException Event)
+    -- ^ Gateway events
+    -> MVar ()
+    -- ^ Binary empty semaphore, set to () when gateway has reconnected
+    -> Chan T.Text
+    -- ^ log
+    -> IO ()
+gatewayCheckerLoop gatewayEvents sem log = do
+    top <- readChan gatewayEvents
+    log ✍ (tshow top)
+    case top of
+        Right (Discord.Internal.Types.Ready _ _ _ _ _) -> do
+            log ✍ "gateway ready detected, putting () in sem"
+            putMVar sem ()
+            gatewayCheckerLoop gatewayEvents sem log
+        _ -> gatewayCheckerLoop gatewayEvents sem log
+
 -- | This function is the main event loop for the Websocket, after all initial
 -- handshake stages (Hello and identification/resumption). It will continuously
 -- read the top packet in the Websocket receives, and handle closures, and
@@ -319,51 +367,3 @@ eventStream conn opts interval udpLaunchOpts libSends log = do
     handleClose code str = (✍!) log ("connection closed with code: [" <>
         tshow code <> "] " <> (TE.decodeUtf8 $ BL.toStrict str))
         >> pure WSClosed
-
--- | Eternally send data from libSends and usrSends channels
-sendableLoop
-    :: Connection
-    -> VoiceWebsocketSendChan
-    -> VoiceWebsocketSendChan
-    -> Chan T.Text
-    -> IO ()
-sendableLoop conn libSends usrSends log = do
-    -- Wait-time taken from discord-haskell/Internal.Gateway.EventLoop
-    threadDelay $ round ((10^(6 :: Int)) * (62 / 120) :: Double)
-    -- Get whichever possible, and send it
-    payload <- either id id <$> race (readChan libSends) (readChan usrSends)
-    log ✍ ("(send) " <> tshow payload) -- TODO: debug, remove.
-    sendTextData conn $ encode payload
-    sendableLoop conn libSends usrSends log
-
--- | Eternally send heartbeats through the libSends channel
-heartbeatLoop
-    :: VoiceWebsocketSendChan
-    -> Int
-    -- ^ milliseconds
-    -> Chan T.Text
-    -> IO ()
-heartbeatLoop libSends interval log = do
-    threadDelay $ 1 * 10^(6 :: Int)
-    forever $ do
-        time <- round <$> getPOSIXTime
-        writeChan libSends $ Heartbeat $ time
-        threadDelay $ interval * 1000
-
-gatewayCheckerLoop
-    :: Chan (Either GatewayException Event)
-    -- ^ Gateway events
-    -> MVar ()
-    -- ^ Binary empty semaphore, set to () when gateway has reconnected
-    -> Chan T.Text
-    -- ^ log
-    -> IO ()
-gatewayCheckerLoop gatewayEvents sem log = do
-    top <- readChan gatewayEvents
-    log ✍ (tshow top)
-    case top of
-        Right (Discord.Internal.Types.Ready _ _ _ _ _) -> do
-            log ✍ "gateway ready detected, putting () in sem"
-            putMVar sem ()
-            gatewayCheckerLoop gatewayEvents sem log
-        _ -> gatewayCheckerLoop gatewayEvents sem log
