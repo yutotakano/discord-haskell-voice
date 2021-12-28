@@ -246,6 +246,9 @@ performResumption conn opts = do
     
     getPayload conn
 
+-- | Get one packet from the Websocket Connection, parsing it into a
+-- VoiceWebsocketReceivable using Aeson. If the packet is not validly
+-- parsed, it will be a @Right (ParseError info)@.
 getPayload
     :: Connection
     -> IO (Either ConnectionException VoiceWebsocketReceivable)
@@ -319,33 +322,33 @@ eventStream conn opts interval udpLaunchOpts libSends log = do
         tshow code <> "] " <> (TE.decodeUtf8 $ BL.toStrict str))
         >> pure WSClosed
 
--- | Eternally send data from sysSends and usrSends channels
+-- | Eternally send data from libSends and usrSends channels
 sendableLoop
     :: Connection
     -> VoiceWebsocketSendChan
     -> VoiceWebsocketSendChan
     -> IO ()
-sendableLoop conn sysSends usrSends = do
+sendableLoop conn libSends usrSends = do
     -- Wait-time taken from discord-haskell/Internal.Gateway.EventLoop
     threadDelay $ round ((10^(6 :: Int)) * (62 / 120) :: Double)
     -- Get whichever possible, and send it
-    payload <- either id id <$> race (readChan sysSends) (readChan usrSends)
+    payload <- either id id <$> race (readChan libSends) (readChan usrSends)
     print $ "(send) " <> show payload
     sendTextData conn $ encode payload
-    sendableLoop conn sysSends usrSends
+    sendableLoop conn libSends usrSends
 
--- | Eternally send heartbeats through the sysSends channel
+-- | Eternally send heartbeats through the libSends channel
 heartbeatLoop
     :: VoiceWebsocketSendChan
     -> Int
     -- ^ milliseconds
     -> Chan T.Text
     -> IO ()
-heartbeatLoop sysSends interval log = do
+heartbeatLoop libSends interval log = do
     threadDelay $ 1 * 10^(6 :: Int)
     forever $ do
         time <- round <$> getPOSIXTime
-        writeChan sysSends $ Heartbeat $ time
+        writeChan libSends $ Heartbeat $ time
         threadDelay $ interval * 1000
 
 gatewayCheckerLoop
