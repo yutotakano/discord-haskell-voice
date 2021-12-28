@@ -136,14 +136,14 @@ join guildId channelId = do
             -- ssrc to be filled in during initial handshake
             ssrcM <- liftIO $ newEmptyMVar
 
-            let wsOpts = WebsocketLaunchOpts sessionId token guildId endpoint
+            uid <- userId . cacheCurrentUser <$> (lift $ lift $ readCache)
+            let wsOpts = WebsocketLaunchOpts uid sessionId token guildId endpoint
                     events wsChans udpHandlesM ssrcM
 
             -- fork a thread to start the websocket thread in the DiscordHandler
             -- monad using the current Reader state. Not much of a problem
             -- since many of the fields are mutable references.
-            wsTid <- liftIO $ forkIO $ flip runReaderT h $
-                launchWebsocket wsOpts $ discordHandleLog h
+            wsTid <- liftIO $ forkIO $ launchWebsocket wsOpts $ discordHandleLog h
             
             wsTidWeak <- liftIO $ mkWeakThreadId wsTid
 
