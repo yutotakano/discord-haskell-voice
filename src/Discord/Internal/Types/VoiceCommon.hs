@@ -46,9 +46,9 @@ data DiscordVoiceHandle = DiscordVoiceHandle
     , -- | The channel id of the voice channel.
       discordVoiceHandleChannelId :: ChannelId
     , -- | The websocket thread id and handle.
-      discordVoiceHandleWebsocket :: (Weak ThreadId, DiscordVoiceHandleWebsocket)
+      discordVoiceHandleWebsocket :: (Weak ThreadId, (VoiceWebsocketReceiveChan, VoiceWebsocketSendChan))
     , -- | The UDP thread id and handle.
-      discordVoiceHandleUdp :: (Weak ThreadId, DiscordVoiceHandleUDP)
+      discordVoiceHandleUdp :: (Weak ThreadId, (VoiceUDPReceiveChan, VoiceUDPSendChan))
     , -- | The SSRC of the voice connection, specified by Discord.
       discordVoiceHandleSSRC :: Integer
     }
@@ -77,24 +77,20 @@ type VoiceWebsocketReceiveChan =
 
 type VoiceWebsocketSendChan = Chan VoiceWebsocketSendable
 
-type DiscordVoiceHandleWebsocket =
-    (VoiceWebsocketReceiveChan, VoiceWebsocketSendChan)
+type VoiceUDPReceiveChan = Chan VoiceUDPPacket
 
-type DiscordVoiceHandleUDP =
-    ( Chan VoiceUDPPacket -- can receive various stuff
-    , Bounded.BoundedChan B.ByteString -- but can only send audio
-    )
+type VoiceUDPSendChan = Bounded.BoundedChan B.ByteString
 
 data WebsocketLaunchOpts = WebsocketLaunchOpts
-    { websocketLaunchOptsBotUserId    :: UserId
-    , websocketLaunchOptsSessionId :: T.Text
-    , websocketLaunchOptsToken     :: T.Text
-    , websocketLaunchOptsGuildId   :: GuildId
-    , websocketLaunchOptsEndpoint  :: T.Text
+    { websocketLaunchOptsBotUserId     :: UserId
+    , websocketLaunchOptsSessionId     :: T.Text
+    , websocketLaunchOptsToken         :: T.Text
+    , websocketLaunchOptsGuildId       :: GuildId
+    , websocketLaunchOptsEndpoint      :: T.Text
     , websocketLaunchOptsGatewayEvents :: Chan (Either GatewayException Event)
-    , websocketLaunchOptsWsHandle  :: DiscordVoiceHandleWebsocket
-    , websocketLaunchOptsUdpInfo   :: (MVar (Weak ThreadId), MVar DiscordVoiceHandleUDP)
-    , websocketLaunchOptsSsrc      :: MVar Integer
+    , websocketLaunchOptsWsHandle      :: (VoiceWebsocketReceiveChan, VoiceWebsocketSendChan)
+    , websocketLaunchOptsUdpInfo       :: (MVar (Weak ThreadId), MVar (VoiceUDPReceiveChan, VoiceUDPSendChan))
+    , websocketLaunchOptsSsrc          :: MVar Integer
     }
 
 data WebsocketConn = WebsocketConn
