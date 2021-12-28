@@ -136,7 +136,9 @@ join guildId channelId = do
             ssrcM <- liftIO $ newEmptyMVar
 
             uid <- userId . cacheCurrentUser <$> (lift $ lift $ readCache)
-            let wsOpts = WebsocketLaunchOpts uid sessionId token guildId endpoint
+            -- Use version 4 of the gateway (default is 1, and is out of date)
+            let versionedEndpoint = endpoint <> "?v=4"
+            let wsOpts = WebsocketLaunchOpts uid sessionId token guildId versionedEndpoint
                     events wsChans udpHandlesM ssrcM
 
             -- fork a thread to start the websocket thread in the DiscordHandler
@@ -195,8 +197,3 @@ waitForVoiceStatusServerUpdate = loopForBothEvents Nothing Nothing
                     pure (token, guildId, endpoint)
             loopForBothEvents mb1 result events
         _ -> loopForBothEvents mb1 mb2 events
-
--- | Selects the right element as a Maybe
-rightToMaybe :: Either a b -> Maybe b
-rightToMaybe (Left _)  = Nothing
-rightToMaybe (Right x) = Just x
