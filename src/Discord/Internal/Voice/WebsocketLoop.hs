@@ -99,7 +99,7 @@ launchWebsocket opts log = do
     -- future.
     websocketFsm WSStart retries udpInfo = do
         next <- try $ connect (opts ^. endpoint) $ \conn -> do
-            (libSends, sendTid) <- setupSendLoop conn $ opts ^. wsHandle . _2
+            (libSends, sendTid) <- flip (setupSendLoop conn) log $ opts ^. wsHandle . _2
             helloPacket <- getPayload conn
             case helloPacket of
                 Left e -> do
@@ -150,7 +150,7 @@ launchWebsocket opts log = do
 
     websocketFsm WSResume retries udpInfo = do
         next <- try $ connect (opts ^. endpoint) $ \conn -> do
-            (libSends, sendTid) <- setupSendLoop conn $ opts ^. wsHandle . _2
+            (libSends, sendTid) <- flip (setupSendLoop conn) log $ opts ^. wsHandle . _2
             helloPacket <- getPayload conn
             case helloPacket of
                 Left e -> do
@@ -207,16 +207,18 @@ setupSendLoop
     -- ^ Connection to use
     -> VoiceWebsocketSendChan
     -- ^ User generated packets to send in the Websocket
+    -> Chan T.Text
+    -- ^ Logging channel
     -> IO (VoiceWebsocketSendChan, ThreadId)
     -- ^ Chan to send library-specific packets in the Websocket, and the thread
     -- ID of the eternal sending thread (useful for killing it).
-setupSendLoop conn userSends = do
+setupSendLoop conn userSends log = do
     -- The following Chan will be used for accumulating library-generated
     -- WebSocket messages that we need to send to Discord, mostly for heartbeats.
     libSends <- newChan
     -- Start said eternal sending fork, which will eternally send from library-
     -- generated and user-generated packets.
-    sendLoopId <- forkIO $ sendableLoop conn libSends userSends
+    sendLoopId <- forkIO $ sendableLoop conn libSends userSends log
 
     pure (libSends, sendLoopId)
 
@@ -282,7 +284,7 @@ eventStream conn opts interval udpLaunchOpts libSends log = do
     -- the connection gone, we should reconnect. For a quick heuristic accounting
     -- for any network delays, allow for a tolerance of double the time.
     payload <- doOrTimeout (interval * 2) $ getPayload conn
-    print $ "(recv) " <> show payload -- TODO: debug, remove.
+    log ✍ ("(recv) " <> tshow payload) -- TODO: debug, remove.
     case payload of
         Nothing -> do
             log ✍! "connection timed out, trying to reconnect again."
@@ -323,15 +325,16 @@ sendableLoop
     :: Connection
     -> VoiceWebsocketSendChan
     -> VoiceWebsocketSendChan
+    -> Chan T.Text
     -> IO ()
-sendableLoop conn libSends usrSends = do
+sendableLoop conn libSends usrSends log = do
     -- Wait-time taken from discord-haskell/Internal.Gateway.EventLoop
     threadDelay $ round ((10^(6 :: Int)) * (62 / 120) :: Double)
     -- Get whichever possible, and send it
     payload <- either id id <$> race (readChan libSends) (readChan usrSends)
-    print $ "(send) " <> show payload
+    log ✍ ("(send) " <> tshow payload) -- TODO: debug, remove.
     sendTextData conn $ encode payload
-    sendableLoop conn libSends usrSends
+    sendableLoop conn libSends usrSends log
 
 -- | Eternally send heartbeats through the libSends channel
 heartbeatLoop
@@ -357,7 +360,7 @@ gatewayCheckerLoop
     -> IO ()
 gatewayCheckerLoop gatewayEvents sem log = do
     top <- readChan gatewayEvents
-    print top
+    log ✍ (tshow top)
     case top of
         Right (Discord.Internal.Types.Ready _ _ _ _ _) -> do
             log ✍ "gateway ready detected, putting () in sem"
