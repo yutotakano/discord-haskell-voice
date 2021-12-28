@@ -225,3 +225,17 @@ waitForVoiceStatusServerUpdate = loopForBothEvents Nothing Nothing
                     pure (token, guildId, endpoint)
             loopForBothEvents mb1 result events
         _ -> loopForBothEvents mb1 mb2 events
+
+-- | Helper function to update the speaking indicator for the bot.
+--
+-- Soundshare and priority are const as False, don't see bots needing them.
+-- If and when required, add Bool signatures to this function.
+updateSpeakingStatus :: DiscordVoiceHandle -> Bool -> IO ()
+updateSpeakingStatus handle micStatus =
+    writeChan (snd $ discordVoiceHandleWebsocket handle) $ Speaking $ SpeakingPayload
+        { speakingPayloadMicrophone = micStatus
+        , speakingPayloadSoundshare = False
+        , speakingPayloadPriority   = False
+        , speakingPayloadDelay      = 0
+        , speakingPayloadSSRC       = (discordVoiceSSRC handle)
+        }
