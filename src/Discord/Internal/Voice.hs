@@ -1,7 +1,8 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 module Discord.Internal.Voice
-    ( runVoice
+    ( liftDiscord
+    , runVoice
     , join
     ) where
 
