@@ -103,12 +103,12 @@ liftDiscord = lift . lift
 -- The following demonstrates how a single playback is streamed to multiple
 -- connections.
 --
--- @@
+-- @
 -- runVoice $ do
 --     join (read "123456789012345") (read "67890123456789012")
 --     join (read "098765432123456") (read "12345698765456709")
 --     play "http://example.com/audio"
--- @@
+-- @
 --
 -- The return type of @runVoice@ represents result status of the voice computation.
 -- It is isomorphic to @Maybe@, but the use of Either explicitly denotes that
