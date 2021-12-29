@@ -16,7 +16,7 @@ import Control.Concurrent
 
 main :: IO ()
 main = do
-    tok <- TIO.readFile "./examples/auth-token.secret"
+    tok <- TIO.readFile "./examples/production.secret"
 
     t <- runDiscord $ def { discordToken = tok
                           , discordOnStart = startHandler
@@ -42,10 +42,9 @@ startHandler = do
                 (c:_) -> join (guildId guild) (channelId c)
                 _     -> pure ()
 
-        updateSpeakingStatus True
-        -- sit around for 30 seconds
-        play $ sourceFile "./examples/output.pcm"
-        forever $ liftIO $ threadDelay 30000000
+        -- play something, then sit around in silence for 30 seconds
+        playYouTube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        liftIO $ threadDelay $ 30 * 1000 * 1000
 
     liftIO $ print result
     pure ()
