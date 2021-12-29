@@ -1,17 +1,17 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
-module Discord.Internal.Voice
-    ( liftDiscord
-    , runVoice
-    , join
-    , updateSpeakingStatus
-    , play
-    , playPCMFile
-    , playFile
-    , playFileWith
-    , playYouTube
-    , defaultFFmpegArgs
-    ) where
+{-|
+Module      : Discord.Internal.Voice
+Description : Recommended for internal use only. See Discord.Voice for the public interface.
+Copyright   : (c) Yuto Takano (2021)
+License     : MIT
+Maintainer  : moa17stock@email.com
+
+This module is the internal entry point into @discord-haskell-voice@. Any use of
+this module (or other Internal modules) is discouraged. Please see "Discord.Voice"
+for the public interface.
+-}
+module Discord.Internal.Voice where
 
 import Codec.Audio.Opus.Encoder
 import Control.Concurrent.Async ( race )
@@ -55,11 +55,10 @@ import System.Process
     ( CreateProcess(..)
     , StdStream(..)
     , proc
-    , createProcess
     , createPipe
     , createProcess_
-    , waitForProcess
     , cleanupProcess
+    , withCreateProcess
     )
 import UnliftIO qualified as UnliftIO
 
@@ -122,7 +121,7 @@ liftDiscord = lift . lift
 -- runVoice $ do
 --     join (read "123456789012345") (read "67890123456789012")
 --     join (read "098765432123456") (read "12345698765456709")
---     play "http://example.com/audio"
+--     playYouTube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 -- @
 --
 -- The return type of @runVoice@ represents result status of the voice computation.
@@ -265,14 +264,15 @@ updateSpeakingStatus micStatus = do
             , speakingPayloadSSRC       = handle ^. ssrc
             }
 
--- | Play some sound from the conduit, provided in the form of 16-bit Little
--- Endian PCM. The use of Conduit allows you to perform arbitrary lazy
--- transformations of audio data, using all the advantages that Conduit brings.
--- As the base monad is @ResourceT DiscordHandler@, you can access any Discord
--- or IO side effects in the conduit as well.
+-- | @play source@ plays some sound from the conduit @source@, provided in the form of
+-- 16-bit Little Endian PCM. The use of Conduit allows you to perform arbitrary
+-- lazy transformations of audio data, using all the advantages that Conduit
+-- brings. As the base monad for the Conduit is @ResourceT DiscordHandler@, you
+-- can access any DiscordHandler effects (through @lift@) or IO effects (through
+-- @liftIO@) in the conduit as well.
 --
--- For a more specific interface, see the 'playPCMFile', 'playFile',
--- and 'playYoutube' functions.
+-- For a more specific interface that is easier to use, see the 'playPCMFile',
+-- 'playFile', and 'playYoutube' functions.
 --
 -- @
 -- import Conduit ( sourceFile )
@@ -339,17 +339,18 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
 playPCMFile :: FilePath -> Voice ()
 playPCMFile = play . sourceFile
 
--- | Play some sound on the file system, provided in the any format supported by
--- FFmpeg. This function expects @ffmpeg@ to be available in the system PATH.
--- For a variant that allows you to specify the executable, see 'playFileWith'.
+-- | Play some sound on the file system, provided in any format supported by
+-- FFmpeg. This function expects "@ffmpeg@" to be available in the system PATH.
+-- For a variant that allows you to specify the executable and/or any arguments,
+-- see 'playFileWith'.
 --
--- If the file is known to be in 16-bit little endian PCM, using @playPCMFile@
--- is more efficient as it does not go through ffmpeg.
+-- If the file is already known to be in 16-bit little endian PCM, using
+-- @playPCMFile@ is much more efficient as it does not go through FFmpeg.
 playFile :: FilePath -> Voice ()
 playFile fp = playFileWith "ffmpeg" (defaultFFmpegArgs fp)
 
--- | The default FFmpeg arguments used when streaming audio into 16-bit little
--- endian PCM on stdout.
+-- | @defaultFFmpegArgs@ creates the default FFmpeg arguments used when streaming
+-- audio into 16-bit little endian PCM on stdout.
 --
 -- This function takes in the input file path as an argument, because FFmpeg
 -- arguments are position sensitive in relation to the placement of @-i@.
@@ -367,9 +368,12 @@ defaultFFmpegArgs fp =
     , "pipe:1"
     ]
 
--- | Play some sound on the file system, provided in the any format supported by
--- FFmpeg. This function takes This function expects @ffmpeg@ to be available in the system PATH.
--- For a variant that allows you to specify the executable, see 'playFileWith'.
+-- | Play some sound on the file system, provided in any format supported by
+-- FFmpeg. This function allows you to specify the ffmpeg executable and any
+-- of the arguments to pass to it (see @defaultFFmpegArgs@ for the default).
+-- 
+-- See 'playFile' for a variant that uses the "@ffmpeg@" executable in your PATH
+-- automatically.
 --
 -- If the file is known to be in 16-bit little endian PCM, using @playPCMFile@
 -- is more efficient as it does not go through ffmpeg.
@@ -383,16 +387,17 @@ playFileWith exe args = do
         liftIO $ cleanupProcess (a, b, c, ph)
         liftIO $ hClose writeEnd >> hClose readEnd
 
+-- | Play some sound from YouTube. 
 playYouTube :: String -> Voice ()
 playYouTube query = do
-    stdout <- liftIO $ fromJust . (^. _2) <$> createProcess (proc "youtube-dl"
+    extractedInfo <- liftIO $ withCreateProcess (proc "youtube-dl"
         [ "-j"
         , "--default-search", "ytsearch"
         , "--format", "bestaudio/best"
         , query
-        ]) { std_out = CreatePipe }
-    
-    extractedInfo <- liftIO $ B.hGetContents stdout
+        ]) { std_out = CreatePipe } $ \stdin (Just stdout) stderr ph ->
+            B.hGetContents stdout
+
     let perhapsUrl = do
             result <- decodeStrict extractedInfo
             flip parseMaybe result $ \obj -> obj .: "url"
