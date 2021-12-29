@@ -6,6 +6,11 @@ module Discord.Internal.Voice
     , join
     , updateSpeakingStatus
     , play
+    , playPCMFile
+    , playFile
+    , playFileWith
+    , playYouTube
+    , defaultFFmpegArgs
     ) where
 
 import Codec.Audio.Opus.Encoder
@@ -137,8 +142,10 @@ runVoice action = do
 
     pure result
 
--- | Join a specific voice channel. The @guildId@ parameter will hopefully be
--- removed when discord-haskell fully caches channels internally (this is a TODO).
+-- | Join a specific voice channel.
+--
+-- The @guildId@ parameter will hopefully be removed when discord-haskell fully
+-- caches channels internally (this is a TODO).
 join :: GuildId -> ChannelId -> Voice ()
 join guildId channelId = do
     h <- lift $ lift $ ask
@@ -244,6 +251,22 @@ updateSpeakingStatus micStatus = do
             , speakingPayloadSSRC       = handle ^. ssrc
             }
 
+-- | Play some sound from the conduit, provided in the form of 16-bit Little
+-- Endian PCM. The use of Conduit allows you to perform arbitrary lazy
+-- transformations of audio data, using all the advantages that Conduit brings.
+-- As the base monad is @ResourceT DiscordHandler@, you can access any Discord
+-- or IO side effects in the conduit as well.
+--
+-- For a more specific interface, see the 'playPCMFile', 'playFile',
+-- and 'playYoutube' functions.
+--
+-- @
+-- import Conduit ( sourceFile )
+--
+-- runVoice $ do
+--   join gid cid
+--   play $ sourceFile "./examples/example.pcm"
+-- @
 play :: ConduitT () B.ByteString (ResourceT DiscordHandler) () -> Voice ()
 play source = do
     h <- ask
@@ -267,7 +290,7 @@ play source = do
             liftIO $ Bounded.writeChan chan bs
             sinkChan chan
 
--- | @encodeOpusC@ is a conduit that splits the bytestring into chunks of
+-- | @encodeOpusC@ is a conduit that splits the ByteString into chunks of
 -- (frame size * no of channels * 16/8) bytes, and encodes each chunk into
 -- OPUS format. ByteStrings are made of CChars (Int8)s, but the data is 16-bit
 -- so this is why we multiply by two to get the right amount of bytes instead of
@@ -290,3 +313,79 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
             -- send it
             yield encoded
             loop encoder
+
+-- | Play some sound on the file system, provided in the form of 16-bit Little
+-- Endian PCM. @playPCMFile@ is a handy alias for @'play' . 'sourceFile'@.
+--
+-- To play any other format, it will need to be transcoded using FFmpeg. See
+-- 'playFile' for such usage.
+playPCMFile :: FilePath -> Voice ()
+playPCMFile = play . sourceFile
+
+-- | Play some sound on the file system, provided in the any format supported by
+-- FFmpeg. This function expects @ffmpeg@ to be available in the system PATH.
+-- For a variant that allows you to specify the executable, see 'playFileWith'.
+--
+-- If the file is known to be in 16-bit little endian PCM, using @playPCMFile@
+-- is more efficient as it does not go through ffmpeg.
+playFile :: FilePath -> Voice ()
+playFile fp = playFileWith "ffmpeg" (defaultFFmpegArgs fp)
+
+-- | The default FFmpeg arguments used when streaming audio into 16-bit little
+-- endian PCM on stdout.
+--
+-- This function takes in the input file path as an argument, because FFmpeg
+-- arguments are position sensitive in relation to the placement of @-i@.
+--
+-- @
+-- -i FILE -f s16le -ar 48000 -ac 2 -loglevel warning pipe:1
+-- @
+defaultFFmpegArgs :: FilePath -> [String]
+defaultFFmpegArgs fp = 
+    [ "-i", fp
+    , "-f", "s16le"
+    , "-ar", "48000"
+    , "-ac", "2"
+    , "-loglevel", "warning"
+    , "pipe:1"
+    ]
+
+-- | Play some sound on the file system, provided in the any format supported by
+-- FFmpeg. This function takes This function expects @ffmpeg@ to be available in the system PATH.
+-- For a variant that allows you to specify the executable, see 'playFileWith'.
+--
+-- If the file is known to be in 16-bit little endian PCM, using @playPCMFile@
+-- is more efficient as it does not go through ffmpeg.
+playFileWith :: String -> [String] -> Voice ()
+playFileWith exe args = do
+    -- TODO: check if this is *ever* Nothing, as it seems to never be the case.
+    -- TODO: make sure child process is exited properly on exception
+    -- because Ctrl+C always makes ffmpeg complain about broken pipes
+    let handleIO = fromJust . (^. _2) <$> createProcess (proc exe args) { std_out = CreatePipe }
+    -- sourceIOHandle takes an IO action producing a Handle, opens it and closes
+    -- it as necessary, so we need not worry about closing it afterwards.
+    play $ sourceIOHandle handleIO
+
+playYouTube :: String -> Voice ()
+playYouTube query = do
+    stdout <- liftIO $ fromJust . (^. _2) <$> createProcess (proc "youtube-dl"
+        [ "-j"
+        , "--default-search", "ytsearch"
+        , "--format", "bestaudio/best"
+        , query
+        ]) { std_out = CreatePipe }
+    
+    extractedInfo <- liftIO $ B.hGetContents stdout
+    let perhapsUrl = do
+            result <- decodeStrict extractedInfo
+            flip parseMaybe result $ \obj -> obj .: "url"
+    case perhapsUrl of
+        -- no matching url found
+        Nothing -> pure ()
+        Just url -> playFileWith "ffmpeg" $ 
+            [ "-reconnect", "1"
+            , "-reconnect_streamed", "1"
+            , "-reconnect_delay_max", "2"
+            ] <> defaultFFmpegArgs url
+
+ 
