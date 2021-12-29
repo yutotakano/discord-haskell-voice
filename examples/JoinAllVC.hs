@@ -1,8 +1,10 @@
 module Main where
 
 import           Control.Monad              ( forM_
+                                            , forever
                                             )
 import           Control.Monad.Trans        ( lift )
+import           Conduit
 import qualified Data.Text.IO as TIO
 import           Discord
 import           Discord.Voice
@@ -40,8 +42,11 @@ startHandler = do
                 (c:_) -> join (guildId guild) (channelId c)
                 _     -> pure ()
 
+        updateSpeakingStatus True
         -- sit around for 30 seconds
-        liftIO $ threadDelay 30000000
+        play $ sourceFile "./examples/output.pcm"
+        forever $ liftIO $ threadDelay 30000000
+
     liftIO $ print result
     pure ()
 
