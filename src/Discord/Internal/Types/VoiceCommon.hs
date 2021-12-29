@@ -31,8 +31,8 @@ import GHC.Weak (Weak)
 -- PID is still actively stored in a reader. So we use ExceptT on the base, so
 -- the error is propagated there, and since there is no reader capturing the
 -- state, the thread can be killed.
-type Voice a =
-    ReaderT DiscordBroadcastHandle (ExceptT VoiceError DiscordHandler) a
+type Voice =
+    ReaderT DiscordBroadcastHandle (ExceptT VoiceError DiscordHandler)
 
 data VoiceError
     = VoiceNotAvailable
