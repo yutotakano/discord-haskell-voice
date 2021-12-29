@@ -48,6 +48,7 @@ library
     , base >=4.7 && <5
     , binary
     , bytestring
+    , conduit
     , discord-haskell ==1.9.2
     , lens
     , mtl
@@ -77,6 +78,7 @@ executable join-all-on-start
     , base >=4.7 && <5
     , binary
     , bytestring
+    , conduit
     , discord-haskell ==1.9.2
     , discord-haskell-voice
     , lens
@@ -107,6 +109,7 @@ executable join-specific
     , base >=4.7 && <5
     , binary
     , bytestring
+    , conduit
     , discord-haskell ==1.9.2
     , discord-haskell-voice
     , lens

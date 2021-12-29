@@ -20,9 +20,9 @@ dependencies:
 - aeson
 - async
 - base >= 4.7 && < 5
-- SafeSemaphore
 - binary
 - bytestring
+- conduit
 - discord-haskell == 1.9.2
 - lens
 - mtl
@@ -30,6 +30,7 @@ dependencies:
 - opus
 - process
 - safe-exceptions
+- SafeSemaphore
 - saltine
 - text
 - time
