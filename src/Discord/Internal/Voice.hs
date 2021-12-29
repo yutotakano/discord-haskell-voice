@@ -341,7 +341,7 @@ playFile fp = playFileWith "ffmpeg" (defaultFFmpegArgs fp)
 -- -i FILE -f s16le -ar 48000 -ac 2 -loglevel warning pipe:1
 -- @
 defaultFFmpegArgs :: FilePath -> [String]
-defaultFFmpegArgs fp = 
+defaultFFmpegArgs fp =
     [ "-i", fp
     , "-f", "s16le"
     , "-ar", "48000"
