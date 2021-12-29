@@ -13,17 +13,15 @@ import Control.Concurrent
     , killThread
     , MVar
     , putMVar
-    , tryReadMVar
     , newEmptyMVar
-    , tryTakeMVar
     , ThreadId
     , myThreadId
+    , mkWeakThreadId
     , modifyMVar_
     , newMVar
     , readMVar
-    , mkWeakThreadId
     )
-import Control.Exception.Safe ( try, SomeException, finally, handle )
+import Control.Exception.Safe ( try, tryAsync, SomeException, finally, handle )
 import Control.Lens
 import Control.Monad ( forever, guard )
 import Control.Monad.Except ( runExceptT, ExceptT (ExceptT), lift )
@@ -101,10 +99,12 @@ launchWebsocket opts log = do
     -- @opts@ to report back to runVoice, so it can be killed in the
     -- future.
     websocketFsm WSStart retries udpInfo = do
-        next <- try $ connect (opts ^. endpoint) $ \conn -> do
+        -- Use of tryAsync (unsafe, as it catches asynchronous exceptions) is
+        -- justified here, since it will only log, then go to WSClosed.
+        next <- tryAsync $ connect (opts ^. endpoint) $ \conn -> do
             (libSends, sendTid) <- flip (setupSendLoop conn) log $ opts ^. wsHandle . _2
-            
-            result <- runExceptT $ do
+
+            result <- flip finally (killThread sendTid) $ runExceptT $ do
                 helloPacket <- ExceptT $
                     over _Left ((<> "Failed to get Opcode 8 Hello: ") . tshow) <$>
                     getPayload conn
@@ -116,68 +116,72 @@ launchWebsocket opts log = do
                 -- Create a thread to add heartbeating packets to the
                 -- libSends Chan.
                 heartGenTid <- lift $ forkIO $ heartbeatLoop libSends interval log
-                -- Perform the Identify/Ready handshake
-                readyPacket <- ExceptT $
-                    over _Left ((<> "Failed to get Opcode 2 Ready: ") . tshow) <$>
-                    performIdentification conn opts
 
-                p <- ExceptT $ pure $
-                    maybeToRight ("First packet after Identify not " <> "Opcode 2 Ready " <> tshow readyPacket) $
-                        readyPacket ^? _Ready
+                flip finally (lift $ killThread heartGenTid) $ do
+                    -- Perform the Identify/Ready handshake
+                    readyPacket <- ExceptT $
+                        over _Left ((<> "Failed to get Opcode 2 Ready: ") . tshow) <$>
+                        performIdentification conn opts
 
-                secretKey <- lift $ newEmptyMVar
-                let udpLaunchOpts = UDPLaunchOpts
-                        { uDPLaunchOptsSsrc      = readyPayloadSSRC p
-                        , uDPLaunchOptsIp        = readyPayloadIP p
-                        , uDPLaunchOptsPort      = readyPayloadPort p
-                        , uDPLaunchOptsMode      = "xsalsa20_poly1305"
-                        , uDPLaunchOptsUdpHandle = opts ^. udpHandle
-                        , uDPLaunchOptsSecretKey = secretKey
-                        -- TODO: support all encryption modes
-                        }
-                -- We should be putting SSRC into the MVar to report back to
-                -- the websocket (TODO: why was this again), but we hold it off
-                -- until the ssrcCheck guard a few lines below.
-                lift $ modifyMVar_ udpInfo (pure . const udpLaunchOpts)
-                            
-                -- Pass not the MVar but the raw options, since
-                -- there's no writing to be done.
-                flip finally (lift $ killThread heartGenTid >> killThread sendTid) $ do
+                    p <- ExceptT $ pure $
+                        maybeToRight ("First packet after Identify not " <> "Opcode 2 Ready " <> tshow readyPacket) $
+                            readyPacket ^? _Ready
+
+                    secretKey <- lift $ newEmptyMVar
+                    let udpLaunchOpts = UDPLaunchOpts
+                            { uDPLaunchOptsSsrc      = readyPayloadSSRC p
+                            , uDPLaunchOptsIp        = readyPayloadIP p
+                            , uDPLaunchOptsPort      = readyPayloadPort p
+                            , uDPLaunchOptsMode      = "xsalsa20_poly1305"
+                            , uDPLaunchOptsUdpHandle = opts ^. udpHandle
+                            , uDPLaunchOptsSecretKey = secretKey
+                            -- TODO: support all encryption modes
+                            }
+                    -- We should be putting SSRC into the MVar to report back to
+                    -- the websocket (TODO: why was this again), but we hold it off
+                    -- until the ssrcCheck guard a few lines below.
+                    lift $ modifyMVar_ udpInfo (pure . const udpLaunchOpts)
+
                     -- Launch the UDP thread, automatically perform 
                     -- IP discovery, which will write the result
-                    -- to the receiving Chan.
+                    -- to the receiving Chan. We will pass not the MVar but
+                    -- the raw options, since there's no writing to be done.
+
                     forkedId <- lift $ forkIO $ launchUdp udpLaunchOpts log
-                    udpTidWeak <- liftIO $ mkWeakThreadId forkedId
-                    lift $ putMVar (opts ^. udpTid) udpTidWeak
+                    flip finally (lift $ killThread forkedId) $ do
+                        udpTidWeak <- liftIO $ mkWeakThreadId forkedId
+                        lift $ putMVar (opts ^. udpTid) udpTidWeak
 
-                    ipDiscovery <- lift $ readChan $ opts ^. udpHandle . _1
-                    (ssrcCheck, ip, port) <- ExceptT $ pure $
-                        maybeToRight ("First UDP Packet not IP Discovery " <> tshow ipDiscovery) $
-                            ipDiscovery ^? _IPDiscovery
-                    
-                    guard (ssrcCheck == udpLaunchOpts ^. ssrc)
-                    lift $ putMVar (opts ^. ssrc) ssrcCheck
-                    
-                    -- TODO: currently, we await the Opcode 4 SD right after
-                    -- Select Protocol, blocking the start of heartbeats until
-                    -- eventStream. This means there's a delay, so TODO to check
-                    -- if this delay causes any problems. If it does, keep the
-                    -- sending here, but receive the SD event in eventStream.
-                    sessionDescPacket <- ExceptT $
-                        over _Left ((<> "Failed to get Opcode 4 SD: ") . tshow) <$>
-                            sendSelectProtocol conn ip port (udpLaunchOpts ^. mode)
-                    
-                    (modeCheck, key) <- ExceptT $ pure $
-                        maybeToRight ("First packet after Identify not " <> "Opcode 2 Ready " <> tshow readyPacket) $
-                            sessionDescPacket ^? _SessionDescription
+                        ipDiscovery <- lift $ readChan $ opts ^. udpHandle . _1
+                        (ssrcCheck, ip, port) <- ExceptT $ pure $
+                            maybeToRight ("First UDP Packet not IP Discovery " <> tshow ipDiscovery) $
+                                ipDiscovery ^? _IPDiscovery
 
-                    guard (modeCheck == udpLaunchOpts ^. mode)
+                        guard (ssrcCheck == udpLaunchOpts ^. ssrc)
+                        lift $ putMVar (opts ^. ssrc) ssrcCheck
 
-                    lift $ putMVar secretKey key
+                        -- TODO: currently, we await the Opcode 4 SD right after
+                        -- Select Protocol, blocking the start of heartbeats until
+                        -- eventStream. This means there's a delay, so TODO to check
+                        -- if this delay causes any problems. If it does, keep the
+                        -- sending here, but receive the SD event in eventStream.
+                        sessionDescPacket <- ExceptT $
+                            over _Left ((<> "Failed to get Opcode 4 SD: ") . tshow) <$>
+                                sendSelectProtocol conn ip port (udpLaunchOpts ^. mode)
 
-                    -- Move to eternal websocket event loop, mainly for the
-                    -- heartbeats, but also for any user-generated packets.
-                    lift $ eventStream conn opts interval udpLaunchOpts libSends log
+                        (modeCheck, key) <- ExceptT $ pure $
+                            maybeToRight ("First packet after Select Protocol " <>
+                                "not Opcode 4 Session Description " <>
+                                tshow readyPacket) $
+                                    sessionDescPacket ^? _SessionDescription
+
+                        guard (modeCheck == udpLaunchOpts ^. mode)
+
+                        lift $ putMVar secretKey key
+
+                        -- Move to eternal websocket event loop, mainly for the
+                        -- heartbeats, but also for any user-generated packets.
+                        lift $ eventStream conn opts interval udpLaunchOpts libSends log
 
             case result of
                 Left reason -> log ✍! reason >> pure WSClosed
@@ -195,7 +199,9 @@ launchWebsocket opts log = do
             Right n -> websocketFsm n 0 udpInfo
 
     websocketFsm WSResume retries udpInfo = do
-        next <- try $ connect (opts ^. endpoint) $ \conn -> do
+        -- Use of tryAsync (unsafe, as it catches asynchronous exceptions) is
+        -- justified here, since it will only log, then go to WSClosed.
+        next <- tryAsync $ connect (opts ^. endpoint) $ \conn -> do
             (libSends, sendTid) <- flip (setupSendLoop conn) log $ opts ^. wsHandle . _2
             helloPacket <- getPayload conn
             case helloPacket of
