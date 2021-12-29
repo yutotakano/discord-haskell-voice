@@ -5,6 +5,7 @@ module Discord.Internal.Voice
     , runVoice
     , join
     , updateSpeakingStatus
+    , play
     ) where
 
 import Codec.Audio.Opus.Encoder
@@ -38,11 +39,14 @@ import Control.Monad.Trans ( lift )
 import Control.Monad ( when, void )
 import Data.Aeson
 import Data.Aeson.Types ( parseMaybe )
-import Data.ByteString.Lazy qualified as BL
+import Data.ByteString qualified as B
+import Data.Foldable ( traverse_ )
+import Conduit
 import Data.Maybe ( fromJust )
 import Data.Text qualified as T
 import GHC.Weak ( deRefWeak, Weak )
 import System.Process ( CreateProcess(..), StdStream(..), proc, createProcess )
+import UnliftIO qualified as UnliftIO
 
 import Discord ( DiscordHandler, sendCommand, readCache )
 import Discord.Handle ( discordHandleGateway, discordHandleLog )
@@ -114,22 +118,14 @@ runVoice :: Voice () -> DiscordHandler (Either VoiceError ())
 runVoice action = do
     voiceHandles <- liftIO $ newMVar []
     mutEx <- liftIO $ newMVar ()
-    -- The following initialises a semaphore-limited bounded channel to limit
-    -- the number of data in the UDP broadcast socket. This is to handle the case
-    -- where the writer of voice data is much faster than the consumer (i.e.
-    -- realtime). Using a MSemN is easier than BoundedChan because it allows
-    -- dupChan in the many reader fork threads, whereas BoundedChan does not
-    -- support dupChan and it would be very complicated to work around it.
-    sends <- liftIO $ newChan
-    sendsLim <- liftIO $ MSemN.new 500 -- 10 seconds worth of 20ms
 
-    let initialState = DiscordBroadcastHandle voiceHandles mutEx (sendsLim, sends)
+    let initialState = DiscordBroadcastHandle voiceHandles mutEx
 
     result <- finally (runExceptT $ flip runReaderT initialState $ action) $ do
         -- Wrap cleanup action in @finally@ to ensure we always close the
         -- threads even if an exception occurred.
         finalState <- liftIO $ readMVar voiceHandles
-        
+
         let killWkThread :: Weak ThreadId -> IO ()
             killWkThread tid = deRefWeak tid >>= \case
                 Nothing -> pure ()
@@ -165,8 +161,7 @@ join guildId channelId = do
             -- create the sending and receiving channels for Websocket
             wsChans <- liftIO $ (,) <$> newChan <*> newChan
             -- thread id and handles for UDP
-            udpSends <- (^. sends . _2) <$> ask
-            udpChans <- liftIO $ (,) <$> newChan <*> dupChan udpSends
+            udpChans <- liftIO $ (,) <$> newChan <*> newChan
             udpTidM <- liftIO newEmptyMVar
             -- ssrc to be filled in during initial handshake
             ssrcM <- liftIO $ newEmptyMVar
@@ -182,15 +177,15 @@ join guildId channelId = do
             
             wsTidWeak <- liftIO $ mkWeakThreadId wsTid
 
-            -- modify the current Voice monad state to add the newly created
-            -- UDP and Websocket handles (a handle consists of thread id and
-            -- send/receive channels).
-            voiceState <- ask
             -- TODO: check if readMVar ever blocks if the UDP thread fails to
             -- launch. Handle somehow? Perhaps with exception throwTo?
             udpTid <- liftIO $ readMVar udpTidM
             ssrc <- liftIO $ readMVar ssrcM
 
+            -- modify the current Voice monad state to add the newly created
+            -- UDP and Websocket handles (a handle consists of thread id and
+            -- send/receive channels).
+            voiceState <- ask
             -- Add the new voice handles to the list of handles
             liftIO $ modifyMVar_ (voiceState ^. voiceHandles) $ \handles -> do
                 let newHandle = DiscordVoiceHandle guildId channelId
@@ -247,3 +242,47 @@ updateSpeakingStatus micStatus = do
             , speakingPayloadDelay      = 0
             , speakingPayloadSSRC       = handle ^. ssrc
             }
+
+play :: ConduitT () B.ByteString (ResourceT DiscordHandler) () -> Voice ()
+play source = do
+    h <- ask
+    dh <- lift $ lift $ ask
+    handles <- liftIO $ readMVar $ h ^. voiceHandles
+    let mutex = h ^. mutEx
+    lift $ lift $ UnliftIO.withMVar mutex $ \_ -> do
+        runConduitRes $ source .| encodeOpusC .| sinkHandles handles
+  where
+    sinkHandles :: [DiscordVoiceHandle] -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
+    sinkHandles handles =
+        getZipSink $ traverse_ (ZipSink . sinkChan . view (udp . _2 . _2)) handles
+    sinkChan :: Chan B.ByteString -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
+    sinkChan chan = do
+        await >>= \case
+            Nothing -> pure ()
+            Just bs -> do
+                liftIO $ writeChan chan bs
+                sinkChan chan
+
+-- | @encodeOpusC@ is a conduit that splits the bytestring into chunks of
+-- (frame size * no of channels * 16/8) bytes, and encodes each chunk into
+-- OPUS format. ByteStrings are made of CChars (Int8)s, but the data is 16-bit
+-- so this is why we multiply by two to get the right amount of bytes instead of
+-- prematurely cutting off at the half-way point.
+encodeOpusC :: ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
+encodeOpusC = chunksOfCE (48*20*2*2) .| do
+    encoder <- liftIO $ opusEncoderCreate enCfg
+    loop encoder
+  where
+    enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
+    -- 1275 is the max bytes an opus 20ms frame can have
+    streamCfg = _StreamConfig # (enCfg, 48*20, 1276)
+    loop encoder = await >>= \case
+        Nothing -> do
+            -- Send at least 5 blank frames (10 just in case)
+            yieldMany $ replicate 10 "\248\255\254"
+        Just clip -> do
+            -- encode the audio
+            encoded <- liftIO $ opusEncode encoder streamCfg clip
+            -- send it
+            yield encoded
+            loop encoder

@@ -64,8 +64,6 @@ data DiscordBroadcastHandle = DiscordBroadcastHandle
       discordBroadcastHandleVoiceHandles :: MVar [DiscordVoiceHandle]
     , -- | The mutex used to synchronize access to the list of voice connection
       discordBroadcastHandleMutEx :: MVar ()
-    , -- | The channel used to send audio data to the audio stream.
-      discordBroadcastHandleSends :: (MSemN.MSemN Int, VoiceUDPSendChan)
     }
 
 data VoiceWebsocketException
