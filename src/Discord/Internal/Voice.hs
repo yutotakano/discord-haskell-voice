@@ -30,7 +30,7 @@ import Control.Concurrent
     , tryPutMVar
     , modifyMVar_
     )
-import Control.Concurrent.MSemN qualified as MSemN
+import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Exception.Safe ( SomeException, handle, finally )
 import Control.Lens
 import Control.Monad.Reader ( ask, liftIO, runReaderT )
@@ -160,8 +160,9 @@ join guildId channelId = do
         Just (sessionId, token, guildId, Just endpoint) -> do
             -- create the sending and receiving channels for Websocket
             wsChans <- liftIO $ (,) <$> newChan <*> newChan
-            -- thread id and handles for UDP
-            udpChans <- liftIO $ (,) <$> newChan <*> newChan
+            -- thread id and handles for UDP. 500 packets will contain 10
+            -- seconds worth of 20ms audio. TODO: document size in bytes.
+            udpChans <- liftIO $ (,) <$> newChan <*> Bounded.newBoundedChan 500
             udpTidM <- liftIO newEmptyMVar
             -- ssrc to be filled in during initial handshake
             ssrcM <- liftIO $ newEmptyMVar
@@ -248,20 +249,23 @@ play source = do
     h <- ask
     dh <- lift $ lift $ ask
     handles <- liftIO $ readMVar $ h ^. voiceHandles
-    let mutex = h ^. mutEx
-    lift $ lift $ UnliftIO.withMVar mutex $ \_ -> do
+    lift $ lift $ UnliftIO.withMVar (h ^. mutEx) $ \_ -> do
         runConduitRes $ source .| encodeOpusC .| sinkHandles handles
   where
-    sinkHandles :: [DiscordVoiceHandle] -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
-    sinkHandles handles =
-        getZipSink $ traverse_ (ZipSink . sinkChan . view (udp . _2 . _2)) handles
-    sinkChan :: Chan B.ByteString -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
-    sinkChan chan = do
-        await >>= \case
-            Nothing -> pure ()
-            Just bs -> do
-                liftIO $ writeChan chan bs
-                sinkChan chan
+    sinkHandles
+        :: [DiscordVoiceHandle]
+        -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
+    sinkHandles handles = getZipSink $
+        traverse_ (ZipSink . sinkChan . view (udp . _2 . _2)) handles
+
+    sinkChan
+        :: Bounded.BoundedChan B.ByteString
+        -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
+    sinkChan chan = await >>= \case
+        Nothing -> pure ()
+        Just bs -> do
+            liftIO $ Bounded.writeChan chan bs
+            sinkChan chan
 
 -- | @encodeOpusC@ is a conduit that splits the bytestring into chunks of
 -- (frame size * no of channels * 16/8) bytes, and encodes each chunk into

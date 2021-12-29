@@ -7,7 +7,7 @@
 module Discord.Internal.Types.VoiceCommon where
 
 import Control.Concurrent (Chan, MVar, ThreadId)
-import Control.Concurrent.MSemN qualified as MSemN
+import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Lens ( makeFields, makeLensesWith, abbreviatedFields )
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -80,7 +80,7 @@ type VoiceWebsocketSendChan = Chan VoiceWebsocketSendable
 
 type VoiceUDPReceiveChan = Chan VoiceUDPPacket
 
-type VoiceUDPSendChan = Chan B.ByteString
+type VoiceUDPSendChan = Bounded.BoundedChan B.ByteString
 
 data WebsocketLaunchOpts = WebsocketLaunchOpts
     { websocketLaunchOptsBotUserId     :: UserId

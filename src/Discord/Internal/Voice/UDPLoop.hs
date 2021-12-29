@@ -22,6 +22,7 @@ import Control.Concurrent
     , threadDelay
     , myThreadId
     )
+import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Exception.Safe ( handle, SomeException, finally, try, bracket )
 import Control.Lens
 import Control.Monad.IO.Class ( MonadIO )
@@ -141,8 +142,10 @@ startForks conn log = do
     currentTime <- getPOSIXTime
     sendLoopId <- forkIO $ sendableLoop conn log 0 0 currentTime
 
-    -- write ten frames of silence initially
-    sequence_ $ replicate 10 $ writeChan (conn ^. launchOpts . udpHandle . _2) "\248\255\254"
+    -- write five frames of silence initially
+    -- TODO: check if this is needed (is the 5 frames only for between voice,
+    -- or also at the beginning like it is now?)
+    sequence_ $ replicate 5 $ Bounded.writeChan (conn ^. launchOpts . udpHandle . _2) "\248\255\254"
 
     finally (receivableLoop conn log >> pure UDPClosed)
         (killThread sendLoopId)
@@ -180,7 +183,7 @@ receivableLoop conn log = do
                 Just x  -> pure $ SpeakingData $ B.drop 8 x
         other -> pure other
 
-    log ✍ (tshow msg')
+    -- log ✍ (tshow msg') -- TODO: debug, remove.
     -- decode speaking data's OPUS to raw PCM
     msg <- case msg' of
         SpeakingData bytes -> SpeakingData <$> decodeOpusData bytes
@@ -207,7 +210,7 @@ sendableLoop
     -> IO ()
 sendableLoop conn log sequence timestamp startTime = do
     -- Immediately send the first packet available
-    mbOpusBytes <- doOrTimeout 100 $ readChan $ conn ^. launchOpts . udpHandle . _2
+    mbOpusBytes <- Bounded.tryReadChan $ conn ^. launchOpts . udpHandle . _2
     case mbOpusBytes of
         Nothing -> do
             -- nothing could be read, so wait 20ms (no dynamic calculation
