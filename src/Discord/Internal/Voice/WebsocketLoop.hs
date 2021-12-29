@@ -26,9 +26,8 @@ import Control.Concurrent
 import Control.Exception.Safe ( try, SomeException, finally, handle )
 import Control.Lens
 import Control.Monad ( forever, guard )
+import Control.Monad.Except ( runExceptT, ExceptT (ExceptT), lift )
 import Control.Monad.IO.Class ( liftIO )
-import Control.Monad.Except ( runExceptT, ExceptT (ExceptT) )
-import Control.Monad.Trans ( lift )
 import Data.Aeson ( encode, eitherDecode )
 import Data.ByteString.Lazy qualified as BL
 import Data.Text qualified as T
@@ -171,7 +170,7 @@ launchWebsocket opts log = do
                     (modeCheck, key) <- ExceptT $ pure $
                         maybeToRight ("First packet after Identify not " <> "Opcode 2 Ready " <> tshow readyPacket) $
                             sessionDescPacket ^? _SessionDescription
-                    
+
                     guard (modeCheck == udpLaunchOpts ^. mode)
 
                     lift $ putMVar secretKey key
@@ -335,7 +334,7 @@ sendableLoop conn libSends usrSends log = do
     threadDelay $ round ((10^(6 :: Int)) * (62 / 120) :: Double)
     -- Get whichever possible, and send it
     payload <- either id id <$> race (readChan libSends) (readChan usrSends)
-    log ✍ ("(send) " <> tshow payload) -- TODO: debug, remove.
+    -- log ✍ ("(send) " <> tshow payload) -- TODO: debug, remove.
     sendTextData conn $ encode payload
     sendableLoop conn libSends usrSends log
 
@@ -390,7 +389,7 @@ eventStream conn opts interval udpLaunchOpts libSends log = do
     -- the connection gone, we should reconnect. For a quick heuristic accounting
     -- for any network delays, allow for a tolerance of double the time.
     payload <- doOrTimeout (interval * 2) $ getPayload conn
-    log ✍ ("(recv) " <> tshow payload) -- TODO: debug, remove.
+    -- log ✍ ("(recv) " <> tshow payload) -- TODO: debug, remove.
     case payload of
         Nothing -> do
             log ✍! "connection timed out, trying to reconnect again."
