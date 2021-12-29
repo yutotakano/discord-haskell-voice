@@ -8,6 +8,7 @@ module Discord.Internal.Types.VoiceCommon where
 
 import Control.Concurrent (Chan, MVar, ThreadId)
 import Control.Concurrent.BoundedChan qualified as Bounded
+import Control.Exception.Safe ( Exception )
 import Control.Lens ( makeFields, makeLensesWith, abbreviatedFields )
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -39,6 +40,9 @@ data VoiceError
     | NoServerAvailable
     | InvalidPayloadOrder
     deriving (Show, Eq)
+
+data SubprocessException = SubprocessException String deriving (Eq, Show)
+instance Exception SubprocessException
 
 -- | Represents a voice connection handle to a specific voice channel.
 data DiscordVoiceHandle = DiscordVoiceHandle

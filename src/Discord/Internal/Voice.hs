@@ -17,6 +17,7 @@ import Codec.Audio.Opus.Encoder
 import Control.Concurrent.Async ( race )
 import Control.Concurrent
     ( ThreadId
+    , myThreadId
     , threadDelay
     , killThread
     , forkIO
@@ -36,7 +37,7 @@ import Control.Concurrent
     , modifyMVar_
     )
 import Control.Concurrent.BoundedChan qualified as Bounded
-import Control.Exception.Safe ( SomeException, handle, finally )
+import Control.Exception.Safe ( SomeException, handle, finally, throwTo )
 import Control.Lens
 import Control.Monad.Reader ( ask, liftIO, runReaderT )
 import Control.Monad.Except ( runExceptT, throwError)
@@ -50,16 +51,8 @@ import Conduit
 import Data.Maybe ( fromJust )
 import Data.Text qualified as T
 import GHC.Weak ( deRefWeak, Weak )
-import System.IO ( hClose )
+import System.IO ( hClose, hGetContents, hWaitForInput )
 import System.Process
-    ( CreateProcess(..)
-    , StdStream(..)
-    , proc
-    , createPipe
-    , createProcess_
-    , cleanupProcess
-    , withCreateProcess
-    )
 import UnliftIO qualified as UnliftIO
 
 import Discord ( DiscordHandler, sendCommand, readCache )
@@ -379,13 +372,25 @@ defaultFFmpegArgs fp =
 -- is more efficient as it does not go through ffmpeg.
 playFileWith :: String -> [String] -> Voice ()
 playFileWith exe args = do
-    (readEnd, writeEnd) <- liftIO $ createPipe
-    (a, b, c, ph) <- liftIO $ createProcess_ "the ffmpeg process" (proc exe args)
-        { std_out = UseHandle writeEnd
+    (a, Just stdout, Just stderr, ph) <- liftIO $ createProcess_ "the ffmpeg process" (proc exe args)
+        { std_out = CreatePipe
+        , std_err = CreatePipe
         }
-    finally (play $ sourceHandle readEnd) $ do
-        liftIO $ cleanupProcess (a, b, c, ph)
-        liftIO $ hClose writeEnd >> hClose readEnd
+    -- When the ffmpeg subprocess prints something to stderr, it's usually fatal,
+    -- but it doesn't exit the process. The following forked process will
+    -- continuously read from stderr and if anything is found, will throw an
+    -- exception back into this thread.
+    myTid <- liftIO myThreadId
+    errorListenerTid <- liftIO $ forkIO $ do
+        thereIsAnError <- hWaitForInput stderr (-1)
+        when thereIsAnError $ do
+            err <- hGetContents stderr
+            exitCode <- terminateProcess ph >> waitForProcess ph
+            putStrLn $ "ffmpeg exited with code " ++ show exitCode
+            throwTo myTid $ SubprocessException err
+    finally (play $ sourceHandle stdout) $ do
+        liftIO $ cleanupProcess (a, Just stdout, Just stderr, ph)
+        liftIO $ killThread errorListenerTid
 
 -- | Play some sound from YouTube. 
 playYouTube :: String -> Voice ()
