@@ -170,9 +170,13 @@ join guildId channelId = do
         Just (sessionId, token, guildId, Just endpoint) -> do
             -- create the sending and receiving channels for Websocket
             wsChans <- liftIO $ (,) <$> newChan <*> newChan
-            -- thread id and handles for UDP. 500 packets will contain 10
-            -- seconds worth of 20ms audio. TODO: document size in bytes.
-            udpChans <- liftIO $ (,) <$> newChan <*> Bounded.newBoundedChan 500
+            -- thread id and handles for UDP. 100 packets will contain 2
+            -- seconds worth of 20ms audio. Each packet (20ms) contains
+            -- (48000 / 1000 * 20 =) 960 frames, for which each frame has
+            -- 2 channels and 16 bits (2 bytes) in each channel. So, the total
+            -- amount of memory required for each BoundedChan is 2*2*960*100=
+            -- 384 kB (kilobytes).
+            udpChans <- liftIO $ (,) <$> newChan <*> Bounded.newBoundedChan 100
             udpTidM <- liftIO newEmptyMVar
             -- ssrc to be filled in during initial handshake
             ssrcM <- liftIO $ newEmptyMVar
