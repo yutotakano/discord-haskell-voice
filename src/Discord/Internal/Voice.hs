@@ -375,11 +375,6 @@ defaultFFmpegArgs fp =
 -- is more efficient as it does not go through ffmpeg.
 playFileWith :: String -> [String] -> Voice ()
 playFileWith exe args = do
-    -- TODO: check if this is *ever* Nothing, as it seems to never be the case.
-    -- TODO: make sure child process is exited properly on exception
-    -- because Ctrl+C always makes ffmpeg complain about broken pipes.
-    -- TODO: it also seems that the exception handler for runVoice isn't running
-    -- when playFileWith is used with Ctrl+C, thereby not making bots leave.
     (readEnd, writeEnd) <- liftIO $ createPipe
     (a, b, c, ph) <- liftIO $ createProcess_ "the ffmpeg process" (proc exe args)
         { std_out = UseHandle writeEnd
