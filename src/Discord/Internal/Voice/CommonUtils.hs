@@ -1,4 +1,5 @@
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
 module Discord.Internal.Voice.CommonUtils where
 
 import Control.Concurrent
@@ -7,6 +8,7 @@ import Control.Lens
 import Data.Text qualified as T
 import Data.Time.Clock.POSIX
 import Data.Time
+import GHC.Weak
 
 -- | @tshow@ is a shorthand alias for @T.pack . show@.
 tshow :: Show a => a -> T.Text
@@ -23,3 +25,8 @@ doOrTimeout millisec longAction = (^? _Right) <$> race waitSecs longAction
   where
     waitSecs :: IO (Maybe b)
     waitSecs = threadDelay (millisec * 10^(3 :: Int)) >> pure Nothing
+
+killWkThread :: Weak ThreadId -> IO ()
+killWkThread tid = deRefWeak tid >>= \case
+    Nothing -> pure ()
+    Just x  -> killThread x

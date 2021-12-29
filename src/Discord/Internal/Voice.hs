@@ -50,7 +50,17 @@ import Conduit
 import Data.Maybe ( fromJust )
 import Data.Text qualified as T
 import GHC.Weak ( deRefWeak, Weak )
-import System.Process ( CreateProcess(..), StdStream(..), proc, createProcess )
+import System.IO ( hClose )
+import System.Process
+    ( CreateProcess(..)
+    , StdStream(..)
+    , proc
+    , createProcess
+    , createPipe
+    , createProcess_
+    , waitForProcess
+    , cleanupProcess
+    )
 import UnliftIO qualified as UnliftIO
 
 import Discord ( DiscordHandler, sendCommand, readCache )
@@ -131,14 +141,15 @@ runVoice action = do
         -- threads even if an exception occurred.
         finalState <- liftIO $ readMVar voiceHandles
 
-        let killWkThread :: Weak ThreadId -> IO ()
-            killWkThread tid = deRefWeak tid >>= \case
-                Nothing -> pure ()
-                Just x  -> killThread x
-
-        mapMOf_ (traverse . websocket . _1) (liftIO . killWkThread) finalState
-        mapMOf_ (traverse . udp . _1) (liftIO . killWkThread) finalState
+        -- Unfortunately, the following updateStatusVoice doesn't always run
+        -- when we have entered this @finally@ block through a SIGINT or other
+        -- asynchronous exception. The reason is that sometimes, the
+        -- discord-haskell websocket sendable thread is killed before this.
+        -- There is no way to prevent it, so as a consequence, the bot may
+        -- linger in the voice call for a few minutes after the bot program is
+        -- killed.
         mapMOf_ (traverse . guildId) (\x -> updateStatusVoice x Nothing False False) finalState
+        mapMOf_ (traverse . websocket . _1) (liftIO . killWkThread) finalState
 
     pure result
 
@@ -234,7 +245,10 @@ join guildId channelId = do
             loopForBothEvents mb1 result events
         _ -> loopForBothEvents mb1 mb2 events
 
--- | Helper function to update the speaking indicator for the bot.
+-- | Helper function to update the speaking indicator for the bot. Setting the
+-- microphone status to True is required for Discord to transmit the bot's
+-- voice to other clients. It is done automatically in all of the @play*@
+-- functions, so there should be no use for this function in practice.
 --
 -- Soundshare and priority are const as False, don't see bots needing them.
 -- If and when required, add Bool signatures to this function.
@@ -272,8 +286,11 @@ play source = do
     h <- ask
     dh <- lift $ lift $ ask
     handles <- liftIO $ readMVar $ h ^. voiceHandles
+
+    updateSpeakingStatus True
     lift $ lift $ UnliftIO.withMVar (h ^. mutEx) $ \_ -> do
         runConduitRes $ source .| encodeOpusC .| sinkHandles handles
+    updateSpeakingStatus False
   where
     sinkHandles
         :: [DiscordVoiceHandle]
@@ -360,11 +377,16 @@ playFileWith :: String -> [String] -> Voice ()
 playFileWith exe args = do
     -- TODO: check if this is *ever* Nothing, as it seems to never be the case.
     -- TODO: make sure child process is exited properly on exception
-    -- because Ctrl+C always makes ffmpeg complain about broken pipes
-    let handleIO = fromJust . (^. _2) <$> createProcess (proc exe args) { std_out = CreatePipe }
-    -- sourceIOHandle takes an IO action producing a Handle, opens it and closes
-    -- it as necessary, so we need not worry about closing it afterwards.
-    play $ sourceIOHandle handleIO
+    -- because Ctrl+C always makes ffmpeg complain about broken pipes.
+    -- TODO: it also seems that the exception handler for runVoice isn't running
+    -- when playFileWith is used with Ctrl+C, thereby not making bots leave.
+    (readEnd, writeEnd) <- liftIO $ createPipe
+    (a, b, c, ph) <- liftIO $ createProcess_ "the ffmpeg process" (proc exe args)
+        { std_out = UseHandle writeEnd
+        }
+    finally (play $ sourceHandle readEnd) $ do
+        liftIO $ cleanupProcess (a, b, c, ph)
+        liftIO $ hClose writeEnd >> hClose readEnd
 
 playYouTube :: String -> Voice ()
 playYouTube query = do
@@ -387,5 +409,3 @@ playYouTube query = do
             , "-reconnect_streamed", "1"
             , "-reconnect_delay_max", "2"
             ] <> defaultFFmpegArgs url
-
- 
