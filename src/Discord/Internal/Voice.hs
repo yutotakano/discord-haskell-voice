@@ -331,23 +331,72 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
 -- | Play some sound on the file system, provided in the form of 16-bit Little
 -- Endian PCM. @playPCMFile@ is a handy alias for @'play' . 'sourceFile'@.
 --
+-- For a variant of this function that allows arbitrary transformations of the
+-- audio data through a conduit component, see 'playPCMFile\''.
+--
 -- To play any other format, it will need to be transcoded using FFmpeg. See
 -- 'playFile' for such usage.
-playPCMFile :: FilePath -> Voice ()
+playPCMFile
+    :: FilePath
+    -- ^ The path to the PCM file to play
+    -> Voice ()
 playPCMFile = play . sourceFile
+
+-- | Play some sound on the file system, provided in the form of 16-bit Little
+-- Endian PCM. Audio data will be passed through the @processor@ conduit
+-- component, allowing arbitrary transformations to audio data before playback.
+--
+-- For a variant of this function with no processing, see 'playPCMFile'.
+--
+-- To play any other format, it will need to be transcoded using FFmpeg. See
+-- 'playFile' for such usage.
+playPCMFile'
+    :: FilePath
+    -- ^ The path to the PCM file to play
+    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
+    -- ^ Any processing that needs to be done on the audio data
+    -> Voice ()
+playPCMFile' fp processor = play $ sourceFile fp .| processor
 
 -- | Play some sound on the file system, provided in any format supported by
 -- FFmpeg. This function expects "@ffmpeg@" to be available in the system PATH.
+--
 -- For a variant that allows you to specify the executable and/or any arguments,
 -- see 'playFileWith'.
 --
+-- For a variant of this function that allows arbitrary transformations of the
+-- audio data through a conduit component, see 'playFile\''.
+--
 -- If the file is already known to be in 16-bit little endian PCM, using
 -- @playPCMFile@ is much more efficient as it does not go through FFmpeg.
-playFile :: FilePath -> Voice ()
-playFile fp = playFileWith "ffmpeg" (defaultFFmpegArgs fp)
+playFile
+    :: FilePath
+    -- ^ The path to the audio file to play
+    -> Voice ()
+playFile fp = playFile' fp (awaitForever yield)
 
--- | @defaultFFmpegArgs@ creates the default FFmpeg arguments used when streaming
--- audio into 16-bit little endian PCM on stdout.
+-- | Play some sound on the file system, provided in any format supported by
+-- FFmpeg. This function expects "@ffmpeg@" to be available in the system PATH.
+-- Audio data will be passed through the @processor@ conduit component, allowing
+-- arbitrary transformations to audio data before playback.
+--
+-- For a variant that allows you to specify the executable and/or any arguments,
+-- see 'playFileWith\''.
+--
+-- For a variant of this function with no processing, see 'playFile'.
+--
+-- If the file is already known to be in 16-bit little endian PCM, using
+-- 'playPCMFile\'' is much more efficient as it does not go through FFmpeg.
+playFile'
+    :: FilePath
+    -- ^ The path to the audio file to play
+    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
+    -- ^ Any processing that needs to be done on the audio data
+    -> Voice ()
+playFile' fp = playFileWith' "ffmpeg" defaultFFmpegArgs fp
+
+-- | @defaultFFmpegArgs@ is a generator function for the default FFmpeg
+-- arguments used when streaming audio into 16-bit little endian PCM on stdout.
 --
 -- This function takes in the input file path as an argument, because FFmpeg
 -- arguments are position sensitive in relation to the placement of @-i@.
@@ -366,21 +415,57 @@ defaultFFmpegArgs fp =
     ]
 
 -- | Play some sound on the file system, provided in any format supported by
--- FFmpeg. This function allows you to specify the ffmpeg executable and any
--- of the arguments to pass to it (see @defaultFFmpegArgs@ for the default).
+-- FFmpeg. This function allows you to specify the ffmpeg executable and a
+-- generator function to create arguments to it (see @defaultFFmpegArgs@ for
+-- the default)
 -- 
--- See 'playFile' for a variant that uses the "@ffmpeg@" executable in your PATH
--- automatically.
+-- For a variant of this function that uses the "@ffmpeg@" executable in your
+-- PATH automatically, see 'playFile'.
 --
--- If the file is known to be in 16-bit little endian PCM, using @playPCMFile@
--- is more efficient as it does not go through ffmpeg.
-playFileWith :: String -> [String] -> Voice ()
-playFileWith exe args = do
+-- For a variant of this function that allows arbitrary transformations of the
+-- audio data through a conduit component, see 'playFileWith\''.
+--
+-- If the file is known to be in 16-bit little endian PCM, using 'playPCMFile'
+-- is more efficient as it does not go through FFmpeg.
+playFileWith
+    :: String
+    -- ^ The name of the FFmpeg executable
+    -> (String -> [String])
+    -- ^ FFmpeg argument generator function, given the filepath
+    -> FilePath
+    -> Voice ()
+playFileWith exe args fp = playFileWith' exe args fp (awaitForever yield)
+
+-- | Play some sound on the file system, provided in any format supported by
+-- FFmpeg. This function allows you to specify the ffmpeg executable and a
+-- generator function to create arguments to it (see @defaultFFmpegArgs@ for
+-- the default). Audio data will be passed through the @processor@ conduit
+-- component, allowing arbitrary transformations to audio data before playback.
+-- 
+-- For a variant of this function that uses the "@ffmpeg@" executable in your
+-- PATH automatically, see 'playFile\''.
+--
+-- For a variant of this function with no processing, see 'playFileWith'.
+--
+-- If the file is known to be in 16-bit little endian PCM, using 'playPCMFile\''
+-- is more efficient as it does not go through FFmpeg.
+playFileWith'
+    :: String
+    -- ^ The name of the FFmpeg executable
+    -> (String -> [String])
+    -- ^ FFmpeg argument generator function, given the filepath
+    -> String
+    -- ^ The path to the audio file to play
+    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
+    -- ^ Any processing that needs to be done on the audio data
+    -> Voice ()
+playFileWith' exe argsGen path processor = do
+    let args = argsGen path
     (a, Just stdout, Just stderr, ph) <- liftIO $ createProcess_ "the ffmpeg process" (proc exe args)
         { std_out = CreatePipe
         , std_err = CreatePipe
         }
-    -- When the ffmpeg subprocess prints something to stderr, it's usually fatal,
+    -- When the FFmpeg subprocess prints something to stderr, it's usually fatal,
     -- but it doesn't exit the process. The following forked process will
     -- continuously read from stderr and if anything is found, will throw an
     -- exception back into this thread.
@@ -392,14 +477,98 @@ playFileWith exe args = do
             exitCode <- terminateProcess ph >> waitForProcess ph
             putStrLn $ "ffmpeg exited with code " ++ show exitCode
             throwTo myTid $ SubprocessException err
-    finally (play $ sourceHandle stdout) $ do
+    finally (play $ sourceHandle stdout .| processor) $ do
         liftIO $ cleanupProcess (a, Just stdout, Just stderr, ph)
         liftIO $ killThread errorListenerTid
 
--- | Play some sound from YouTube. 
-playYouTube :: String -> Voice ()
-playYouTube query = do
-    extractedInfo <- liftIO $ withCreateProcess (proc "youtube-dl"
+-- | Play any video or search query from YouTube, automatically transcoded
+-- through FFmpeg. This function expects "@ffmpeg@" and "@youtube-dl@" to be
+-- available in the system PATH.
+--
+-- For a variant that allows you to specify the executable and/or any arguments,
+-- see 'playYouTubeWith'.
+--
+-- For a variant of this function that allows arbitrary transformations of the
+-- audio data through a conduit component, see 'playYouTube\''.
+playYouTube
+    :: String
+    -- ^ Search query (or video URL)
+    -> Voice ()
+playYouTube query = playYouTube' query (awaitForever yield)
+
+-- | Play any video or search query from YouTube, automatically transcoded
+-- through FFmpeg. This function expects "@ffmpeg@" and "@youtube-dl@" to be
+-- available in the system PATH.Audio data will be passed through the
+-- @processor@ conduit component, allowing arbitrary transformations to audio
+-- data before playback.
+--
+-- For a variant that allows you to specify the executable and/or any arguments,
+-- see 'playYouTubeWith\''.
+--
+-- For a variant of this function with no processing, see 'playYouTube'.
+playYouTube'
+    :: String
+    -- ^ Search query (or video URL)
+    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
+    -- ^ Any processing that needs to be done on the audio data
+    -> Voice ()
+playYouTube' query processor =
+  let
+    customArgGen url = 
+        [ "-reconnect", "1"
+        , "-reconnect_streamed", "1"
+        , "-reconnect_delay_max", "2"
+        ] <> defaultFFmpegArgs url
+  in
+    playYouTubeWith' "ffmpeg" customArgGen "youtube-dl" query processor
+
+-- | Play any video or search query from YouTube, automatically transcoded
+-- through FFmpeg. This function allows you to specify the ffmpeg executable,
+-- a generator function to create arguments to it (see @defaultFFmpegArgs@ for
+-- the default), as well as the youtube-dl executable.
+--
+-- For a variant of this function that uses the "@ffmpeg@" executable and 
+-- "@youtube-dl@" executable in your PATH automatically, see 'playYouTube'.
+--
+-- For a variant of this function that allows arbitrary transformations of the
+-- audio data through a conduit component, see 'playYouTubeWith\''.
+playYouTubeWith
+    :: String
+    -- ^ The name of the FFmpeg executable
+    -> (String -> [String])
+    -- ^ FFmpeg argument generator function, given the URL
+    -> String
+    -- ^ The name of the youtube-dl executable
+    -> String
+    -- ^ The search query (or video URL)
+    -> Voice ()
+playYouTubeWith fexe fargsGen yexe query = playYouTubeWith' fexe fargsGen yexe query (awaitForever yield)
+
+-- | Play any video or search query from YouTube, automatically transcoded
+-- through FFmpeg. This function allows you to specify the ffmpeg executable,
+-- a generator function to create arguments to it (see @defaultFFmpegArgs@ for
+-- the default), as well as the youtube-dl executable. Audio data will be passed
+-- through the @processor@ conduit component, allowing arbitrary transformations
+-- to audio data before playback.
+--
+-- For a variant of this function that uses the "@ffmpeg@" executable and 
+-- "@youtube-dl@" executable in your PATH automatically, see 'playYouTube\''.
+--
+-- For a variant of this function with no processing, see 'playYouTubeWith'.
+playYouTubeWith'
+    :: String
+    -- ^ The name of the FFmpeg executable
+    -> (String -> [String])
+    -- ^ The arguments to pass to FFmpeg
+    -> String
+    -- ^ The name of the youtube-dl executable
+    -> String
+    -- ^ The search query (or video URL)
+    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
+    -- ^ Any processing that needs to be done on the audio data
+    -> Voice ()
+playYouTubeWith' fexe fargsGen yexe query processor = do
+    extractedInfo <- liftIO $ withCreateProcess (proc yexe
         [ "-j"
         , "--default-search", "ytsearch"
         , "--format", "bestaudio/best"
@@ -413,8 +582,4 @@ playYouTube query = do
     case perhapsUrl of
         -- no matching url found
         Nothing -> pure ()
-        Just url -> playFileWith "ffmpeg" $ 
-            [ "-reconnect", "1"
-            , "-reconnect_streamed", "1"
-            , "-reconnect_delay_max", "2"
-            ] <> defaultFFmpegArgs url
+        Just url -> playFileWith' fexe fargsGen url processor

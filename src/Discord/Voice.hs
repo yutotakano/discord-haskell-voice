@@ -47,9 +47,13 @@ module Discord.Voice
     , updateSpeakingStatus
     , play
     , playPCMFile
+    , playPCMFile'
     , playFile
+    , playFile'
     , playFileWith
+    , playFileWith'
     , playYouTube
+    , playYouTube'
     , defaultFFmpegArgs
     ) where
 
