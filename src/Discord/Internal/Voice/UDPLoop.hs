@@ -215,7 +215,7 @@ sendableLoop conn log sequence timestamp startTime = do
         Nothing -> do
             -- nothing could be read, so wait 20ms (no dynamic calculation
             -- required, because nothing demands accurate real-time)
-            threadDelay $ round $ 20 * 10^(6 :: Int)
+            threadDelay $ round $ 20 * 10^(3 :: Int)
             currentTime <- getPOSIXTime
             sendableLoop conn log sequence timestamp currentTime
         Just opusBytes -> do
