@@ -14,6 +14,7 @@ for the public interface.
 module Discord.Internal.Voice where
 
 import Codec.Audio.Opus.Encoder
+import Conduit
 import Control.Concurrent.Async ( race )
 import Control.Concurrent
     ( ThreadId
@@ -47,11 +48,12 @@ import Data.Aeson
 import Data.Aeson.Types ( parseMaybe )
 import Data.ByteString qualified as B
 import Data.Foldable ( traverse_ )
-import Conduit
+import Data.List ( partition )
 import Data.Maybe ( fromJust )
 import Data.Text qualified as T
 import GHC.Weak ( deRefWeak, Weak )
 import System.IO ( hClose, hGetContents, hWaitForInput, hIsOpen )
+import System.IO.Error ( isEOFError )
 import System.Process
 import UnliftIO qualified as UnliftIO
 
@@ -78,7 +80,6 @@ import Discord.Internal.Types.VoiceWebsocket
     )
 import Discord.Internal.Voice.CommonUtils
 import Discord.Internal.Voice.WebsocketLoop
-import System.IO.Error (isEOFError)
 
 -- | Send a Gateway Websocket Update Voice State command (Opcode 4). Used to
 -- indicate that the client voice status (deaf/mute) as well as the channel
@@ -146,11 +147,47 @@ runVoice action = do
 
     pure result
 
--- | Join a specific voice channel.
+-- | Join a specific voice channel, given the Guild and Channel ID of the voice
+-- channel. Since the Channel ID is globally unique, there is theoretically no
+-- need to specify the Guild ID, but it is provided until discord-haskell fully
+-- caches the mappings internally.
 --
--- The @guildId@ parameter will hopefully be removed when discord-haskell fully
--- caches channels internally (this is a TODO).
-join :: GuildId -> ChannelId -> Voice ()
+-- This function returns a Voice action that, when executed, will leave the
+-- joined voice channel. For example:
+--
+-- @
+-- runVoice $ do
+--   leave <- join (read "123456789012345") (read "67890123456789012")
+--   playYouTube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+--   leave
+-- @
+--
+-- The above use is not meaningful in practice, since @runVoice@ will perform
+-- the appropriate cleanup and leaving as necessary at the end of all actions.
+-- However, it may be useful to interleave @leave@ with other Voice actions.
+--
+-- Since the @leave@ function will gracefully do nothing if the voice connection
+-- is already severed, it is safe to escape this function from the Voice monad
+-- and use it in a different context. That is, the following is allowed and
+-- is encouraged if you are building a @\/leave@ command of any sort:
+--
+-- @
+-- -- On \/play
+-- runVoice $ do
+--   leave <- join (read "123456789012345") (read "67890123456789012")
+--   liftIO $ putMVar futureLeaveFunc leave
+--   forever $
+--     playYouTube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+--
+-- -- On \/leave, from a different thread
+-- leave <- liftIO $ takeMVar futureLeaveFunc
+-- runVoice leave
+-- @
+--
+-- The above will join a voice channel, play a YouTube video, but immediately
+-- quit and leave the channel when the @\/leave@ command is received, regardless
+-- of the playback status.
+join :: GuildId -> ChannelId -> Voice (Voice ())
 join guildId channelId = do
     h <- lift $ lift $ ask
     -- Duplicate the event channel, so we can read without taking data from event handlers
@@ -207,6 +244,11 @@ join guildId channelId = do
                 let newHandle = DiscordVoiceHandle guildId channelId
                         (wsTidWeak, wsChans) (udpTid, udpChans) ssrc
                 pure (newHandle : handles)
+
+            -- Give back a function used for leaving this voice channel.
+            pure $ do
+                lift $ lift $ updateStatusVoice guildId Nothing False False
+                liftIO $ killWkThread wsTidWeak
   where
     -- | Continuously take the top item in the gateway event channel until both
     -- Dispatch Event VOICE_STATE_UPDATE and Dispatch Event VOICE_SERVER_UPDATE
