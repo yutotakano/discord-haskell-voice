@@ -37,10 +37,10 @@ import Control.Concurrent
     , modifyMVar_
     )
 import Control.Concurrent.BoundedChan qualified as Bounded
-import Control.Exception.Safe ( SomeException, handle, finally, throwTo )
+import Control.Exception.Safe ( finally, throwTo, catch, throwIO )
 import Control.Lens
 import Control.Monad.Reader ( ask, liftIO, runReaderT )
-import Control.Monad.Except ( runExceptT, throwError)
+import Control.Monad.Except ( runExceptT, throwError )
 import Control.Monad.Trans ( lift )
 import Control.Monad ( when, void )
 import Data.Aeson
@@ -51,7 +51,7 @@ import Conduit
 import Data.Maybe ( fromJust )
 import Data.Text qualified as T
 import GHC.Weak ( deRefWeak, Weak )
-import System.IO ( hClose, hGetContents, hWaitForInput )
+import System.IO ( hClose, hGetContents, hWaitForInput, hIsOpen )
 import System.Process
 import UnliftIO qualified as UnliftIO
 
@@ -78,6 +78,7 @@ import Discord.Internal.Types.VoiceWebsocket
     )
 import Discord.Internal.Voice.CommonUtils
 import Discord.Internal.Voice.WebsocketLoop
+import System.IO.Error (isEOFError)
 
 -- | Send a Gateway Websocket Update Voice State command (Opcode 4). Used to
 -- indicate that the client voice status (deaf/mute) as well as the channel
@@ -461,8 +462,9 @@ playFileWith'
     -> Voice ()
 playFileWith' exe argsGen path processor = do
     let args = argsGen path
-    (a, Just stdout, Just stderr, ph) <- liftIO $ createProcess_ "the ffmpeg process" (proc exe args)
-        { std_out = CreatePipe
+    (readEnd, writeEnd) <- liftIO $ createPipe
+    (a, b, Just stderr, ph) <- liftIO $ createProcess_ "the ffmpeg process" (proc exe args)
+        { std_out = UseHandle writeEnd
         , std_err = CreatePipe
         }
     -- When the FFmpeg subprocess prints something to stderr, it's usually fatal,
@@ -471,14 +473,20 @@ playFileWith' exe argsGen path processor = do
     -- exception back into this thread.
     myTid <- liftIO myThreadId
     errorListenerTid <- liftIO $ forkIO $ do
-        thereIsAnError <- hWaitForInput stderr (-1)
-        when thereIsAnError $ do
+        thereIsAnError <- hWaitForInput stderr (-1) `catch` \e ->
+            if isEOFError e then return True else throwIO e
+        -- thereIsAnError can be flagged True if the process was killed and
+        -- I think EOF is written? In which case, the handle is already closed
+        -- so we must make sure not to perform hGetContents on the closed handle.
+        stillOpen <- hIsOpen stderr
+        when (thereIsAnError && stillOpen) $ do
             err <- hGetContents stderr
             exitCode <- terminateProcess ph >> waitForProcess ph
             putStrLn $ "ffmpeg exited with code " ++ show exitCode
             throwTo myTid $ SubprocessException err
-    finally (play $ sourceHandle stdout .| processor) $ do
-        liftIO $ cleanupProcess (a, Just stdout, Just stderr, ph)
+    finally (play $ sourceHandle readEnd .| processor) $ do
+        liftIO $ cleanupProcess (a, b, Just stderr, ph)
+        liftIO $ hClose readEnd >> hClose writeEnd
         liftIO $ killThread errorListenerTid
 
 -- | Play any video or search query from YouTube, automatically transcoded
