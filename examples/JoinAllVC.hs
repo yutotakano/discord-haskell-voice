@@ -2,6 +2,7 @@ module Main where
 
 import           Control.Monad              ( forM_
                                             , forever
+                                            , void
                                             )
 import           Control.Monad.Trans        ( lift )
 import           Conduit
@@ -39,7 +40,7 @@ startHandler = do
             Right chans <- liftDiscord $ restCall $ R.GetGuildChannels (guildId guild)
 
             case filter isVoiceChannel chans of
-                (c:_) -> join (guildId guild) (channelId c)
+                (c:_) -> void $ join (guildId guild) (channelId c)
                 _     -> pure ()
 
         -- play something, then sit around in silence for 30 seconds
