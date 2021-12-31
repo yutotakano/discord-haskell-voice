@@ -1,6 +1,6 @@
 # discord-haskell-voice
 
-Welcome to @discord-haskell-voice@! This library provides you with a high-level
+Welcome to `discord-haskell-voice`! This library provides you with a high-level
 interface for interacting with Discord's Voice API, building on top of the
 [`discord-haskell`](https://hackage.haskell.org/package/discord-haskell) library
 by Karl.
