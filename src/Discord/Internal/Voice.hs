@@ -46,14 +46,11 @@ import Control.Monad.Trans ( lift )
 import Control.Monad ( when, void )
 import Data.Aeson
 import Data.Aeson.Types ( parseMaybe )
-import Data.Bits ( shiftL, shiftR, (.|.) )
 import Data.ByteString qualified as B
 import Data.Foldable ( traverse_ )
-import Data.Int ( Int16 )
 import Data.List ( partition )
 import Data.Maybe ( fromJust )
 import Data.Text qualified as T
-import Data.Word ( Word16, Word8 )
 import GHC.Weak ( deRefWeak, Weak )
 import System.Exit ( ExitCode(..) )
 import System.IO ( hClose, hGetContents, hWaitForInput, hIsOpen )
@@ -669,16 +666,3 @@ playYouTubeWith' fexe fargsGen yexe query processor = do
         -- no matching url found
         Nothing  -> pure ()
         Just url -> playFileWith' fexe fargsGen url processor
-
-packTo16C :: ConduitT B.ByteString Int16 (ResourceT DiscordHandler) ()
-packTo16C = chunksOfExactlyCE 2 .| loop
-  where
-    loop = awaitForever $ \bytes -> do
-        let b1 = B.head bytes
-        let b2 = B.head $ B.tail bytes
-        -- little-endian arrangement
-        yield (fromIntegral $ (shiftL (fromIntegral b2 :: Word16) 8) .|. (fromIntegral b1 :: Word16) :: Int16)
-
-packFrom16C :: ConduitT Int16 B.ByteString (ResourceT DiscordHandler) ()
-packFrom16C = awaitForever $ \i ->
-    yield $ B.pack [fromIntegral i :: Word8, fromIntegral $ shiftR (fromIntegral i :: Word16) 8 :: Word8]

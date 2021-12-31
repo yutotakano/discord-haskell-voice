@@ -35,6 +35,7 @@ library
       Discord.Internal.Voice.UDPLoop
       Discord.Internal.Voice.WebsocketLoop
       Discord.Voice
+      Discord.Voice.Conduit
   other-modules:
       Paths_discord_haskell_voice
   hs-source-dirs:
