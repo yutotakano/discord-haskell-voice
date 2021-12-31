@@ -69,3 +69,7 @@ the library, including dynamically adjusting the stream audio using a TVar
 ## Documentation
 
 See the Haddock documentation.
+
+## Future Plans
+
+- Use `stm-conduit` and `stm` for a safer Chan?
