@@ -1,456 +1,668 @@
-module Discord.Internal.Voice
-    ( joinVoice
-    , leaveVoice
-    , updateSpeakingStatus
-    , playPCM
-    , playFFmpeg
-    , playYTDL
-    , DiscordVoiceHandle(..)
-    ) where
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
+{-|
+Module      : Discord.Internal.Voice
+Description : Recommended for internal use only. See Discord.Voice for the public interface.
+Copyright   : (c) Yuto Takano (2021)
+License     : MIT
+Maintainer  : moa17stock@email.com
 
-import           Codec.Audio.Opus.Encoder
-import           Control.Concurrent.Async           ( race
-                                                    )
-import qualified Control.Concurrent.BoundedChan as Bounded
-import           Control.Concurrent                 ( ThreadId
-                                                    , threadDelay
-                                                    , killThread
-                                                    , forkIO
-                                                    , Chan
-                                                    , dupChan
-                                                    , newChan
-                                                    , readChan
-                                                    , writeChan
-                                                    , MVar
-                                                    , newEmptyMVar
-                                                    , newMVar
-                                                    , readMVar
-                                                    , putMVar
-                                                    , withMVar
-                                                    , tryPutMVar
-                                                    )
-import           Control.Exception.Safe             ( SomeException
-                                                    , handle
-                                                    )
-import           Control.Lens.Operators             ( (#)
-                                                    )
-import           Control.Monad.Reader               ( ask
-                                                    , liftIO
-                                                    )
-import           Control.Monad                      ( when
-                                                    , void
-                                                    )
-import           Data.Aeson
-import           Data.Aeson.Types                   ( parseMaybe
-                                                    )
-import qualified Data.ByteString.Lazy as BL
-import           Data.Maybe                         ( fromJust
-                                                    )
-import qualified Data.Text as T
-import           System.Process                     ( CreateProcess(..)
-                                                    , StdStream(..)
-                                                    , proc
-                                                    , createProcess
-                                                    )
+This module is the internal entry point into @discord-haskell-voice@. Any use of
+this module (or other Internal modules) is discouraged. Please see "Discord.Voice"
+for the public interface.
+-}
+module Discord.Internal.Voice where
 
-import           Discord.Internal.Types             ( GuildId
-                                                    , ChannelId
-                                                    , Event
-                                                    , GatewaySendable(..)
-                                                    , UpdateStatusVoiceOpts
-                                                    )
-import           Discord.Internal.Voice.WebsocketLoop
-import           Discord.Internal.Voice.UDPLoop
-import           Discord.Internal.Types.VoiceWebsocket
-import           Discord.Internal.Types.VoiceUDP
-import           Discord.Internal.Types.VoiceError
-import           Discord.Internal.Types             ( GuildId
-                                                    , UserId
-                                                    , User(..)
-                                                    , UpdateStatusVoiceOpts(..)
-                                                    , Event( UnknownEvent )
-                                                    )
-import           Discord.Internal.Gateway.EventLoop ( GatewayException(..)
-                                                    )
-import           Discord.Internal.Gateway.Cache     ( Cache(..)
-                                                    )
-import           Discord.Handle                     ( discordHandleGateway
-                                                    , discordHandleLog
-                                                    )
-import           Discord                            ( DiscordHandler
-                                                    , sendCommand
-                                                    , readCache
-                                                    )
+import Codec.Audio.Opus.Encoder
+import Conduit
+import Control.Concurrent.Async ( race )
+import Control.Concurrent
+    ( ThreadId
+    , myThreadId
+    , threadDelay
+    , killThread
+    , forkIO
+    , mkWeakThreadId
+    , Chan
+    , dupChan
+    , newChan
+    , readChan
+    , writeChan
+    , MVar
+    , newEmptyMVar
+    , newMVar
+    , readMVar
+    , putMVar
+    , withMVar
+    , tryPutMVar
+    , modifyMVar_
+    )
+import Control.Concurrent.BoundedChan qualified as Bounded
+import Control.Exception.Safe ( finally, bracket, throwTo, catch, throwIO )
+import Control.Lens
+import Control.Monad.Reader ( ask, liftIO, runReaderT )
+import Control.Monad.Except ( runExceptT, throwError )
+import Control.Monad.Trans ( lift )
+import Control.Monad ( when, void )
+import Data.Aeson
+import Data.Aeson.Types ( parseMaybe )
+import Data.ByteString qualified as B
+import Data.Foldable ( traverse_ )
+import Data.List ( partition )
+import Data.Maybe ( fromJust )
+import Data.Text qualified as T
+import GHC.Weak ( deRefWeak, Weak )
+import System.Exit ( ExitCode(..) )
+import System.IO ( hClose, hGetContents, hWaitForInput, hIsOpen )
+import System.IO.Error ( isEOFError )
+import System.Process
+import UnliftIO qualified as UnliftIO
 
-data DiscordVoiceThreadId
-    = DiscordVoiceThreadIdWebsocket ThreadId
-    | DiscordVoiceThreadIdUDP ThreadId
+import Discord ( DiscordHandler, sendCommand, readCache )
+import Discord.Handle ( discordHandleGateway, discordHandleLog )
+import Discord.Internal.Gateway.Cache ( Cache(..) )
+import Discord.Internal.Gateway.EventLoop
+    ( GatewayException(..)
+    , GatewayHandle(..)
+    )
+import Discord.Internal.Types
+    ( GuildId
+    , ChannelId
+    , UserId
+    , User(..)
+    , GatewaySendable(..)
+    , UpdateStatusVoiceOpts(..)
+    , Event(..)
+    )
+import Discord.Internal.Types.VoiceCommon
+import Discord.Internal.Types.VoiceWebsocket
+    ( VoiceWebsocketSendable(Speaking)
+    , SpeakingPayload(..)
+    )
+import Discord.Internal.Voice.CommonUtils
+import Discord.Internal.Voice.WebsocketLoop
 
-data DiscordVoiceHandle = DiscordVoiceHandle
-    { discordVoiceGuildId           :: GuildId
-    , discordVoiceHandleWebsocket   :: DiscordVoiceHandleWebsocket
-    , discordVoiceHandleUDP         :: DiscordVoiceHandleUDP
-    , discordVoiceSSRC              :: Integer
-    , discordVoiceThreads           :: [DiscordVoiceThreadId]
-    , discordVoiceMutEx             :: MVar ()
-    }
-
--- | Send a Gateway Websocket Update Voice State command (Opcode 4). Used when
--- the client wants to join, move, or disconnect from a voice channel.
+-- | Send a Gateway Websocket Update Voice State command (Opcode 4). Used to
+-- indicate that the client voice status (deaf/mute) as well as the channel
+-- they are active on.
+-- This is not in the Voice monad because it has to be used after all voice
+-- actions end, to quit the voice channels. It also has no benefit, since it
+-- would cause extra transformer wrapping/unwrapping.
 updateStatusVoice
     :: GuildId
     -- ^ Id of Guild
     -> Maybe ChannelId
     -- ^ Id of the voice channel client wants to join (Nothing if disconnecting)
     -> Bool
-    -- ^ Is the client muted
+    -- ^ Whether the client muted
     -> Bool
-    -- ^ Is the client deafened
+    -- ^ Whether the client deafened
     -> DiscordHandler ()
 updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts a b c d
 
--- | Joins a voice channel and initialises all the threads, ready to stream.
+-- | @liftDiscord@ lifts a computation in DiscordHandler into a computation in
+-- Voice. This is useful for performing DiscordHandler/IO actions inside the
+-- Voice monad.
+liftDiscord :: DiscordHandler a -> Voice a
+liftDiscord = lift . lift
+
+-- | Execute the voice actions stored in the Voice monad.
+--
+-- A single mutex and sending packet channel is used throughout all voice
+-- connections within the actions, which enables multi-channel broadcasting.
+-- The following demonstrates how a single playback is streamed to multiple
+-- connections.
 --
 -- @
--- eVc <- joinVoice gid cid False False
--- case eVc of
---     Left e -> liftIO $ putStrLn $ show e
---     Right vc -> do
---         -- do nothing in VC for 30 seconds
---         threadDelay $ 30 * 10**(6 :: Int)
---         'leaveVoice' vc
+-- runVoice $ do
+--     join (read "123456789012345") (read "67890123456789012")
+--     join (read "098765432123456") (read "12345698765456709")
+--     playYouTube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 -- @
-joinVoice
-    :: GuildId
-    -- ^ The guild in which the channel is located
-    -> ChannelId
-    -- ^ The voice channel id to join
-    -> Bool
-    -- ^ Whether the bot should join muted
-    -> Bool
-    -- ^ Whether the bot should join deafened
-    -> DiscordHandler (Either VoiceError DiscordVoiceHandle)
-joinVoice gid cid mute deaf = do
-    h <- ask
+--
+-- The return type of @runVoice@ represents result status of the voice computation.
+-- It is isomorphic to @Maybe@, but the use of Either explicitly denotes that
+-- the correct/successful/"Right" behaviour is (), and that the potentially-
+-- existing value is of failure.
+runVoice :: Voice () -> DiscordHandler (Either VoiceError ())
+runVoice action = do
+    voiceHandles <- liftIO $ newMVar []
+    mutEx <- liftIO $ newMVar ()
+
+    let initialState = DiscordBroadcastHandle voiceHandles mutEx
+
+    result <- finally (runExceptT $ flip runReaderT initialState $ action) $ do
+        -- Wrap cleanup action in @finally@ to ensure we always close the
+        -- threads even if an exception occurred.
+        finalState <- liftIO $ readMVar voiceHandles
+
+        -- Unfortunately, the following updateStatusVoice doesn't always run
+        -- when we have entered this @finally@ block through a SIGINT or other
+        -- asynchronous exception. The reason is that sometimes, the
+        -- discord-haskell websocket sendable thread is killed before this.
+        -- There is no way to prevent it, so as a consequence, the bot may
+        -- linger in the voice call for a few minutes after the bot program is
+        -- killed.
+        mapMOf_ (traverse . guildId) (\x -> updateStatusVoice x Nothing False False) finalState
+        mapMOf_ (traverse . websocket . _1) (liftIO . killWkThread) finalState
+
+    pure result
+
+-- | Join a specific voice channel, given the Guild and Channel ID of the voice
+-- channel. Since the Channel ID is globally unique, there is theoretically no
+-- need to specify the Guild ID, but it is provided until discord-haskell fully
+-- caches the mappings internally.
+--
+-- This function returns a Voice action that, when executed, will leave the
+-- joined voice channel. For example:
+--
+-- @
+-- runVoice $ do
+--   leave <- join (read "123456789012345") (read "67890123456789012")
+--   playYouTube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+--   leave
+-- @
+--
+-- The above use is not meaningful in practice, since @runVoice@ will perform
+-- the appropriate cleanup and leaving as necessary at the end of all actions.
+-- However, it may be useful to interleave @leave@ with other Voice actions.
+--
+-- Since the @leave@ function will gracefully do nothing if the voice connection
+-- is already severed, it is safe to escape this function from the Voice monad
+-- and use it in a different context. That is, the following is allowed and
+-- is encouraged if you are building a @\/leave@ command of any sort:
+--
+-- @
+-- -- On \/play
+-- runVoice $ do
+--   leave <- join (read "123456789012345") (read "67890123456789012")
+--   liftIO $ putMVar futureLeaveFunc leave
+--   forever $
+--     playYouTube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+--
+-- -- On \/leave, from a different thread
+-- leave <- liftIO $ takeMVar futureLeaveFunc
+-- runVoice leave
+-- @
+--
+-- The above will join a voice channel, play a YouTube video, but immediately
+-- quit and leave the channel when the @\/leave@ command is received, regardless
+-- of the playback status.
+join :: GuildId -> ChannelId -> Voice (Voice ())
+join guildId channelId = do
+    h <- lift $ lift $ ask
     -- Duplicate the event channel, so we can read without taking data from event handlers
-    let (_events, _, _) = discordHandleGateway h
-    events <- liftIO $ dupChan _events
+    events <- liftIO $ dupChan $ gatewayHandleEvents $ discordHandleGateway h
 
-    -- Send opcode 4 in Gateway
-    updateStatusVoice gid (Just cid) mute deaf
+    -- To join a voice channel, we first need to send Voice State Update (Opcode
+    -- 4) to the gateway, which will then send us two responses, Dispatch Event
+    -- (Voice State Update) and Dispatch Event (Voice Server Update).
+    lift $ lift $ updateStatusVoice guildId (Just channelId) False False
 
-    -- Wait for Opcode 0 Voice State Update and Voice Server Update
-    -- for a maximum of 5 seconds
-    result <- liftIO $ doOrTimeout 5 (waitOpcode2And4 events)
-
-    case result of
+    (liftIO . doOrTimeout 5000) (waitForVoiceStatusServerUpdate events) >>= \case
         Nothing -> do
             -- did not respond in time: no permission? or discord offline?
-            pure $ Left VoiceNotAvailable
-        Just (_, (_, _, Nothing)) -> do
+            throwError VoiceNotAvailable
+        Just (_, _, _, Nothing) -> do
             -- If endpoint is null, according to Docs, no servers are available.
-            pure $ Left NoServerAvailable
-        Just (sessionId, (token, guildId, Just endpoint)) -> do
-            let connInfo = WSConnInfo sessionId token guildId endpoint
-            -- Get the current user ID, and pass it on with all the other data
-            uid <- getCacheUserId
-            liftIO $ startVoiceThreads connInfo events uid $ discordHandleLog h
+            throwError NoServerAvailable
+        Just (sessionId, token, guildId, Just endpoint) -> do
+            -- create the sending and receiving channels for Websocket
+            wsChans <- liftIO $ (,) <$> newChan <*> newChan
+            -- thread id and handles for UDP. 100 packets will contain 2
+            -- seconds worth of 20ms audio. Each packet (20ms) contains
+            -- (48000 / 1000 * 20 =) 960 frames, for which each frame has
+            -- 2 channels and 16 bits (2 bytes) in each channel. So, the total
+            -- amount of memory required for each BoundedChan is 2*2*960*100=
+            -- 384 kB (kilobytes).
+            udpChans <- liftIO $ (,) <$> newChan <*> Bounded.newBoundedChan 100
+            udpTidM <- liftIO newEmptyMVar
+            -- ssrc to be filled in during initial handshake
+            ssrcM <- liftIO $ newEmptyMVar
 
--- | Get the user ID of the bot from the cache.
-getCacheUserId :: DiscordHandler UserId
-getCacheUserId = userId . _currentUser <$> readCache
+            uid <- userId . cacheCurrentUser <$> (lift $ lift $ readCache)
+            let wsOpts = WebsocketLaunchOpts uid sessionId token guildId endpoint
+                    events wsChans udpTidM udpChans ssrcM
 
--- | Perform an IO action for a maximum of @sec@ seconds.
-doOrTimeout :: Int -> IO a -> IO (Maybe a)
-doOrTimeout sec longAction = rightToMaybe <$> race waitSecs longAction
+            -- fork a thread to start the websocket thread in the DiscordHandler
+            -- monad using the current Reader state. Not much of a problem
+            -- since many of the fields are mutable references.
+            wsTid <- liftIO $ forkIO $ launchWebsocket wsOpts $ discordHandleLog h
+            
+            wsTidWeak <- liftIO $ mkWeakThreadId wsTid
+
+            -- TODO: check if readMVar ever blocks if the UDP thread fails to
+            -- launch. Handle somehow? Perhaps with exception throwTo?
+            udpTid <- liftIO $ readMVar udpTidM
+            ssrc <- liftIO $ readMVar ssrcM
+
+            -- modify the current Voice monad state to add the newly created
+            -- UDP and Websocket handles (a handle consists of thread id and
+            -- send/receive channels).
+            voiceState <- ask
+            -- Add the new voice handles to the list of handles
+            liftIO $ modifyMVar_ (voiceState ^. voiceHandles) $ \handles -> do
+                let newHandle = DiscordVoiceHandle guildId channelId
+                        (wsTidWeak, wsChans) (udpTid, udpChans) ssrc
+                pure (newHandle : handles)
+
+            -- Give back a function used for leaving this voice channel.
+            pure $ do
+                lift $ lift $ updateStatusVoice guildId Nothing False False
+                liftIO $ killWkThread wsTidWeak
   where
-    waitSecs :: IO ()
-    waitSecs = threadDelay (sec * 10^(6 :: Int))
-
--- | Selects the right element as a Maybe
-rightToMaybe :: Either a b -> Maybe b
-rightToMaybe (Left _)  = Nothing
-rightToMaybe (Right x) = Just x
-
--- | Loop until both VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE are received.
--- The order is undefined in docs, so this function will recursively fill
--- up two Maybe arguments until both are Just.
-waitOpcode2And4
-    :: Chan (Either GatewayException Event)
-    -> IO (T.Text, (T.Text, GuildId, Maybe T.Text))
-waitOpcode2And4 events = loopForBoth Nothing Nothing
-  where
-    loopForBoth
+    -- | Continuously take the top item in the gateway event channel until both
+    -- Dispatch Event VOICE_STATE_UPDATE and Dispatch Event VOICE_SERVER_UPDATE
+    -- are received.
+    --
+    -- The order is undefined in docs, so this function will block until both
+    -- are received in any order.
+    waitForVoiceStatusServerUpdate
+        :: Chan (Either GatewayException Event)
+        -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
+    waitForVoiceStatusServerUpdate = loopForBothEvents Nothing Nothing
+    
+    loopForBothEvents
         :: Maybe T.Text
         -> Maybe (T.Text, GuildId, Maybe T.Text)
-        -> IO (T.Text, (T.Text, GuildId, Maybe T.Text))
-    loopForBoth (Just a) (Just (b, c, d)) = pure (a, (b, c, d))
-    loopForBoth mb1 mb2 = do
-        top <- readChan events
-        case top of
-            -- Parse UnknownEvent, which are events not handled by discord-haskell.
-            Right (UnknownEvent "VOICE_STATE_UPDATE" obj) -> do
-                -- Conveniently, we can just pass the result of parseMaybe
-                -- back recursively.
-                let sessionId = flip parseMaybe obj $ \o -> do
-                        o .: "session_id"
-                loopForBoth sessionId mb2
-            Right (UnknownEvent "VOICE_SERVER_UPDATE" obj) -> do
-                let result = flip parseMaybe obj $ \o -> do
-                        token <- o .: "token"
-                        guildId <- o .: "guild_id"
-                        endpoint <- o .: "endpoint"
-                        pure (token, guildId, endpoint)
-                loopForBoth mb1 result
-            _ -> loopForBoth mb1 mb2
+        -> Chan (Either GatewayException Event)
+        -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
+    loopForBothEvents (Just a) (Just (b, c, d)) events = pure (a, b, c, d)
+    loopForBothEvents mb1 mb2 events = readChan events >>= \case
+        -- Parse UnknownEvent, which are events not handled by discord-haskell.
+        Right (UnknownEvent "VOICE_STATE_UPDATE" obj) -> do
+            -- Conveniently, we can just pass the result of parseMaybe
+            -- back recursively.
+            let sessionId = flip parseMaybe obj $ \o -> do
+                    o .: "session_id"
+            loopForBothEvents sessionId mb2 events
+        Right (UnknownEvent "VOICE_SERVER_UPDATE" obj) -> do
+            let result = flip parseMaybe obj $ \o -> do
+                    token <- o .: "token"
+                    guildId <- o .: "guild_id"
+                    endpoint <- o .: "endpoint"
+                    pure (token, guildId, endpoint)
+            loopForBothEvents mb1 result events
+        _ -> loopForBothEvents mb1 mb2 events
 
--- | Start the Websocket thread, which will create the UDP thread
-startVoiceThreads
-    :: WebsocketConnInfo
-    -- ^ Connection details for the websocket
-    -> Chan (Either GatewayException Event)
-    -- ^ Gateway events
-    -> UserId
-    -- ^ The current user ID
-    -> Chan T.Text
-    -- ^ The channel to log errors
-    -> IO (Either VoiceError DiscordVoiceHandle)
-startVoiceThreads connInfo gatewayEvents uid log = do
-    -- First create the websocket (which will automatically try to identify)
-    events <- newChan -- types are inferred from line below
-    sends <- newChan
-    syncKey <- newEmptyMVar
-    websocketId <- forkIO $ voiceWebsocketLoop gatewayEvents (events, sends) (connInfo, uid) log
-
-    -- The first event is either a Right (Ready payload) or Left errors
-    e <- readChan events
-    case e of
-        Right (Ready p) -> do
-            -- Now try to create the UDP thread
-            let udpInfo = UDPConnInfo
-                    { udpInfoSSRC = readyPayloadSSRC p
-                    , udpInfoAddr = readyPayloadIP p
-                    , udpInfoPort = readyPayloadPort p
-                    , udpInfoMode = "xsalsa20_poly1305"
-                    -- ^ Too much hassle to implement all encryption modes.
-                    }
-
-            byteReceives <- newChan
-            byteSends <- Bounded.newBoundedChan 500 -- 10 seconds worth of 20ms
-            udpId <- forkIO $ udpLoop (byteReceives, byteSends) udpInfo syncKey log
-
-            -- the first packet is a IP Discovery response.
-            (IPDiscovery _ ip port) <- readChan byteReceives
-
-            -- signal to the voice websocket using Opcode 1 Select Protocol
-            writeChan sends $ SelectProtocol $ SelectProtocolPayload
-                { selectProtocolPayloadProtocol = "udp"
-                , selectProtocolPayloadIP       = ip
-                , selectProtocolPayloadPort     = port
-                , selectProtocolPayloadMode     = "xsalsa20_poly1305"
-                }
-
-            -- the next thing we receive in the websocket *should* be an
-            -- Opcode 4 Session Description
-            f <- readChan events
-            case f of
-                Right (SessionDescription _ key) -> do
-                    putMVar syncKey key
-                    mutex <- newMVar ()
-                    pure $ Right $ DiscordVoiceHandle
-                        { discordVoiceGuildId         = wsInfoGuildId connInfo
-                        , discordVoiceHandleWebsocket = (events, sends)
-                        , discordVoiceHandleUDP       = (byteReceives, byteSends)
-                        , discordVoiceSSRC            = udpInfoSSRC udpInfo
-                        , discordVoiceThreads         =
-                            [ DiscordVoiceThreadIdWebsocket websocketId
-                            , DiscordVoiceThreadIdUDP udpId
-                            ]
-                        , discordVoiceMutEx           = mutex
-                        }
-                Right a -> do
-                    -- If this is ever called, refactor this entire case stmt
-                    -- to a waitForSessionDescription, as it means another
-                    -- event could be in the Websocket before SessionDescription
-                    print "owo"
-                    print a
-                    killThread udpId
-                    killThread websocketId
-                    pure $ Left $ InvalidPayloadOrder
-                Left  _ -> do
-                    killThread udpId
-                    killThread websocketId
-                    pure $ Left $ InvalidPayloadOrder
-        Right _ -> do
-            killThread websocketId
-            pure $ Left $ InvalidPayloadOrder
-        Left  _ -> do
-            killThread websocketId
-            pure $ Left $ InvalidPayloadOrder
-
--- | Leave the current voice session by killing all relevant threads, and
--- sending a Voice State Update to the gateway.
-leaveVoice :: DiscordVoiceHandle -> DiscordHandler ()
-leaveVoice handle = do
-    mapM_ (liftIO . killThread . toId) (discordVoiceThreads handle)
-    updateStatusVoice (discordVoiceGuildId handle) Nothing False False
-    void $ liftIO $ tryPutMVar (discordVoiceMutEx handle) ()
-  where
-    toId t = case t of
-        DiscordVoiceThreadIdWebsocket a -> a
-        DiscordVoiceThreadIdUDP a -> a
-
--- | Helper function to update the speaking indicator for the bot.
+-- | Helper function to update the speaking indicator for the bot. Setting the
+-- microphone status to True is required for Discord to transmit the bot's
+-- voice to other clients. It is done automatically in all of the @play*@
+-- functions, so there should be no use for this function in practice.
 --
 -- Soundshare and priority are const as False, don't see bots needing them.
 -- If and when required, add Bool signatures to this function.
-updateSpeakingStatus :: DiscordVoiceHandle -> Bool -> IO ()
-updateSpeakingStatus handle micStatus =
-    writeChan (snd $ discordVoiceHandleWebsocket handle) $ Speaking $ SpeakingPayload
-        { speakingPayloadMicrophone = micStatus
-        , speakingPayloadSoundshare = False
-        , speakingPayloadPriority   = False
-        , speakingPayloadDelay      = 0
-        , speakingPayloadSSRC       = (discordVoiceSSRC handle)
-        }
+updateSpeakingStatus :: Bool -> Voice ()
+updateSpeakingStatus micStatus = do
+    h <- (^. voiceHandles) <$> ask
+    handles <- liftIO $ readMVar h
+    flip (mapMOf_ traverse) handles $ \handle ->
+        liftIO $ writeChan (handle ^. websocket . _2 . _2) $ Speaking $ SpeakingPayload
+            { speakingPayloadMicrophone = micStatus
+            , speakingPayloadSoundshare = False
+            , speakingPayloadPriority   = False
+            , speakingPayloadDelay      = 0
+            , speakingPayloadSSRC       = handle ^. ssrc
+            }
 
--- | Play a PCM audio until finish.
+-- | @play source@ plays some sound from the conduit @source@, provided in the form of
+-- 16-bit Little Endian PCM. The use of Conduit allows you to perform arbitrary
+-- lazy transformations of audio data, using all the advantages that Conduit
+-- brings. As the base monad for the Conduit is @ResourceT DiscordHandler@, you
+-- can access any DiscordHandler effects (through @lift@) or IO effects (through
+-- @liftIO@) in the conduit as well.
 --
--- Requires no external dependencies, as it uses FFI to encode opus (through the
--- "Codec.Audio.Opus" module).
+-- For a more specific interface that is easier to use, see the 'playPCMFile',
+-- 'playFile', and 'playYoutube' functions.
 --
 -- @
--- eVc <- joinVoice gid cid False False
--- case eVc of
---     Left e -> pure ()
---     Right vc -> do
---         music <- BL.readFile "things.pcm"
---         playPCM vc music
---         'leaveVoice' vc
+-- import Conduit ( sourceFile )
+--
+-- runVoice $ do
+--   join gid cid
+--   play $ sourceFile "./examples/example.pcm"
 -- @
-playPCM
-    :: DiscordVoiceHandle
-    -> BL.ByteString
-    -- ^ The 16-bit little-endian stereo PCM, at 48kHz.
-    -> DiscordHandler ()
-playPCM handle source =
-    liftIO $ withMVar (discordVoiceMutEx handle) $ \_ -> do
-        -- update the speaking indicator (this needs to happen before bytes are sent)
-        updateSpeakingStatus handle True
+play :: ConduitT () B.ByteString (ResourceT DiscordHandler) () -> Voice ()
+play source = do
+    h <- ask
+    dh <- lift $ lift $ ask
+    handles <- liftIO $ readMVar $ h ^. voiceHandles
 
-        let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
-        -- 1275 is the max bytes an opus 20ms frame can have
-        let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
-        encoder <- opusEncoderCreate enCfg
-        repeatedlySend encoder enStreamCfg source
-
+    updateSpeakingStatus True
+    lift $ lift $ UnliftIO.withMVar (h ^. mutEx) $ \_ -> do
+        runConduitRes $ source .| encodeOpusC .| sinkHandles handles
+    updateSpeakingStatus False
   where
-    repeatedlySend encoder streamCfg restSource = do
-        let sends = snd (discordVoiceHandleUDP handle)
-        if not (BL.null restSource) then do
-            -- bytestrings are made of CChar (Int8) but the data is 16-bit so
-            -- multiply by two to get the right amount
-            let clipLength = 48*20*2*2 -- frame size * channels * (16/8)
-            let (clip, remains) = BL.splitAt clipLength restSource
+    sinkHandles
+        :: [DiscordVoiceHandle]
+        -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
+    sinkHandles handles = getZipSink $
+        traverse_ (ZipSink . sinkChan . view (udp . _2 . _2)) handles
+
+    sinkChan
+        :: Bounded.BoundedChan B.ByteString
+        -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
+    sinkChan chan = await >>= \case
+        Nothing -> pure ()
+        Just bs -> do
+            liftIO $ Bounded.writeChan chan bs
+            sinkChan chan
+
+-- | @encodeOpusC@ is a conduit that splits the ByteString into chunks of
+-- (frame size * no of channels * 16/8) bytes, and encodes each chunk into
+-- OPUS format. ByteStrings are made of CChars (Int8)s, but the data is 16-bit
+-- so this is why we multiply by two to get the right amount of bytes instead of
+-- prematurely cutting off at the half-way point.
+encodeOpusC :: ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
+encodeOpusC = chunksOfCE (48*20*2*2) .| do
+    encoder <- liftIO $ opusEncoderCreate enCfg
+    loop encoder
+  where
+    enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
+    -- 1275 is the max bytes an opus 20ms frame can have
+    streamCfg = _StreamConfig # (enCfg, 48*20, 1276)
+    loop encoder = await >>= \case
+        Nothing -> do
+            -- Send at least 5 blank frames (20ms * 5 = 100 ms)
+            let frame = B.pack $ concat $ replicate 1280 [0xF8, 0xFF, 0xFE]
+            encoded <- liftIO $ opusEncode encoder streamCfg frame
+            yield encoded
+            yield encoded
+            yield encoded
+            yield encoded
+            yield encoded
+        Just frame -> do
             -- encode the audio
-            encoded <- opusEncode encoder streamCfg $ BL.toStrict clip
+            encoded <- liftIO $ opusEncode encoder streamCfg frame
             -- send it
-            Bounded.writeChan sends encoded
-            repeatedlySend encoder streamCfg remains
-        else do
-            -- Send at least 5 blank frames (10 just in case)
-            sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
-            updateSpeakingStatus handle False
+            yield encoded
+            loop encoder
 
--- | Play any type of audio that FFmpeg supports, by launching a FFmpeg
--- subprocess and reading the stdout stream lazily.
+-- | Play some sound on the file system, provided in the form of 16-bit Little
+-- Endian PCM. @playPCMFile@ is a handy alias for @'play' . 'sourceFile'@.
 --
--- __Requires the ffmpeg executable.__
+-- For a variant of this function that allows arbitrary transformations of the
+-- audio data through a conduit component, see 'playPCMFile\''.
+--
+-- To play any other format, it will need to be transcoded using FFmpeg. See
+-- 'playFile' for such usage.
+playPCMFile
+    :: FilePath
+    -- ^ The path to the PCM file to play
+    -> Voice ()
+playPCMFile = play . sourceFile
+
+-- | Play some sound on the file system, provided in the form of 16-bit Little
+-- Endian PCM. Audio data will be passed through the @processor@ conduit
+-- component, allowing arbitrary transformations to audio data before playback.
+--
+-- For a variant of this function with no processing, see 'playPCMFile'.
+--
+-- To play any other format, it will need to be transcoded using FFmpeg. See
+-- 'playFile' for such usage.
+playPCMFile'
+    :: FilePath
+    -- ^ The path to the PCM file to play
+    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
+    -- ^ Any processing that needs to be done on the audio data
+    -> Voice ()
+playPCMFile' fp processor = play $ sourceFile fp .| processor
+
+-- | Play some sound on the file system, provided in any format supported by
+-- FFmpeg. This function expects "@ffmpeg@" to be available in the system PATH.
+--
+-- For a variant that allows you to specify the executable and/or any arguments,
+-- see 'playFileWith'.
+--
+-- For a variant of this function that allows arbitrary transformations of the
+-- audio data through a conduit component, see 'playFile\''.
+--
+-- If the file is already known to be in 16-bit little endian PCM, using
+-- @playPCMFile@ is much more efficient as it does not go through FFmpeg.
+playFile
+    :: FilePath
+    -- ^ The path to the audio file to play
+    -> Voice ()
+playFile fp = playFile' fp (awaitForever yield)
+
+-- | Play some sound on the file system, provided in any format supported by
+-- FFmpeg. This function expects "@ffmpeg@" to be available in the system PATH.
+-- Audio data will be passed through the @processor@ conduit component, allowing
+-- arbitrary transformations to audio data before playback.
+--
+-- For a variant that allows you to specify the executable and/or any arguments,
+-- see 'playFileWith\''.
+--
+-- For a variant of this function with no processing, see 'playFile'.
+--
+-- If the file is already known to be in 16-bit little endian PCM, using
+-- 'playPCMFile\'' is much more efficient as it does not go through FFmpeg.
+playFile'
+    :: FilePath
+    -- ^ The path to the audio file to play
+    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
+    -- ^ Any processing that needs to be done on the audio data
+    -> Voice ()
+playFile' fp = playFileWith' "ffmpeg" defaultFFmpegArgs fp
+
+-- | @defaultFFmpegArgs@ is a generator function for the default FFmpeg
+-- arguments used when streaming audio into 16-bit little endian PCM on stdout.
+--
+-- This function takes in the input file path as an argument, because FFmpeg
+-- arguments are position sensitive in relation to the placement of @-i@.
+--
 -- @
--- eVc <- joinVoice gid cid False False
--- case eVc of
---     Left e -> pure ()
---     Right vc -> do
---         playFFmpeg vc "awesome.mp3" "ffmpeg"
---         'leaveVoice' vc
+-- -i FILE -f s16le -ar 48000 -ac 2 -loglevel warning pipe:1
 -- @
-playFFmpeg
-    :: DiscordVoiceHandle
+defaultFFmpegArgs :: FilePath -> [String]
+defaultFFmpegArgs fp =
+    [ "-i", fp
+    , "-f", "s16le"
+    , "-ar", "48000"
+    , "-ac", "2"
+    , "-loglevel", "warning"
+    , "pipe:1"
+    ]
+
+-- | Play some sound on the file system, provided in any format supported by
+-- FFmpeg. This function allows you to specify the ffmpeg executable and a
+-- generator function to create arguments to it (see @defaultFFmpegArgs@ for
+-- the default)
+-- 
+-- For a variant of this function that uses the "@ffmpeg@" executable in your
+-- PATH automatically, see 'playFile'.
+--
+-- For a variant of this function that allows arbitrary transformations of the
+-- audio data through a conduit component, see 'playFileWith\''.
+--
+-- If the file is known to be in 16-bit little endian PCM, using 'playPCMFile'
+-- is more efficient as it does not go through FFmpeg.
+playFileWith
+    :: String
+    -- ^ The name of the FFmpeg executable
+    -> (String -> [String])
+    -- ^ FFmpeg argument generator function, given the filepath
     -> FilePath
-    -- ^ The file to play
-    -> String
-    -- ^ The ffmpeg executable
-    -> DiscordHandler ()
-playFFmpeg handle fp exe =
-    liftIO $ withMVar (discordVoiceMutEx handle) $ \_ -> do
-        -- update the speaking indicator (this needs to happen before bytes are sent)
-        updateSpeakingStatus handle True
+    -> Voice ()
+playFileWith exe args fp = playFileWith' exe args fp (awaitForever yield)
 
-        -- Flags taken from discord.py, thanks.
-        (_, Just stdout, _, ph) <- createProcess (proc exe
-            [ "-reconnect", "1"
-            , "-reconnect_streamed", "1"
-            , "-reconnect_delay_max", "2"
-            , "-i", fp
-            , "-f", "s16le"
-            , "-ar", "48000"
-            , "-ac", "2"
-            , "-loglevel", "warning"
-            , "pipe:1"
-            ]) { std_out = CreatePipe }
-
-        -- Initialise encoder
-        let enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
-        let enStreamCfg = _StreamConfig # (enCfg, 48*20, 1276)
-        encoder <- opusEncoderCreate enCfg
-        repeatedlySend encoder enStreamCfg stdout
-
-  where
-    repeatedlySend encoder streamCfg stdoutHandle = do
-        let sends = snd (discordVoiceHandleUDP handle)
-        -- pretty much the same as playPCM, see there for more info
-        let clipLength = 48*20*2*2 -- frame size * channels * (16/8)
-        source <- BL.hGet stdoutHandle clipLength
-        if not (BL.null source)
-            then do
-                encoded <- opusEncode encoder streamCfg $ BL.toStrict source
-                Bounded.writeChan sends encoded
-                repeatedlySend encoder streamCfg stdoutHandle
-            else do
-                -- Send at least 5 blank frames (10 just in case)
-                sequence_ $ replicate 10 $ Bounded.writeChan sends "\248\255\254"
-                updateSpeakingStatus handle False
-
--- | Play any URL that is supported by youtube-dl, or a search query for YouTube.
--- Extracts the stream URL using "youtube-dl -j", and passes it to playFFmpeg.
+-- | Play some sound on the file system, provided in any format supported by
+-- FFmpeg. This function allows you to specify the ffmpeg executable and a
+-- generator function to create arguments to it (see @defaultFFmpegArgs@ for
+-- the default). Audio data will be passed through the @processor@ conduit
+-- component, allowing arbitrary transformations to audio data before playback.
+-- 
+-- For a variant of this function that uses the "@ffmpeg@" executable in your
+-- PATH automatically, see 'playFile\''.
 --
--- __Requires the youtube-dl and ffmpeg executable.__
-playYTDL
-    :: DiscordVoiceHandle
+-- For a variant of this function with no processing, see 'playFileWith'.
+--
+-- If the file is known to be in 16-bit little endian PCM, using 'playPCMFile\''
+-- is more efficient as it does not go through FFmpeg.
+playFileWith'
+    :: String
+    -- ^ The name of the FFmpeg executable
+    -> (String -> [String])
+    -- ^ FFmpeg argument generator function, given the filepath
     -> String
-    -- ^ The url or search query to play with youtube-dl.
+    -- ^ The path to the audio file to play
+    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
+    -- ^ Any processing that needs to be done on the audio data
+    -> Voice ()
+playFileWith' exe argsGen path processor = do
+    let args = argsGen path
+    -- NOTE: We use CreatePipe for the stdout handle of ffmpeg, but a preexisting
+    -- handle for stderr. This is because we want to retain the stderr output
+    -- when ffmpeg has exited with an error code, and capture it before manually
+    -- closing the handle. Otherwise, the stderr of ffmpeg may be lost. Using
+    -- a preexisting handle for stdout is however, avoided, because createProcess_
+    -- does not automatically close UseHandles when done, while conduit's
+    -- sourceHandle will patiently wait and block forever for the handle to close.
+    -- We may use createProcess (notice the lack of underscore) to automatically
+    -- close the UseHandles passed into it, but then we 1. lose the error output
+    -- for stderr, and 2. there have been frequent occasions of ffmpeg trying to
+    -- write to the closed pipe, causing a "broken pipe" fatal error. We want to
+    -- therefore make sure that even if that happens, the error is captured and
+    -- stored. Perhaps this explanation makes no sense, but I have suffered too
+    -- long on this problem (of calling a subprocess, streaming its output,
+    -- storing its errors, and making sure they gracefully kill themselves upon
+    -- the parent thread being killed) and I am hoping that this is something
+    -- I don't have to touch again.
+    (errorReadEnd, errorWriteEnd) <- liftIO $ createPipe
+    (a, Just stdout, c, ph) <- liftIO $ createProcess_ "the ffmpeg process" (proc exe args)
+        { std_out = CreatePipe
+        , std_err = UseHandle errorWriteEnd
+        }
+    -- We maintain a forked thread that constantly monitors the stderr output,
+    -- and if it sees an error, it kills the ffmpeg process so it doesn't block
+    -- (sometimes ffmpeg outputs a fatal error but still tries to continue,
+    -- especially during streams), and then rethrows the error as a
+    -- SubprocessException to the parent (this) thread. The idea is for the
+    -- @bracket@ to handle it, properly clean up any remnants, then rethrow it
+    -- further up so that user code can handle it, or let it propagate to
+    -- the "discord-haskell encountered an exception" handler. However in
+    -- practice, I have not seen this exception appear in the logs even once,
+    -- even when the preceding putStrLn executes.
+    myTid <- liftIO myThreadId
+    bracket (liftIO $ forkIO $ do
+        thereIsAnError <- hWaitForInput errorReadEnd (-1) `catch` \e ->
+            if isEOFError e then return False else throwIO e
+        when thereIsAnError $ do
+            exitCode <- terminateProcess ph >> waitForProcess ph
+            case exitCode of
+                ExitSuccess -> do
+                    putStrLn "ffmpeg exited successfully"
+                    pure ()
+                ExitFailure i -> do
+                    err <- hGetContents errorReadEnd
+                    exitCode <- terminateProcess ph >> waitForProcess ph
+                    putStrLn $ "ffmpeg exited with code " ++ show exitCode ++ ": " ++ err
+                    throwTo myTid $ SubprocessException err
+        ) (\tid -> do
+            liftIO $ cleanupProcess (a, Just stdout, c, ph)
+            liftIO $ killThread tid
+        ) $ const $ play $ sourceHandle stdout .| processor
+    liftIO $ hClose errorReadEnd >> hClose errorWriteEnd
+
+-- | Play any video or search query from YouTube, automatically transcoded
+-- through FFmpeg. This function expects "@ffmpeg@" and "@youtube-dl@" to be
+-- available in the system PATH.
+--
+-- For a variant that allows you to specify the executable and/or any arguments,
+-- see 'playYouTubeWith'.
+--
+-- For a variant of this function that allows arbitrary transformations of the
+-- audio data through a conduit component, see 'playYouTube\''.
+playYouTube
+    :: String
+    -- ^ Search query (or video URL)
+    -> Voice ()
+playYouTube query = playYouTube' query (awaitForever yield)
+
+-- | Play any video or search query from YouTube, automatically transcoded
+-- through FFmpeg. This function expects "@ffmpeg@" and "@youtube-dl@" to be
+-- available in the system PATH.Audio data will be passed through the
+-- @processor@ conduit component, allowing arbitrary transformations to audio
+-- data before playback.
+--
+-- For a variant that allows you to specify the executable and/or any arguments,
+-- see 'playYouTubeWith\''.
+--
+-- For a variant of this function with no processing, see 'playYouTube'.
+playYouTube'
+    :: String
+    -- ^ Search query (or video URL)
+    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
+    -- ^ Any processing that needs to be done on the audio data
+    -> Voice ()
+playYouTube' query processor =
+  let
+    customArgGen url = 
+        [ "-reconnect", "1"
+        , "-reconnect_streamed", "1"
+        , "-reconnect_delay_max", "2"
+        ] <> defaultFFmpegArgs url
+  in
+    playYouTubeWith' "ffmpeg" customArgGen "youtube-dl" query processor
+
+-- | Play any video or search query from YouTube, automatically transcoded
+-- through FFmpeg. This function allows you to specify the ffmpeg executable,
+-- a generator function to create arguments to it (see @defaultFFmpegArgs@ for
+-- the default), as well as the youtube-dl executable.
+--
+-- For a variant of this function that uses the "@ffmpeg@" executable and 
+-- "@youtube-dl@" executable in your PATH automatically, see 'playYouTube'.
+--
+-- For a variant of this function that allows arbitrary transformations of the
+-- audio data through a conduit component, see 'playYouTubeWith\''.
+playYouTubeWith
+    :: String
+    -- ^ The name of the FFmpeg executable
+    -> (String -> [String])
+    -- ^ FFmpeg argument generator function, given the URL
     -> String
-    -- ^ The youtube-dl executable
+    -- ^ The name of the youtube-dl executable
     -> String
-    -- ^ The ffmpeg executable
-    -> DiscordHandler ()
-playYTDL handle query exe ffmpegexe = do
-    (_, Just stdout, _, ph) <- liftIO $ createProcess (proc exe
+    -- ^ The search query (or video URL)
+    -> Voice ()
+playYouTubeWith fexe fargsGen yexe query = playYouTubeWith' fexe fargsGen yexe query (awaitForever yield)
+
+-- | Play any video or search query from YouTube, automatically transcoded
+-- through FFmpeg. This function allows you to specify the ffmpeg executable,
+-- a generator function to create arguments to it (see @defaultFFmpegArgs@ for
+-- the default), as well as the youtube-dl executable. Audio data will be passed
+-- through the @processor@ conduit component, allowing arbitrary transformations
+-- to audio data before playback.
+--
+-- For a variant of this function that uses the "@ffmpeg@" executable and 
+-- "@youtube-dl@" executable in your PATH automatically, see 'playYouTube\''.
+--
+-- For a variant of this function with no processing, see 'playYouTubeWith'.
+playYouTubeWith'
+    :: String
+    -- ^ The name of the FFmpeg executable
+    -> (String -> [String])
+    -- ^ The arguments to pass to FFmpeg
+    -> String
+    -- ^ The name of the youtube-dl executable
+    -> String
+    -- ^ The search query (or video URL)
+    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
+    -- ^ Any processing that needs to be done on the audio data
+    -> Voice ()
+playYouTubeWith' fexe fargsGen yexe query processor = do
+    extractedInfo <- liftIO $ withCreateProcess (proc yexe
         [ "-j"
         , "--default-search", "ytsearch"
         , "--format", "bestaudio/best"
         , query
-        ]) { std_out = CreatePipe }
+        ]) { std_out = CreatePipe } $ \stdin (Just stdout) stderr ph ->
+            B.hGetContents stdout
 
-    -- read all of it lazily
-    extractedInfo <- liftIO $ BL.hGetContents stdout
-
-    -- extract stream url, send to playFFmpeg
     let perhapsUrl = do
-            result <- decode extractedInfo
+            result <- decodeStrict extractedInfo
             flip parseMaybe result $ \obj -> obj .: "url"
     case perhapsUrl of
         -- no matching url found
-        Nothing -> pure ()
-        Just url ->
-            playFFmpeg handle url ffmpegexe
+        Nothing  -> pure ()
+        Just url -> playFileWith' fexe fargsGen url processor

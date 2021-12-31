@@ -4,7 +4,7 @@ packages:
 - .
 
 extra-deps:
-- discord-haskell-1.8.8
+- discord-haskell-1.9.2
 # - git: https://github.com/yutotakano/discord-haskell.git
   # commit: 45b903db94b60e542c69e008b39d33ab65ef1545
 - emoji-0.1.0.2

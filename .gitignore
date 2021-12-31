@@ -1,3 +1,6 @@
 .stack-work/
 *.secret
 *~
+.DS_Store
+.vim_session
+.vscode/
