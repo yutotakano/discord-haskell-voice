@@ -1,23 +1,22 @@
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 module Discord.Internal.Types.VoiceWebsocket where
 
-import           Control.Applicative            ( (<|>)
-                                                )
-import           Data.Aeson
-import           Data.Aeson.Types
-import qualified Data.Text as T
-import qualified Data.ByteString as B
-import           Data.Word                      ( Word8
-                                                )
+import Control.Applicative ( (<|>) )
+import Control.Lens ( makePrisms )
+import Data.Aeson
+import Data.Aeson.Types
+import Data.Text qualified as T
+import Data.ByteString qualified as B
+import Data.Word ( Word8 )
 
-import           Discord.Internal.Types.Prelude
+import Discord.Internal.Types.Prelude
 
 data VoiceWebsocketReceivable
     = Ready ReadyPayload                            -- Opcode 2
-    | HeartbeatR Int                                -- Opcode 3
-      -- ^ For some reason Discord sends us this, even though it's not in docs
     | SessionDescription T.Text [Word8]             -- Opcode 4
     | SpeakingR SpeakingPayload                     -- Opcode 5
-    | HeartbeatAckR Int                             -- Opcode 6
+    | HeartbeatAck Int                              -- Opcode 6
     | Hello Int                                     -- Opcode 8
       -- ^ Int because this is heartbeat, and threadDelay uses it
     | Resumed                                       -- Opcode 9
@@ -32,7 +31,6 @@ data VoiceWebsocketSendable
     | SelectProtocol SelectProtocolPayload          -- Opcode 1
     | Heartbeat Int                                 -- Opcode 3
       -- ^ Int because threadDelay uses it
-    | HeartbeatAck Int
     | Speaking SpeakingPayload                      -- Opcode 5
     | Resume GuildId T.Text T.Text                  -- Opcode 7
     deriving (Show, Eq)
@@ -82,9 +80,6 @@ instance FromJSON VoiceWebsocketReceivable where
                 port <- od .: "port"
                 modes <- od .: "modes"
                 pure $ Ready $ ReadyPayload ssrc ip port modes
-            3 -> do
-                od <- o .: "d"
-                pure $ HeartbeatR od
             4 -> do
                 od <- o .: "d"
                 mode <- od .: "mode"
@@ -119,7 +114,7 @@ instance FromJSON VoiceWebsocketReceivable where
                     }
             6 -> do
                 od <- o .: "d"
-                pure $ HeartbeatAckR od
+                pure $ HeartbeatAck od
             8 -> do
                 od <- o .: "d"
                 interval <- od .: "heartbeat_interval"
@@ -156,10 +151,6 @@ instance ToJSON VoiceWebsocketSendable where
         [ "op" .= (3 :: Int)
         , "d"  .= i
         ]
-    toJSON (HeartbeatAck i) = object
-        [ "op" .= (6 :: Int)
-        , "d"  .= i
-        ]
     toJSON (Speaking payload) = object
         [ "op" .= (5 :: Int)
         , "d"  .= object
@@ -180,3 +171,5 @@ instance ToJSON VoiceWebsocketSendable where
             , "token"      .= token
             ]
         ]
+
+$(makePrisms ''VoiceWebsocketReceivable)
