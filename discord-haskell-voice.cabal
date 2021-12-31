@@ -120,6 +120,7 @@ executable join-specific
     , process
     , safe-exceptions
     , saltine
+    , stm
     , stm-containers
     , text
     , time
