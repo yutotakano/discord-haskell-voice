@@ -51,8 +51,8 @@ executables:
     dependencies:
     - discord-haskell-voice
 
-  join-specific:
-    main:           examples/JoinSpecificVC.hs
+  basic-music-bot:
+    main:           examples/BasicMusicBot.hs
     ghc-options:
     - -threaded
     - -rtsopts
