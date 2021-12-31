@@ -15,6 +15,7 @@ import qualified StmContainers.Map as M
 import qualified Discord.Requests as R
 import           Discord.Types
 import           Discord.Voice
+import           Discord.Voice.Conduit
 import           Discord
 import           Options.Applicative
 import           UnliftIO                   ( liftIO
@@ -102,8 +103,8 @@ handleCommand contexts msg (JoinVoice cid) =
                             liftDiscord $ atomically $ M.insert (GuildContext xs volume leave) (show gid) contexts
                             let adjustVolume = awaitForever $ \current -> do
                                     v' <- liftIO $ readTVarIO volume
-                                    yield $ round (fromIntegral current * (fromIntegral v' / 100))
-                            playYouTube' x $ packTo16C .| adjustVolume .| packFrom16C 
+                                    yield $ round $ fromIntegral current * (fromIntegral v' / 100)
+                            playYouTube' x $ packInt16C .| adjustVolume .| unpackInt16C
 
             case result of
                 Left e -> liftIO $ print e >> pure ()
