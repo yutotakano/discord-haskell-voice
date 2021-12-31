@@ -38,7 +38,7 @@ import Control.Concurrent
     , modifyMVar_
     )
 import Control.Concurrent.BoundedChan qualified as Bounded
-import Control.Exception.Safe ( finally, throwTo, catch, throwIO )
+import Control.Exception.Safe ( finally, bracket, throwTo, catch, throwIO )
 import Control.Lens
 import Control.Monad.Reader ( ask, liftIO, runReaderT )
 import Control.Monad.Except ( runExceptT, throwError )
@@ -46,12 +46,16 @@ import Control.Monad.Trans ( lift )
 import Control.Monad ( when, void )
 import Data.Aeson
 import Data.Aeson.Types ( parseMaybe )
+import Data.Bits ( shiftL, shiftR, (.|.) )
 import Data.ByteString qualified as B
 import Data.Foldable ( traverse_ )
+import Data.Int ( Int16 )
 import Data.List ( partition )
 import Data.Maybe ( fromJust )
 import Data.Text qualified as T
+import Data.Word ( Word16, Word8 )
 import GHC.Weak ( deRefWeak, Weak )
+import System.Exit ( ExitCode(..) )
 import System.IO ( hClose, hGetContents, hWaitForInput, hIsOpen )
 import System.IO.Error ( isEOFError )
 import System.Process
@@ -362,11 +366,17 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
     streamCfg = _StreamConfig # (enCfg, 48*20, 1276)
     loop encoder = await >>= \case
         Nothing -> do
-            -- Send at least 5 blank frames (10 just in case)
-            yieldMany $ replicate 10 "\248\255\254"
-        Just clip -> do
+            -- Send at least 5 blank frames (20ms * 5 = 100 ms)
+            let frame = B.pack $ concat $ replicate 1280 [0xF8, 0xFF, 0xFE]
+            encoded <- liftIO $ opusEncode encoder streamCfg frame
+            yield encoded
+            yield encoded
+            yield encoded
+            yield encoded
+            yield encoded
+        Just frame -> do
             -- encode the audio
-            encoded <- liftIO $ opusEncode encoder streamCfg clip
+            encoded <- liftIO $ opusEncode encoder streamCfg frame
             -- send it
             yield encoded
             loop encoder
@@ -504,32 +514,35 @@ playFileWith'
     -> Voice ()
 playFileWith' exe argsGen path processor = do
     let args = argsGen path
-    (readEnd, writeEnd) <- liftIO $ createPipe
-    (a, b, Just stderr, ph) <- liftIO $ createProcess_ "the ffmpeg process" (proc exe args)
-        { std_out = UseHandle writeEnd
-        , std_err = CreatePipe
+    (errorReadEnd, errorWriteEnd) <- liftIO $ createPipe
+    (a, Just stdout, c, ph) <- liftIO $ createProcess_ "the ffmpeg process" (proc exe args)
+        { std_out = CreatePipe
+        , std_err = UseHandle errorWriteEnd
         }
     -- When the FFmpeg subprocess prints something to stderr, it's usually fatal,
     -- but it doesn't exit the process. The following forked process will
     -- continuously read from stderr and if anything is found, will throw an
     -- exception back into this thread.
     myTid <- liftIO myThreadId
-    errorListenerTid <- liftIO $ forkIO $ do
-        thereIsAnError <- hWaitForInput stderr (-1) `catch` \e ->
-            if isEOFError e then return True else throwIO e
-        -- thereIsAnError can be flagged True if the process was killed and
-        -- I think EOF is written? In which case, the handle is already closed
-        -- so we must make sure not to perform hGetContents on the closed handle.
-        stillOpen <- hIsOpen stderr
-        when (thereIsAnError && stillOpen) $ do
-            err <- hGetContents stderr
+    bracket (liftIO $ forkIO $ do
+        thereIsAnError <- hWaitForInput errorReadEnd (-1) `catch` \e ->
+            if isEOFError e then return False else throwIO e
+        when thereIsAnError $ do
             exitCode <- terminateProcess ph >> waitForProcess ph
-            putStrLn $ "ffmpeg exited with code " ++ show exitCode
-            throwTo myTid $ SubprocessException err
-    finally (play $ sourceHandle readEnd .| processor) $ do
-        liftIO $ cleanupProcess (a, b, Just stderr, ph)
-        liftIO $ hClose readEnd >> hClose writeEnd
-        liftIO $ killThread errorListenerTid
+            case exitCode of
+                ExitSuccess -> do
+                    putStrLn "ffmpeg exited successfully"
+                    pure ()
+                ExitFailure i -> do
+                    err <- hGetContents errorReadEnd
+                    exitCode <- terminateProcess ph >> waitForProcess ph
+                    putStrLn $ "ffmpeg exited with code " ++ show exitCode ++ ": " ++ err
+                    throwTo myTid $ SubprocessException err
+        ) (\tid -> do
+            liftIO $ cleanupProcess (a, Just stdout, c, ph)
+            liftIO $ killThread tid
+        ) $ const $ play $ sourceHandle stdout .| processor
+    liftIO $ hClose errorReadEnd >> hClose errorWriteEnd
 
 -- | Play any video or search query from YouTube, automatically transcoded
 -- through FFmpeg. This function expects "@ffmpeg@" and "@youtube-dl@" to be
@@ -631,5 +644,18 @@ playYouTubeWith' fexe fargsGen yexe query processor = do
             flip parseMaybe result $ \obj -> obj .: "url"
     case perhapsUrl of
         -- no matching url found
-        Nothing -> pure ()
+        Nothing  -> pure ()
         Just url -> playFileWith' fexe fargsGen url processor
+
+packTo16C :: ConduitT B.ByteString Int16 (ResourceT DiscordHandler) ()
+packTo16C = chunksOfExactlyCE 2 .| loop
+  where
+    loop = awaitForever $ \bytes -> do
+        let b1 = B.head bytes
+        let b2 = B.head $ B.tail bytes
+        -- little-endian arrangement
+        yield (fromIntegral $ (shiftL (fromIntegral b2 :: Word16) 8) .|. (fromIntegral b1 :: Word16) :: Int16)
+
+packFrom16C :: ConduitT Int16 B.ByteString (ResourceT DiscordHandler) ()
+packFrom16C = awaitForever $ \i ->
+    yield $ B.pack [fromIntegral i :: Word8, fromIntegral $ shiftR (fromIntegral i :: Word16) 8 :: Word8]

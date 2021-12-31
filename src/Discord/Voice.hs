@@ -55,6 +55,8 @@ module Discord.Voice
     , playYouTube
     , playYouTube'
     , defaultFFmpegArgs
+    , packTo16C
+    , packFrom16C
     ) where
 
 import Discord.Internal.Types.VoiceCommon
