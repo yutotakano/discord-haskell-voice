@@ -26,7 +26,7 @@ rickrollHalfVolume c@(ChannelVoice {}) = do
         join (channelGuild c) (channelId c)        
         let halfAmplitude = awaitForever $ \current ->
                 yield $ round $ fromIntegral current * 0.5
-        playYouTube' x $ packInt16C .| halfAmplitude .| unpackInt16C
+        playYouTube' "rickroll" $ packInt16C .| halfAmplitude .| unpackInt16C
         liftIO $ print "finished playing!"
 ```
 
