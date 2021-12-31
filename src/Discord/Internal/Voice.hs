@@ -514,15 +514,38 @@ playFileWith'
     -> Voice ()
 playFileWith' exe argsGen path processor = do
     let args = argsGen path
+    -- NOTE: We use CreatePipe for the stdout handle of ffmpeg, but a preexisting
+    -- handle for stderr. This is because we want to retain the stderr output
+    -- when ffmpeg has exited with an error code, and capture it before manually
+    -- closing the handle. Otherwise, the stderr of ffmpeg may be lost. Using
+    -- a preexisting handle for stdout is however, avoided, because createProcess_
+    -- does not automatically close UseHandles when done, while conduit's
+    -- sourceHandle will patiently wait and block forever for the handle to close.
+    -- We may use createProcess (notice the lack of underscore) to automatically
+    -- close the UseHandles passed into it, but then we 1. lose the error output
+    -- for stderr, and 2. there have been frequent occasions of ffmpeg trying to
+    -- write to the closed pipe, causing a "broken pipe" fatal error. We want to
+    -- therefore make sure that even if that happens, the error is captured and
+    -- stored. Perhaps this explanation makes no sense, but I have suffered too
+    -- long on this problem (of calling a subprocess, streaming its output,
+    -- storing its errors, and making sure they gracefully kill themselves upon
+    -- the parent thread being killed) and I am hoping that this is something
+    -- I don't have to touch again.
     (errorReadEnd, errorWriteEnd) <- liftIO $ createPipe
     (a, Just stdout, c, ph) <- liftIO $ createProcess_ "the ffmpeg process" (proc exe args)
         { std_out = CreatePipe
         , std_err = UseHandle errorWriteEnd
         }
-    -- When the FFmpeg subprocess prints something to stderr, it's usually fatal,
-    -- but it doesn't exit the process. The following forked process will
-    -- continuously read from stderr and if anything is found, will throw an
-    -- exception back into this thread.
+    -- We maintain a forked thread that constantly monitors the stderr output,
+    -- and if it sees an error, it kills the ffmpeg process so it doesn't block
+    -- (sometimes ffmpeg outputs a fatal error but still tries to continue,
+    -- especially during streams), and then rethrows the error as a
+    -- SubprocessException to the parent (this) thread. The idea is for the
+    -- @bracket@ to handle it, properly clean up any remnants, then rethrow it
+    -- further up so that user code can handle it, or let it propagate to
+    -- the "discord-haskell encountered an exception" handler. However in
+    -- practice, I have not seen this exception appear in the logs even once,
+    -- even when the preceding putStrLn executes.
     myTid <- liftIO myThreadId
     bracket (liftIO $ forkIO $ do
         thereIsAnError <- hWaitForInput errorReadEnd (-1) `catch` \e ->
