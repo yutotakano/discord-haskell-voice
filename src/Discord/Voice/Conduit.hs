@@ -121,5 +121,5 @@ unpackInt16CT = awaitForever $ \(l, r) ->
 toMono :: ConduitT (Int16, Int16) (Int16, Int16) (ResourceT DiscordHandler) ()
 toMono = awaitForever $ \(l, r) -> do
     -- take the average of the left and right channels
-    let mono = (l + r) `div` 2
-    yield (mono, mono)
+    let avg = l `div` 2 + r `div` 2
+    yield (avg, avg)
