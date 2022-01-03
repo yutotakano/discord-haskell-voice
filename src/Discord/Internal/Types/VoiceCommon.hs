@@ -64,40 +64,54 @@ import Discord.Internal.Types.VoiceWebsocket
 type Voice =
     ReaderT DiscordBroadcastHandle (ExceptT VoiceError DiscordHandler)
 
+-- | @VoiceError@ represents the potential errors when initialising a voice
+-- connection. It does /not/ account for errors that occur after the initial
+-- handshake (technically, because they are in IO and not ExceptT).
 data VoiceError
     = VoiceNotAvailable
     | NoServerAvailable
     | InvalidPayloadOrder
     deriving (Show, Eq)
 
+-- | @SubprocessException@ is an Exception that may be thrown when a subprocess
+-- such as FFmpeg encounters an error.
+--
+-- TODO: This has never actually been seen, so it's untested whether it works.
 data SubprocessException = SubprocessException String deriving (Eq, Show)
 instance Exception SubprocessException
 
--- | Represents a voice connection handle to a specific voice channel.
+-- | @DiscordVoiceHandle@ represents the handles for a single voice connection
+-- (to a specific voice channel).
+--
+-- Lenses are defined for this type using Template Haskell.
 data DiscordVoiceHandle = DiscordVoiceHandle
-    { -- | The guild id of the voice channel.
-      discordVoiceHandleGuildId :: GuildId
-    , -- | The channel id of the voice channel.
-      discordVoiceHandleChannelId :: ChannelId
-    , -- | The websocket thread id and handle.
-      discordVoiceHandleWebsocket :: (Weak ThreadId, (VoiceWebsocketReceiveChan, VoiceWebsocketSendChan))
-    , -- | The UDP thread id and handle.
-      discordVoiceHandleUdp :: (Weak ThreadId, (VoiceUDPReceiveChan, VoiceUDPSendChan))
-    , -- | The SSRC of the voice connection, specified by Discord. This is
-    -- required in the packet sent when updating the Speaking indicator, so is
-    -- maintained in this handle.
-      discordVoiceHandleSsrc :: Integer
+    { discordVoiceHandleGuildId :: GuildId
+      -- ^ The guild id of the voice channel.
+    , discordVoiceHandleChannelId :: ChannelId
+      -- ^ The channel id of the voice channel.
+    , discordVoiceHandleWebsocket :: (Weak ThreadId, (VoiceWebsocketReceiveChan, VoiceWebsocketSendChan))
+      -- ^ The websocket thread id and handle.
+    , discordVoiceHandleUdp :: (Weak ThreadId, (VoiceUDPReceiveChan, VoiceUDPSendChan))
+      -- ^ The UDP thread id and handle.
+    , discordVoiceHandleSsrc :: Integer
+      -- ^ The SSRC of the voice connection, specified by Discord. This is
+      -- required in the packet sent when updating the Speaking indicator, so is
+      -- maintained in this handle.
     }
 
--- | Represents a "stream" or a "broadcast", which is a list of voice connection
--- handles that share the same audio stream.
+-- | @DiscordBroadcastHandle@ represents a "stream" or a "broadcast", which is
+-- a mutable list of voice connection handles that share the same audio stream.
+--
+-- Lenses are defined for this type using Template Haskell.
 data DiscordBroadcastHandle = DiscordBroadcastHandle
-    { -- | The list of voice connection handles.
-      discordBroadcastHandleVoiceHandles :: MVar [DiscordVoiceHandle]
-    , -- | The mutex used to synchronize access to the list of voice connection
-      discordBroadcastHandleMutEx :: MVar ()
+    { discordBroadcastHandleVoiceHandles :: MVar [DiscordVoiceHandle]
+      -- ^ The list of voice connection handles.
+    , discordBroadcastHandleMutEx :: MVar ()
+      -- ^ The mutex used to synchronize access to the list of voice connection
     }
 
+-- | Deprecated.
+-- TODO: remove, unused
 data VoiceWebsocketException
     = VoiceWebsocketCouldNotConnect T.Text
     | VoiceWebsocketEventParseError T.Text
@@ -114,6 +128,10 @@ type VoiceUDPReceiveChan = Chan VoiceUDPPacket
 
 type VoiceUDPSendChan = Bounded.BoundedChan B.ByteString
 
+-- | @WebsocketLaunchOpts@ represents all the data necessary to start a
+-- Websocket connection to Discord's Voice Gateway.
+--
+-- Lenses are defined for this type using Template Haskell.
 data WebsocketLaunchOpts = WebsocketLaunchOpts
     { websocketLaunchOptsBotUserId     :: UserId
     , websocketLaunchOptsSessionId     :: T.Text
@@ -127,14 +145,23 @@ data WebsocketLaunchOpts = WebsocketLaunchOpts
     , websocketLaunchOptsSsrc          :: MVar Integer
     }
 
+-- | @WebsocketConn@ represents an active connection to Discord's Voice Gateway
+-- websocket, and contains the Connection as well as the options that launched
+-- it.
+--
+-- Lenses are defined for this type using Template Haskell.
 data WebsocketConn = WebsocketConn
     { websocketConnConnection    :: Connection
     , websocketConnLaunchOpts    :: WebsocketLaunchOpts
     }
 
--- I want to keep the "UDP" part uppercase in the type.
--- Since field accessors are rarely used (lenses instead), we
--- can compromise by writing the field prefixes as "uDP"
+-- | @UDPLaunchOpts@ represents all the data necessary to start a UDP connection
+-- to Discord. Field names for this ADT are cased weirdly because I want to keep
+-- the "UDP" part uppercase in the type and data constructor. Since field
+-- accessors are rarely used anyway (lenses are preferred instead), we can
+-- write the field prefixes as "uDP" and take advantage of Lenses as normal.
+-- 
+-- Lenses are defined for this type using Template Haskell.
 data UDPLaunchOpts = UDPLaunchOpts
     { uDPLaunchOptsSsrc :: Integer
     , uDPLaunchOptsIp   :: T.Text
@@ -144,6 +171,10 @@ data UDPLaunchOpts = UDPLaunchOpts
     , uDPLaunchOptsSecretKey :: MVar [Word8]
     }
 
+-- | @UDPConn@ represents an active UDP connection to Discord, and contains the
+-- Socket as well as the options that launched it.
+--
+-- Lenses are defined for this type using Template Haskell.
 data UDPConn = UDPConn
     { uDPConnLaunchOpts :: UDPLaunchOpts
     , uDPConnSocket     :: Socket
