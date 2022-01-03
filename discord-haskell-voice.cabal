@@ -6,8 +6,8 @@ cabal-version: 1.12
 
 name:           discord-haskell-voice
 version:        2.0.0
-synopsis:       Voice support for discord-haskell (WIP).
-description:    Ambitious supplementary library to discord-haskell (work in progress). See the project README on GitHub for more information. <https://github.com/yutotakano/discord-haskell-voice>
+synopsis:       Voice support for discord-haskell.
+description:    Supplementary library to discord-haskell. See the project README on GitHub for more information. <https://github.com/yutotakano/discord-haskell-voice>
 category:       Network
 homepage:       https://github.com/yutotakano/discord-haskell-voice#readme
 bug-reports:    https://github.com/yutotakano/discord-haskell-voice/issues

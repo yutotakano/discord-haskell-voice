@@ -1,9 +1,9 @@
 name:                discord-haskell-voice
 version:             2.0.0
-description:         Ambitious supplementary library to discord-haskell (work in progress).
+description:         Supplementary library to discord-haskell.
                      See the project README on GitHub for more information.
                      <https://github.com/yutotakano/discord-haskell-voice>
-synopsis:            Voice support for discord-haskell (WIP).
+synopsis:            Voice support for discord-haskell.
 github:              "yutotakano/discord-haskell-voice"
 license:             MIT
 author:              Yuto Takano
