@@ -1,7 +1,30 @@
 {-# LANGUAGE ImportQualifiedPost #-}
+{-|
+Module      : Discord.Internal.Voice.UDPLoop
+Description : Strictly for internal use only. See Discord.Voice for the public interface.
+Copyright   : (c) Yuto Takano (2021)
+License     : MIT
+Maintainer  : moa17stock@email.com
+
+= WARNING
+
+This module is considered __internal__.
+
+The Package Versioning Policy __does not apply__.
+
+The contents of this module may change __in any way whatsoever__ and __without
+any warning__ between minor versions of this package.
+
+= Description
+
+This module provides @launchUdp@, a function used to start a UDP socket and
+perform initial handshaking with the Discord Voice UDP Endpoint. It will
+continuously encrypt and send the OPUS voice packets as received through the
+specified Chan. This function is called automatically by @launchWebsocket@.
+-}
 module Discord.Internal.Voice.UDPLoop
-    ( launchUdp )
-where
+    ( launchUdp
+    ) where
 
 import Codec.Audio.Opus.Decoder
 import Crypto.Saltine.Core.SecretBox
