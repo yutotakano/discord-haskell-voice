@@ -15,13 +15,13 @@ the following snippet of code:
 
 @
 rickroll :: 'Channel' -> 'DiscordHandler' ()
-rickroll ChannelVoice {} = do
+rickroll c@(ChannelVoice {}) = do
     result <- runVoice $ do
         join (channelGuild c) (channelId c)
         playYouTube \"https:\/\/www.youtube.com\/watch?v=dQw4w9WgXcQ\"
 
     case result of
-        Left err -> liftIO . print (show err)
+        Left err -> liftIO $ print err
         Right _  -> pure ()
 @
 
