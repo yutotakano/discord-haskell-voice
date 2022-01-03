@@ -114,6 +114,19 @@ updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceO
 -- | @liftDiscord@ lifts a computation in DiscordHandler into a computation in
 -- Voice. This is useful for performing DiscordHandler/IO actions inside the
 -- Voice monad.
+--
+-- > liftDiscord ≡ lift . lift
+--
+-- Usage:
+-- @
+-- runVoice $ do
+--     join (read "123456789012345") (read "67890123456789012")
+--     liftDiscord $ void $ restCall $ R.CreateMessage (read "2938481828383") "Joined!"
+--     playYouTube "Rate of Reaction of Sodium Hydroxide and Hydrochloric Acid"
+--     liftDiscord $ void $ restCall $ R.CreateMessage (read "2938481828383") "Finished!"
+-- void $ restCall $ R.CreateMessage (read "2938481828383") "Finished all voice actions!"
+-- @
+--
 liftDiscord :: DiscordHandler a -> Voice a
 liftDiscord = lift . lift
 
@@ -133,7 +146,7 @@ liftDiscord = lift . lift
 --
 -- The return type of @runVoice@ represents result status of the voice computation.
 -- It is isomorphic to @Maybe@, but the use of Either explicitly denotes that
--- the correct/successful/"Right" behaviour is (), and that the potentially-
+-- the correct\/successful\/"Right" behaviour is (), and that the potentially-
 -- existing value is of failure.
 runVoice :: Voice () -> DiscordHandler (Either VoiceError ())
 runVoice action = do
@@ -331,7 +344,7 @@ updateSpeakingStatus micStatus = do
 --
 -- runVoice $ do
 --   join gid cid
---   play $ sourceFile "./examples/example.pcm"
+--   play $ sourceFile ".\/audio\/example.pcm"
 -- @
 play :: ConduitT () B.ByteString (ResourceT DiscordHandler) () -> Voice ()
 play source = do
@@ -392,7 +405,7 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
 -- | Play some sound on the file system, provided in the form of 16-bit Little
 -- Endian PCM. @playPCMFile@ is a handy alias for the following:
 --
--- > playPCMFile = 'play' . 'sourceFile'
+-- > playPCMFile ≡ play . sourceFile
 --
 -- For a variant of this function that allows arbitrary transformations of the
 -- audio data through a conduit component, see 'playPCMFile''.
@@ -466,7 +479,7 @@ playFile' fp = playFileWith' "ffmpeg" defaultFFmpegArgs fp
 --
 -- It is defined semantically as:
 --
--- > defaultFFmpegArgs FILE = "-i FILE -f s16le -ar 48000 -ac 2 -loglevel warning pipe:1"
+-- > defaultFFmpegArgs FILE ≡ "-i FILE -f s16le -ar 48000 -ac 2 -loglevel warning pipe:1"
 defaultFFmpegArgs :: FilePath -> [String]
 defaultFFmpegArgs fp =
     [ "-i", fp
@@ -496,6 +509,7 @@ playFileWith
     -> (String -> [String])
     -- ^ FFmpeg argument generator function, given the filepath
     -> FilePath
+    -- ^ The path to the audio file to play
     -> Voice ()
 playFileWith exe args fp = playFileWith' exe args fp (awaitForever yield)
 
