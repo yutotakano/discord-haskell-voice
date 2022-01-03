@@ -47,14 +47,20 @@ import Discord.Internal.Gateway.EventLoop ( GatewayException(..) )
 import Discord.Internal.Types.VoiceUDP
 import Discord.Internal.Types.VoiceWebsocket
 
--- | ExceptT is on the base so threads in state can be killed as necessary.
--- If it is ReaderT on the base, then when an error occurs, it will be caught by
--- the ExceptT and returned as an Either into the ReaderT monad, but what we want
--- to do most of the time is to kill the thread stored in the reader state.
--- Mutating the state is not possible, nor is it safe to kill a thread which the
--- PID is still actively stored in a reader. So we use ExceptT on the base, so
--- the error is propagated there, and since there is no reader capturing the
--- state, the thread can be killed.
+-- | @Voice@ is a type synonym for a ReaderT and ExceptT composition of monad
+-- transformers over the @DiscordHandler@ monad. It holds references to
+-- voice connections/threads. The content of the reader handle is strictly
+-- internal, and is entirely subject to change irrespective of the Package
+-- Versioning Policy. @Voice@ is still provided as a type synonym rather than a
+-- @newtype@ to take advantage of existing instances for various type-classes.
+--
+-- Developer Note: ExceptT is on the base rather than ReaderT, so that when a
+-- critical exception/error occurs in @Voice@, it can propagate down the
+-- transformer stack, kill the threads referenced in the Reader state as
+-- necessary, and halt the entire computation and return to @DiscordHandler@.
+-- If ExceptT were on top of ReaderT, then errors would be swallowed before it
+-- propagates below ReaderT, and the monad would not halt there, continuing
+-- computation with an unstable state.
 type Voice =
     ReaderT DiscordBroadcastHandle (ExceptT VoiceError DiscordHandler)
 
@@ -83,9 +89,8 @@ data DiscordVoiceHandle = DiscordVoiceHandle
       discordVoiceHandleSsrc :: Integer
     }
 
-{- | Represents a "stream" or a "broadcast", which is a list of voice connection
- handles that share the same audio stream.
--}
+-- | Represents a "stream" or a "broadcast", which is a list of voice connection
+-- handles that share the same audio stream.
 data DiscordBroadcastHandle = DiscordBroadcastHandle
     { -- | The list of voice connection handles.
       discordBroadcastHandleVoiceHandles :: MVar [DiscordVoiceHandle]
