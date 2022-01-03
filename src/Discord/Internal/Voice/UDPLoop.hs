@@ -12,8 +12,8 @@ This module is considered __internal__.
 
 The Package Versioning Policy __does not apply__.
 
-The contents of this module may change __in any way whatsoever__ and __without
-any warning__ between minor versions of this package.
+The contents of this module may change __in any way whatsoever__ and __without__
+__any warning__ between minor versions of this package.
 
 = Description
 
