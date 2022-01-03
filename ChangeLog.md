@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+## 2.1.0
+
+- Removed `updateSpeakingStatus` from the publicly exported function list for `Discord.Voice`.
 
 ## 2.0.0
 
