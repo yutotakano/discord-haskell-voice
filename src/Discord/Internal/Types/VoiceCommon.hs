@@ -3,26 +3,49 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-|
+Module      : Discord.Internal.Types.VoiceCommon
+Description : Strictly for internal use only. See Discord.Voice for the public interface.
+Copyright   : (c) Yuto Takano (2021)
+License     : MIT
+Maintainer  : moa17stock@email.com
 
+= WARNING
+
+This module is considered __internal__.
+
+The Package Versioning Policy __does not apply__.
+
+The contents of this module may change __in any way whatsoever__ and __without
+any warning__ between minor versions of this package.
+
+= Description
+
+This module defines the types for handles, errors, base monads, and other types
+applicable to both the UPD and Websocket components of the Voice API. Many of
+the structures defined in this module have Lenses derived for them using
+Template Haskell.
+-}
 module Discord.Internal.Types.VoiceCommon where
 
-import Control.Concurrent (Chan, MVar, ThreadId)
+import Control.Concurrent ( Chan, MVar, ThreadId )
 import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Exception.Safe ( Exception )
-import Control.Lens ( makeFields, makeLensesWith, abbreviatedFields )
+import Control.Lens ( makeFields )
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.ByteString qualified as B
 import Data.Text qualified as T
 import Data.Word ( Word8 )
+import GHC.Weak ( Weak )
+import Network.Socket
+import Network.WebSockets ( ConnectionException, Connection )
+
 import Discord
 import Discord.Types
 import Discord.Internal.Gateway.EventLoop ( GatewayException(..) )
 import Discord.Internal.Types.VoiceUDP
 import Discord.Internal.Types.VoiceWebsocket
-import Network.Socket
-import Network.WebSockets (ConnectionException, Connection)
-import GHC.Weak (Weak)
 
 -- | ExceptT is on the base so threads in state can be killed as necessary.
 -- If it is ReaderT on the base, then when an error occurs, it will be caught by

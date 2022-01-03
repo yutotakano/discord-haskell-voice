@@ -1,5 +1,29 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-|
+Module      : Discord.Internal.Types.VoiceWebsocket
+Description : Strictly for internal use only. See Discord.Voice for the public interface.
+Copyright   : (c) Yuto Takano (2021)
+License     : MIT
+Maintainer  : moa17stock@email.com
+
+= WARNING
+
+This module is considered __internal__.
+
+The Package Versioning Policy __does not apply__.
+
+The contents of this module may change __in any way whatsoever__ and __without
+any warning__ between minor versions of this package.
+
+= Description
+
+This module defines basic types for the communication packets in the Discord
+Voice Gateway. Some ToJSON and FromJSON instances are defined, as according to
+the official Discord documentation for v4 of the gateway.
+
+Prisms are defined using TemplateHaskell for VoiceWebsocketReceivable.
+-}
 module Discord.Internal.Types.VoiceWebsocket where
 
 import Control.Applicative ( (<|>) )

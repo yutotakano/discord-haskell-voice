@@ -7,6 +7,17 @@ Copyright   : (c) Yuto Takano (2021)
 License     : MIT
 Maintainer  : moa17stock@email.com
 
+= WARNING
+
+This module is considered __internal__.
+
+The Package Versioning Policy __does not apply__.
+
+The contents of this module may change __in any way whatsoever__ and __without
+any warning__ between minor versions of this package.
+
+= Description
+
 This module is the internal entry point into @discord-haskell-voice@. Any use of
 this module (or other Internal modules) is discouraged. Please see "Discord.Voice"
 for the public interface.

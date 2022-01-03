@@ -1,6 +1,32 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
-module Discord.Internal.Voice.WebsocketLoop where
+{-|
+Module      : Discord.Internal.Voice.WebsocketLoop
+Description : Strictly for internal use only. See Discord.Voice for the public interface.
+Copyright   : (c) Yuto Takano (2021)
+License     : MIT
+Maintainer  : moa17stock@email.com
+
+= WARNING
+
+This module is considered __internal__.
+
+The Package Versioning Policy __does not apply__.
+
+The contents of this module may change __in any way whatsoever__ and __without
+any warning__ between minor versions of this package.
+
+= Description
+
+This module provides @launchWebsocket@, a function used to launch a websocket to
+the Discord Voice Gateway, and perform necessary handshakes including
+heartbeat setup, mode selection, and IP Discovery. The function will also set up
+the UDP socket for voice data transmission by calling @launchUDP@ from the
+"Discord.Internal.Voice.UDPLoop" module.
+-}
+module Discord.Internal.Voice.WebsocketLoop
+    ( launchWebsocket
+    ) where
 
 import Control.Concurrent.Async ( race )
 import Control.Concurrent
