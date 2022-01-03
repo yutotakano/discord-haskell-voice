@@ -3,7 +3,7 @@ Module      : Discord.Voice
 Description : Voice support for discord-haskell!
 Copyright   : (c) Yuto Takano (2021)
 License     : MIT
-Maintainer  : moa17stock@email.com
+Maintainer  : moa17stock@gmail.com
 
 Welcome to @discord-haskell-voice@! This library provides you with a high-level
 interface for interacting with Discord's Voice API, building on top of the

@@ -5,7 +5,7 @@ Module      : Discord.Internal.Voice.CommonUtils
 Description : Strictly for internal use only. See Discord.Voice for the public interface.
 Copyright   : (c) Yuto Takano (2021)
 License     : MIT
-Maintainer  : moa17stock@email.com
+Maintainer  : moa17stock@gmail.com
 
 = WARNING
 
