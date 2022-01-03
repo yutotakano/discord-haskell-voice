@@ -30,7 +30,7 @@ which opaquely guarantees that you won't accidentally keep hold of a closed
 voice connection, or try to use it after a network error had occurred.
 
 You'll also see further down the docs, that you can use
-[conduit](https://hackage.haskell.org/package/conduit) to stream arbitrary
+@[conduit](https://hackage.haskell.org/package/conduit)@ to stream arbitrary
 ByteString data as audio, as well as manipulate and transform streams using its
 interface. This is quite a powerful feature!
 
