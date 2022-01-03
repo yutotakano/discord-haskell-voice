@@ -10,7 +10,7 @@ This module provides convenient Conduits (see the @conduit@ package for an
 introduction to conduits, but essentially streaming pipes) for transforming
 audio data, to be used with the apostrophe-marked functions in "Discord.Voice".
 
-The apostrophe-marked functions, such as 'playFile\'', take as argument a
+The apostrophe-marked functions, such as 'playFile'', take as argument a
 Conduit of the following type:
 
 @
