@@ -21,8 +21,8 @@ rickroll ChannelVoice {} = do
         playYouTube \"https:\/\/www.youtube.com\/watch?v=dQw4w9WgXcQ\"
 
     case result of
-        Left err -> liftIO . print (show err) -- something failed...
-        Right _  -> pure () -- everything went well!
+        Left err -> liftIO . print (show err)
+        Right _  -> pure ()
 @
 
 We can see that this library introduces a dedicated monad for voice operations,
@@ -42,9 +42,9 @@ module Discord.Voice
       Voice
     , runVoice
     , liftDiscord
-      -- * Operations you can do in Voice
+      -- * Joining a Voice Channel
     , join
-    , updateSpeakingStatus
+      -- * Functions for Playing Audio
     , play
     , playPCMFile
     , playPCMFile'

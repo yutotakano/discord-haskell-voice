@@ -2,7 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-|
 Module      : Discord.Internal.Voice
-Description : Recommended for internal use only. See Discord.Voice for the public interface.
+Description : Strictly for internal use only. See Discord.Voice for the public interface.
 Copyright   : (c) Yuto Takano (2021)
 License     : MIT
 Maintainer  : moa17stock@email.com
@@ -118,6 +118,7 @@ updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceO
 -- > liftDiscord ≡ lift . lift
 --
 -- Usage:
+-- 
 -- @
 -- runVoice $ do
 --     join (read "123456789012345") (read "67890123456789012")
@@ -314,8 +315,9 @@ join guildId channelId = do
 -- voice to other clients. It is done automatically in all of the @play*@
 -- functions, so there should be no use for this function in practice.
 --
--- Soundshare and priority are const as False, don't see bots needing them.
--- If and when required, add Bool signatures to this function.
+-- Note: Soundshare and priority are const as False in the payload because I
+-- don't see bots needing them. If and when required, add Bool signatures to
+-- this function.
 updateSpeakingStatus :: Bool -> Voice ()
 updateSpeakingStatus micStatus = do
     h <- (^. voiceHandles) <$> ask
@@ -329,12 +331,12 @@ updateSpeakingStatus micStatus = do
             , speakingPayloadSSRC       = handle ^. ssrc
             }
 
--- | @play source@ plays some sound from the conduit @source@, provided in the form of
--- 16-bit Little Endian PCM. The use of Conduit allows you to perform arbitrary
--- lazy transformations of audio data, using all the advantages that Conduit
--- brings. As the base monad for the Conduit is @ResourceT DiscordHandler@, you
--- can access any DiscordHandler effects (through @lift@) or IO effects (through
--- @liftIO@) in the conduit as well.
+-- | @play source@ plays some sound from the conduit @source@, provided in the
+-- form of 16-bit Little Endian PCM. The use of Conduit allows you to perform
+-- arbitrary lazy transformations of audio data, using all the advantages that
+-- Conduit brings. As the base monad for the Conduit is @ResourceT DiscordHandler@,
+-- you can access any DiscordHandler effects (through @lift@) or IO effects
+-- (through @liftIO@) in the conduit as well.
 --
 -- For a more specific interface that is easier to use, see the 'playPCMFile',
 -- 'playFile', and 'playYouTube' functions.
@@ -402,8 +404,9 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
             yield encoded
             loop encoder
 
--- | Play some sound on the file system, provided in the form of 16-bit Little
--- Endian PCM. @playPCMFile@ is a handy alias for the following:
+-- | @playPCMFile file@ plays the sound stored in the file located at @file@,
+-- provided it is in the form of 16-bit Little Endian PCM. @playPCMFile@ is
+-- defined as a handy alias for the following:
 --
 -- > playPCMFile ≡ play . sourceFile
 --
@@ -418,9 +421,13 @@ playPCMFile
     -> Voice ()
 playPCMFile = play . sourceFile
 
--- | Play some sound on the file system, provided in the form of 16-bit Little
--- Endian PCM. Audio data will be passed through the @processor@ conduit
--- component, allowing arbitrary transformations to audio data before playback.
+-- | @playPCMFile' file processor@ plays the sound stored in the file located at
+-- @file@, provided it is in the form of 16-bit Little Endian PCM. Audio data
+-- will be passed through the @processor@ conduit component, allowing arbitrary
+-- transformations to audio data before playback. @playPCMFile'@ is defined as
+-- the following:
+--
+-- > playPCMFile' file processor ≡ play $ sourceFile file .| processor
 --
 -- For a variant of this function with no processing, see 'playPCMFile'.
 --
@@ -434,8 +441,10 @@ playPCMFile'
     -> Voice ()
 playPCMFile' fp processor = play $ sourceFile fp .| processor
 
--- | Play some sound on the file system, provided in any format supported by
--- FFmpeg. This function expects "@ffmpeg@" to be available in the system PATH.
+-- | @playFile file@ plays the sound stored in the file located at @file@. It
+-- supports any format supported by FFmpeg by transcoding it, which means it can
+-- play a wide range of file types. This function expects "@ffmpeg@" to be
+-- available in the system PATH.
 --
 -- For a variant that allows you to specify the executable and/or any arguments,
 -- see 'playFileWith'.
@@ -444,17 +453,19 @@ playPCMFile' fp processor = play $ sourceFile fp .| processor
 -- audio data through a conduit component, see 'playFile''.
 --
 -- If the file is already known to be in 16-bit little endian PCM, using
--- @playPCMFile@ is much more efficient as it does not go through FFmpeg.
+-- 'playPCMFile' is much more efficient as it does not go through FFmpeg.
 playFile
     :: FilePath
     -- ^ The path to the audio file to play
     -> Voice ()
 playFile fp = playFile' fp (awaitForever yield)
 
--- | Play some sound on the file system, provided in any format supported by
--- FFmpeg. This function expects "@ffmpeg@" to be available in the system PATH.
--- Audio data will be passed through the @processor@ conduit component, allowing
--- arbitrary transformations to audio data before playback.
+-- | @playFile' file processor@ plays the sound stored in the file located at
+-- @file@. It supports any format supported by FFmpeg by transcoding it, which
+-- means it can play a wide range of file types. This function expects
+-- "@ffmpeg@" to be available in the system PATH. Audio data will be passed
+-- through the @processor@ conduit component, allowing arbitrary transformations
+-- to audio data before playback.
 --
 -- For a variant that allows you to specify the executable and/or any arguments,
 -- see 'playFileWith''.
@@ -490,10 +501,11 @@ defaultFFmpegArgs fp =
     , "pipe:1"
     ]
 
--- | Play some sound on the file system, provided in any format supported by
--- FFmpeg. This function allows you to specify the ffmpeg executable and a
--- generator function to create arguments to it (see @defaultFFmpegArgs@ for
--- the default)
+-- | @playFileWith exe args file@ plays the sound stored in the file located at
+-- @file@, using the specified FFmpeg executable @exe@ and an argument generator
+-- function @args@ (see @defaultFFmpegArgs@ for the default). It supports any
+-- format supported by FFmpeg by transcoding it, which means it can play a wide
+-- range of file types.
 -- 
 -- For a variant of this function that uses the "@ffmpeg@" executable in your
 -- PATH automatically, see 'playFile'.
@@ -513,11 +525,13 @@ playFileWith
     -> Voice ()
 playFileWith exe args fp = playFileWith' exe args fp (awaitForever yield)
 
--- | Play some sound on the file system, provided in any format supported by
--- FFmpeg. This function allows you to specify the ffmpeg executable and a
--- generator function to create arguments to it (see @defaultFFmpegArgs@ for
--- the default). Audio data will be passed through the @processor@ conduit
--- component, allowing arbitrary transformations to audio data before playback.
+-- | @playFileWith' exe args file processor@ plays the sound stored in the file
+-- located at @file@, using the specified FFmpeg executable @exe@ and an
+-- argument generator function @args@ (see @defaultFFmpegArgs@ for the default).
+-- It supports any format supported by FFmpeg by transcoding it, which means it
+-- can play a wide range of file types. Audio data will be passed through the
+-- @processor@ conduit component, allowing arbitrary transformations to audio
+-- data before playback.
 -- 
 -- For a variant of this function that uses the "@ffmpeg@" executable in your
 -- PATH automatically, see 'playFile''.
@@ -591,9 +605,13 @@ playFileWith' exe argsGen path processor = do
         ) $ const $ play $ sourceHandle stdout .| processor
     liftIO $ hClose errorReadEnd >> hClose errorWriteEnd
 
--- | Play any video or search query from YouTube, automatically transcoded
--- through FFmpeg. This function expects "@ffmpeg@" and "@youtube-dl@" to be
--- available in the system PATH.
+-- | @playYouTube query@ plays the first result of searching @query@ on YouTube.
+-- If a direct video URL is given, YouTube will always return that as the first
+-- result, which means @playYouTube@ also supports playing links. It supports
+-- all videos, by automatically transcoding to PCM using FFmpeg. Since it
+-- streams the data instead of downloading it first, it can play live videos as
+-- well. This function expects "@ffmpeg@" and "@youtube-dl@" to be available in
+-- the system PATH.
 --
 -- For a variant that allows you to specify the executable and/or any arguments,
 -- see 'playYouTubeWith'.
@@ -606,9 +624,13 @@ playYouTube
     -> Voice ()
 playYouTube query = playYouTube' query (awaitForever yield)
 
--- | Play any video or search query from YouTube, automatically transcoded
--- through FFmpeg. This function expects "@ffmpeg@" and "@youtube-dl@" to be
--- available in the system PATH.Audio data will be passed through the
+-- | @playYouTube' query processor@ plays the first result of searching @query@
+-- on YouTube. If a direct video URL is given, YouTube will always return that
+-- as the first result, which means @playYouTube@ also supports playing links.
+-- It supports all videos, by automatically transcoding to PCM using FFmpeg.
+-- Since it streams the data instead of downloading it first, it can play live
+-- videos as well. This function expects "@ffmpeg@" and "@youtube-dl@" to be
+-- available in the system PATH. Audio data will be passed through the
 -- @processor@ conduit component, allowing arbitrary transformations to audio
 -- data before playback.
 --
@@ -632,10 +654,14 @@ playYouTube' query processor =
   in
     playYouTubeWith' "ffmpeg" customArgGen "youtube-dl" query processor
 
--- | Play any video or search query from YouTube, automatically transcoded
--- through FFmpeg. This function allows you to specify the ffmpeg executable,
--- a generator function to create arguments to it (see @defaultFFmpegArgs@ for
--- the default), as well as the youtube-dl executable.
+-- | @playYouTubeWith fexe fargs yexe query@ plays the first result of searching
+-- @query@ on YouTube, using the specified @youtube-dl@ executable @yexe@,
+-- FFmpeg executable @fexe@ and an argument generator function @fargs@ (see
+-- @defaultFFmpegArgs@ for the default). If a direct video URL is given, YouTube
+-- will always return that as the first result, which means @playYouTube@ also
+-- supports playing links. It supports all videos, by automatically transcoding
+-- to PCM using FFmpeg. Since it streams the data instead of downloading it
+-- first, it can play live videos as well.
 --
 -- For a variant of this function that uses the "@ffmpeg@" executable and 
 -- "@youtube-dl@" executable in your PATH automatically, see 'playYouTube'.
@@ -654,12 +680,16 @@ playYouTubeWith
     -> Voice ()
 playYouTubeWith fexe fargsGen yexe query = playYouTubeWith' fexe fargsGen yexe query (awaitForever yield)
 
--- | Play any video or search query from YouTube, automatically transcoded
--- through FFmpeg. This function allows you to specify the ffmpeg executable,
--- a generator function to create arguments to it (see @defaultFFmpegArgs@ for
--- the default), as well as the youtube-dl executable. Audio data will be passed
--- through the @processor@ conduit component, allowing arbitrary transformations
--- to audio data before playback.
+-- | @playYouTubeWith' fexe fargs yexe query processor@ plays the first result
+-- of searching @query@ on YouTube, using the specified @youtube-dl@ executable
+-- @yexe@, FFmpeg executable @fexe@ and an argument generator function @fargs@
+-- (see @defaultFFmpegArgs@ for the default). If a direct video URL is given,
+-- YouTube will always return that as the first result, which means
+-- @playYouTube@ also supports playing links. It supports all videos, by
+-- automatically transcoding to PCM using FFmpeg. Since it streams the data
+-- instead of downloading it first, it can play live videos as well. Audio data
+-- will be passed through the @processor@ conduit component, allowing arbitrary
+-- transformations to audio data before playback.
 --
 -- For a variant of this function that uses the "@ffmpeg@" executable and 
 -- "@youtube-dl@" executable in your PATH automatically, see 'playYouTube''.
