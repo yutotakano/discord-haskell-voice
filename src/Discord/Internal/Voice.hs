@@ -324,7 +324,7 @@ updateSpeakingStatus micStatus = do
 -- @liftIO@) in the conduit as well.
 --
 -- For a more specific interface that is easier to use, see the 'playPCMFile',
--- 'playFile', and 'playYoutube' functions.
+-- 'playFile', and 'playYouTube' functions.
 --
 -- @
 -- import Conduit ( sourceFile )
@@ -393,7 +393,7 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
 -- Endian PCM. @playPCMFile@ is a handy alias for @'play' . 'sourceFile'@.
 --
 -- For a variant of this function that allows arbitrary transformations of the
--- audio data through a conduit component, see 'playPCMFile\''.
+-- audio data through a conduit component, see 'playPCMFile''.
 --
 -- To play any other format, it will need to be transcoded using FFmpeg. See
 -- 'playFile' for such usage.
@@ -426,7 +426,7 @@ playPCMFile' fp processor = play $ sourceFile fp .| processor
 -- see 'playFileWith'.
 --
 -- For a variant of this function that allows arbitrary transformations of the
--- audio data through a conduit component, see 'playFile\''.
+-- audio data through a conduit component, see 'playFile''.
 --
 -- If the file is already known to be in 16-bit little endian PCM, using
 -- @playPCMFile@ is much more efficient as it does not go through FFmpeg.
@@ -442,12 +442,12 @@ playFile fp = playFile' fp (awaitForever yield)
 -- arbitrary transformations to audio data before playback.
 --
 -- For a variant that allows you to specify the executable and/or any arguments,
--- see 'playFileWith\''.
+-- see 'playFileWith''.
 --
 -- For a variant of this function with no processing, see 'playFile'.
 --
 -- If the file is already known to be in 16-bit little endian PCM, using
--- 'playPCMFile\'' is much more efficient as it does not go through FFmpeg.
+-- 'playPCMFile'' is much more efficient as it does not go through FFmpeg.
 playFile'
     :: FilePath
     -- ^ The path to the audio file to play
@@ -484,7 +484,7 @@ defaultFFmpegArgs fp =
 -- PATH automatically, see 'playFile'.
 --
 -- For a variant of this function that allows arbitrary transformations of the
--- audio data through a conduit component, see 'playFileWith\''.
+-- audio data through a conduit component, see 'playFileWith''.
 --
 -- If the file is known to be in 16-bit little endian PCM, using 'playPCMFile'
 -- is more efficient as it does not go through FFmpeg.
@@ -504,11 +504,11 @@ playFileWith exe args fp = playFileWith' exe args fp (awaitForever yield)
 -- component, allowing arbitrary transformations to audio data before playback.
 -- 
 -- For a variant of this function that uses the "@ffmpeg@" executable in your
--- PATH automatically, see 'playFile\''.
+-- PATH automatically, see 'playFile''.
 --
 -- For a variant of this function with no processing, see 'playFileWith'.
 --
--- If the file is known to be in 16-bit little endian PCM, using 'playPCMFile\''
+-- If the file is known to be in 16-bit little endian PCM, using 'playPCMFile''
 -- is more efficient as it does not go through FFmpeg.
 playFileWith'
     :: String
@@ -583,7 +583,7 @@ playFileWith' exe argsGen path processor = do
 -- see 'playYouTubeWith'.
 --
 -- For a variant of this function that allows arbitrary transformations of the
--- audio data through a conduit component, see 'playYouTube\''.
+-- audio data through a conduit component, see 'playYouTube''.
 playYouTube
     :: String
     -- ^ Search query (or video URL)
@@ -597,7 +597,7 @@ playYouTube query = playYouTube' query (awaitForever yield)
 -- data before playback.
 --
 -- For a variant that allows you to specify the executable and/or any arguments,
--- see 'playYouTubeWith\''.
+-- see 'playYouTubeWith''.
 --
 -- For a variant of this function with no processing, see 'playYouTube'.
 playYouTube'
@@ -625,7 +625,7 @@ playYouTube' query processor =
 -- "@youtube-dl@" executable in your PATH automatically, see 'playYouTube'.
 --
 -- For a variant of this function that allows arbitrary transformations of the
--- audio data through a conduit component, see 'playYouTubeWith\''.
+-- audio data through a conduit component, see 'playYouTubeWith''.
 playYouTubeWith
     :: String
     -- ^ The name of the FFmpeg executable
@@ -646,7 +646,7 @@ playYouTubeWith fexe fargsGen yexe query = playYouTubeWith' fexe fargsGen yexe q
 -- to audio data before playback.
 --
 -- For a variant of this function that uses the "@ffmpeg@" executable and 
--- "@youtube-dl@" executable in your PATH automatically, see 'playYouTube\''.
+-- "@youtube-dl@" executable in your PATH automatically, see 'playYouTube''.
 --
 -- For a variant of this function with no processing, see 'playYouTubeWith'.
 playYouTubeWith'
