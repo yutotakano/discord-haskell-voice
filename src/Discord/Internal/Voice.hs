@@ -390,7 +390,9 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
             loop encoder
 
 -- | Play some sound on the file system, provided in the form of 16-bit Little
--- Endian PCM. @playPCMFile@ is a handy alias for @'play' . 'sourceFile'@.
+-- Endian PCM. @playPCMFile@ is a handy alias for the following:
+--
+-- > playPCMFile = 'play' . 'sourceFile'
 --
 -- For a variant of this function that allows arbitrary transformations of the
 -- audio data through a conduit component, see 'playPCMFile''.
@@ -462,9 +464,9 @@ playFile' fp = playFileWith' "ffmpeg" defaultFFmpegArgs fp
 -- This function takes in the input file path as an argument, because FFmpeg
 -- arguments are position sensitive in relation to the placement of @-i@.
 --
--- @
--- -i FILE -f s16le -ar 48000 -ac 2 -loglevel warning pipe:1
--- @
+-- It is defined semantically as:
+--
+-- > defaultFFmpegArgs FILE = "-i FILE -f s16le -ar 48000 -ac 2 -loglevel warning pipe:1"
 defaultFFmpegArgs :: FilePath -> [String]
 defaultFFmpegArgs fp =
     [ "-i", fp
