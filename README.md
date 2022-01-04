@@ -66,13 +66,28 @@ See `examples/BasicMusicBot.hs` for a bot that uses many advanced features of
 the library, including dynamically adjusting the stream audio using a TVar
 (and allowing users to change the TVar using a `/volume` command).
 
+## Installation
+
+This library is not published on Hackage or Stackage yet. It is using an
+unstable pinned version of the opus package, and until that is properly tested
+I do not want to publish it. It is, however available as a package candidate
+on Hackage (for viewing Haddock docs).
+
+With Stack, use the `extra-deps` field in your project `stack.yaml` to specify
+the Git repo and the commit tag to use.
+
+With Cabal, use the `source-repository-package` stanza in your `cabal.project`
+to specify the Git repo and the commit tag to use.
+
 ## Documentation
 
-See the Haddock documentation.
+See the Haddock documentation on the [Hackage package candidate page](https://hackage.haskell.org/package/discord-haskell-voice-2.1.0/candidate).
 
 ## Future Plans
 
 - Use `stm-conduit` and `stm` for a safer Chan?
-- Look into SubprocessException seemingly never been thrown (e.g. when SIGINT is signalled to the libarry while FFmpeg is running)
+- Look into SubprocessException seemingly never been thrown (e.g. when SIGINT
+is signalled to the libarry while FFmpeg is running)
 - Look into newtype generic deriving to hide the internals in the Voice monad
-- Consider, document, and improve the distinction of errors (VoiceError) vs exceptions, and note down why any choices are made
+- Consider, document, and improve the distinction of errors (VoiceError) vs
+exceptions, and note down why any choices are made
