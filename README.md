@@ -73,3 +73,6 @@ See the Haddock documentation.
 ## Future Plans
 
 - Use `stm-conduit` and `stm` for a safer Chan?
+- Look into SubprocessException seemingly never been thrown (e.g. when SIGINT is signalled to the libarry while FFmpeg is running)
+- Look into newtype generic deriving to hide the internals in the Voice monad
+- Consider, document, and improve the distinction of errors (VoiceError) vs exceptions, and note down why any choices are made
