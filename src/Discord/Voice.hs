@@ -44,8 +44,10 @@ module Discord.Voice
     , liftDiscord
       -- * Joining a Voice Channel
     , join
-      -- * Functions for Playing Audio
+      -- * Play Some Audio
     , play
+      -- ** More Accessible Variants
+      -- $moreAccessibleVariants
     , playPCMFile
     , playPCMFile'
     , playFile
@@ -59,3 +61,31 @@ module Discord.Voice
 
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Voice
+
+{- $moreAccessibleVariants
+
+While 'play' is the most fundamental way to play audio, it is often inconvenient
+to write a Conduit, especially if you want to perform common actions like
+streaming YouTube audio, or playing arbitrary audio files in arbitrary formats.
+This is why we provide a number of more accessible variants of 'play', which
+provide a more convenient interface to playing your favourite media.
+
+Some of the functions in this section are marked with an apostrophe, which
+indicate that they accept a Conduit processor as an argument to manipulate the
+audio stream on the fly (such as changing volume).
+
+The following table gives a comparative overview of all the functions provided
+in this module for playing audio:
+
++-------------------------+--------------------+------------------+-------------------------------+-------------------------------------+
+| Variant \\ Audio Source | ByteString Conduit | PCM Encoded File | Arbitrary Audio File          | YouTube Search/Video                |
++=========================+====================+==================+=============+=================+================+====================+
+| Basic                   | 'play'             | 'playPCMFile'    | 'playFile'  | 'playFileWith'  | 'playYouTube'  | 'playYouTubeWith'  |
++-------------------------+--------------------+------------------+-------------+-----------------+----------------+--------------------+
+| Post-process audio      | -                  | 'playPCMFile''   | 'playFile'' | 'playFileWith'' | 'playYouTube'' | 'playYouTubeWith'' |
++-------------------------+--------------------+------------------+-------------+-----------------+----------------+--------------------+
+
+The functions that end with @-With@ accept arguments to specify executable names,
+and in the case of FFmpeg, any arguments to FFmpeg.
+
+-}
