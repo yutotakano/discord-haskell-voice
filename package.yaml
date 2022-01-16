@@ -1,5 +1,5 @@
 name:                discord-haskell-voice
-version:             2.1.0
+version:             2.2.0
 description:         Supplementary library to discord-haskell.
                      See the project README on GitHub for more information.
                      <https://github.com/yutotakano/discord-haskell-voice>
