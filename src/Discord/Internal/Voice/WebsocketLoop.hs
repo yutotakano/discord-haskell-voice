@@ -384,24 +384,6 @@ heartbeatLoop libSends interval log = do
         writeChan libSends $ Heartbeat $ time
         threadDelay $ interval * 1000
 
-gatewayCheckerLoop
-    :: Chan (Either GatewayException Event)
-    -- ^ Gateway events
-    -> MVar ()
-    -- ^ Binary empty semaphore, set to () when gateway has reconnected
-    -> Chan T.Text
-    -- ^ log
-    -> IO ()
-gatewayCheckerLoop gatewayEvents sem log = do
-    top <- readChan gatewayEvents
-    log ✍ (tshow top)
-    case top of
-        Right (Discord.Internal.Types.Ready _ _ _ _ _) -> do
-            log ✍ "gateway ready detected, putting () in sem"
-            putMVar sem ()
-            gatewayCheckerLoop gatewayEvents sem log
-        _ -> gatewayCheckerLoop gatewayEvents sem log
-
 -- | This function is the main event loop for the Websocket, after all initial
 -- handshake stages (Hello and identification/resumption). It will continuously
 -- read the top packet in the Websocket receives, and handle closures, and

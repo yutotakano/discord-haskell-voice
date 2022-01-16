@@ -83,7 +83,7 @@ import Discord.Internal.Types
     , User(..)
     , GatewaySendable(..)
     , UpdateStatusVoiceOpts(..)
-    , Event(..)
+    , EventInternalParse (..)
     )
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types.VoiceWebsocket
@@ -246,7 +246,7 @@ join guildId channelId = do
 
             uid <- userId . cacheCurrentUser <$> (liftDiscord readCache)
             let wsOpts = WebsocketLaunchOpts uid sessionId token guildId endpoint
-                    events wsChans udpTidM udpChans ssrcM
+                    wsChans udpTidM udpChans ssrcM
 
             -- fork a thread to start the websocket thread in the DiscordHandler
             -- monad using the current Reader state. Not much of a problem
@@ -282,25 +282,25 @@ join guildId channelId = do
     -- The order is undefined in docs, so this function will block until both
     -- are received in any order.
     waitForVoiceStatusServerUpdate
-        :: Chan (Either GatewayException Event)
+        :: Chan (Either GatewayException EventInternalParse)
         -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
     waitForVoiceStatusServerUpdate = loopForBothEvents Nothing Nothing
     
     loopForBothEvents
         :: Maybe T.Text
         -> Maybe (T.Text, GuildId, Maybe T.Text)
-        -> Chan (Either GatewayException Event)
+        -> Chan (Either GatewayException EventInternalParse)
         -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
     loopForBothEvents (Just a) (Just (b, c, d)) events = pure (a, b, c, d)
     loopForBothEvents mb1 mb2 events = readChan events >>= \case
         -- Parse UnknownEvent, which are events not handled by discord-haskell.
-        Right (UnknownEvent "VOICE_STATE_UPDATE" obj) -> do
+        Right (InternalUnknownEvent "VOICE_STATE_UPDATE" obj) -> do
             -- Conveniently, we can just pass the result of parseMaybe
             -- back recursively.
             let sessionId = flip parseMaybe obj $ \o -> do
                     o .: "session_id"
             loopForBothEvents sessionId mb2 events
-        Right (UnknownEvent "VOICE_SERVER_UPDATE" obj) -> do
+        Right (InternalUnknownEvent "VOICE_SERVER_UPDATE" obj) -> do
             let result = flip parseMaybe obj $ \o -> do
                     token <- o .: "token"
                     guildId <- o .: "guild_id"
