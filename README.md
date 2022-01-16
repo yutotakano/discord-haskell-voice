@@ -1,5 +1,8 @@
 # discord-haskell-voice
 
+![hackage version](https://img.shields.io/badge/Hackage-unreleased-5e5184)
+![discord-haskell version dependency](https://img.shields.io/badge/discord--haskell%20ver.-1.11.0-lightblue)
+
 Welcome to `discord-haskell-voice`! This library provides you with a high-level
 interface for interacting with Discord's Voice API, building on top of the
 [`discord-haskell`](https://hackage.haskell.org/package/discord-haskell) library
