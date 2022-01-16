@@ -156,7 +156,6 @@ data WebsocketLaunchOpts = WebsocketLaunchOpts
     , websocketLaunchOptsToken         :: T.Text
     , websocketLaunchOptsGuildId       :: GuildId
     , websocketLaunchOptsEndpoint      :: T.Text
-    , websocketLaunchOptsGatewayEvents :: Chan (Either GatewayException Event)
     , websocketLaunchOptsWsHandle      :: (VoiceWebsocketReceiveChan, VoiceWebsocketSendChan)
     , websocketLaunchOptsUdpTid        :: MVar (Weak ThreadId)
     , websocketLaunchOptsUdpHandle     :: (VoiceUDPReceiveChan, VoiceUDPSendChan)
