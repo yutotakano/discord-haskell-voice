@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Change the definition of `Voice` from a type alias exposing dangerous internal handles, to a newtype wrapper. This also changes the definition of `liftDiscord` to maintain identical behaviour.
+- Update `discord-haskell` dependency to 1.11.0
+
 ## 2.1.0
 
 - Removed `updateSpeakingStatus` from the publicly exported function list for `Discord.Voice`.
