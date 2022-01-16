@@ -74,23 +74,22 @@ main = do
     putStrLn "Exiting..."
 
 eventHandler :: M.Map String GuildContext -> Event -> DiscordHandler ()
-eventHandler contexts (MessageCreate msg) = case messageGuild msg of
+eventHandler contexts (MessageCreate msg) = case messageGuildId msg of
     Nothing  -> pure ()
     Just gid -> do
         -- the message was sent in a server
-        let args = map T.unpack $ T.words $ messageText msg
+        let args = map T.unpack $ T.words $ messageContent msg
         case args of
             ("bot":_) -> case (execParserPure defaultPrefs parser $ tail args) of
-                Success x -> handleCommand contexts msg x
+                Success x -> handleCommand contexts msg gid x
                 Failure failure ->
-                    void $ restCall $ R.CreateMessage (messageChannel msg) $ T.pack $
+                    void $ restCall $ R.CreateMessage (messageChannelId msg) $ T.pack $
                         fst $ renderFailure failure "bot"
             _ -> pure ()
 eventHandler _ _ = pure ()
 
-handleCommand :: M.Map String GuildContext -> Message -> BotAction -> DiscordHandler ()
-handleCommand contexts msg (JoinVoice cid) = do
-    let gid = fromJust $ messageGuild msg
+handleCommand :: M.Map String GuildContext -> Message -> GuildId -> BotAction -> DiscordHandler ()
+handleCommand contexts msg gid (JoinVoice cid) = do
     result <- runVoice $ do
         leave <- join gid cid
         volume <- liftIO $ newTVarIO 100
@@ -112,8 +111,7 @@ handleCommand contexts msg (JoinVoice cid) = do
         Left e -> liftIO $ print e >> pure ()
         Right _ -> pure ()
 
-handleCommand contexts msg (LeaveVoice cid) = do
-    let gid = fromJust $ messageGuild msg
+handleCommand contexts msg gid (LeaveVoice cid) = do
     context <- atomically $ M.lookup (show gid) contexts
     case context of
         Nothing -> pure ()
@@ -121,8 +119,7 @@ handleCommand contexts msg (LeaveVoice cid) = do
             void $ atomically $ M.delete (show gid) contexts
             void $ runVoice leave
 
-handleCommand contexts msg (PlayVoice q) =do
-    let gid = fromJust $ messageGuild msg
+handleCommand contexts msg gid (PlayVoice q) = do
     resultQueue <- atomically $ do
         context <- M.lookup (show gid) contexts
         case context of
@@ -130,16 +127,15 @@ handleCommand contexts msg (PlayVoice q) =do
             Just (GuildContext xs v leave) -> do
                 M.insert (GuildContext (xs ++ [q]) v leave) (show gid) contexts
                 pure $ xs ++ [q]
-    void $ restCall $ R.CreateMessage (messageChannel msg) $ case resultQueue of
+    void $ restCall $ R.CreateMessage (messageChannelId msg) $ case resultQueue of
         [] -> T.pack $ "Can't play something when I'm not in a voice channel!"
         xs -> T.pack $ "Queued for playback: " <> show resultQueue
 
-handleCommand contexts msg (ChangeVolume amount) =do
-    let gid = fromJust $ messageGuild msg
+handleCommand contexts msg gid (ChangeVolume amount) = do
     context <- atomically $ M.lookup (show gid) contexts
     case context of
         Nothing -> pure ()
         Just (GuildContext q v l) -> do
             atomically $ swapTVar v amount
-            void $ restCall $ R.CreateMessage (messageChannel msg) $
+            void $ restCall $ R.CreateMessage (messageChannelId msg) $
                 (T.pack $ "Volume set to " <> show amount <> " / 100")
