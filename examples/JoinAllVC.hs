@@ -19,12 +19,13 @@ main :: IO ()
 main = do
     tok <- TIO.readFile "./examples/production.secret"
 
-    t <- runDiscord $ def { discordToken = tok
-                          , discordOnStart = startHandler
-                          , discordOnEnd = liftIO $ putStrLn "Ended"
-                          , discordOnEvent = eventHandler
-                          , discordOnLog = \s -> TIO.putStrLn s
-                          }
+    t <- runDiscord $ def
+        { discordToken = tok
+        , discordOnStart = startHandler
+        , discordOnEnd = liftIO $ putStrLn "Ended"
+        , discordOnEvent = eventHandler
+        , discordOnLog = \s -> TIO.putStrLn s
+        }
     putStrLn "Finished!"
 
 eventHandler :: Event -> DiscordHandler ()
