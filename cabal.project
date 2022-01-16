@@ -3,6 +3,6 @@ packages: .
 source-repository-package
     type: git
     location: https://github.com/yutotakano/opus.git
-    tag: 742a6dc94300d6d8998926e2225dcb455c75cc10
+    tag: ace2ef14109b4cdbec74cfd5606f27261854b210
 
 -- This is the equivalent of stack.yaml for Cabal.

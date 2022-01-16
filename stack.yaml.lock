@@ -23,12 +23,12 @@ packages:
     version: 0.1.0.0
     git: https://github.com/yutotakano/opus.git
     pantry-tree:
-      size: 722
-      sha256: b2bb5f7fa245c3c8065d361bc153bbb530ab9b54d5e50fc60b13adbf62f91f61
-    commit: 742a6dc94300d6d8998926e2225dcb455c75cc10
+      size: 802
+      sha256: 3eac53c3432e79f5b0e400f184f57989a51da946314a6489cf07d70b9f384d86
+    commit: ace2ef14109b4cdbec74cfd5606f27261854b210
   original:
     git: https://github.com/yutotakano/opus.git
-    commit: 742a6dc94300d6d8998926e2225dcb455c75cc10
+    commit: ace2ef14109b4cdbec74cfd5606f27261854b210
 snapshots:
 - completed:
     size: 567679
