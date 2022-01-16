@@ -27,6 +27,8 @@ source-repository head
 
 library
   exposed-modules:
+      Discord.Voice
+      Discord.Voice.Conduit
       Discord.Internal.Types.VoiceCommon
       Discord.Internal.Types.VoiceUDP
       Discord.Internal.Types.VoiceWebsocket
@@ -34,8 +36,6 @@ library
       Discord.Internal.Voice.CommonUtils
       Discord.Internal.Voice.UDPLoop
       Discord.Internal.Voice.WebsocketLoop
-      Discord.Voice
-      Discord.Voice.Conduit
   other-modules:
       Paths_discord_haskell_voice
   hs-source-dirs:

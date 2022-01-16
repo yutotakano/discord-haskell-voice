@@ -40,6 +40,19 @@ dependencies:
 
 library:
   source-dirs: src
+  # The exposed-module specifies the exact order the modules will appear in the
+  # generated cabal file, and thus on Haddock. The default is alphabetical, but
+  # internals should be later.
+  exposed-modules:
+  - Discord.Voice
+  - Discord.Voice.Conduit
+  - Discord.Internal.Types.VoiceCommon
+  - Discord.Internal.Types.VoiceUDP
+  - Discord.Internal.Types.VoiceWebsocket
+  - Discord.Internal.Voice
+  - Discord.Internal.Voice.CommonUtils
+  - Discord.Internal.Voice.UDPLoop
+  - Discord.Internal.Voice.WebsocketLoop
 
 executables:
   join-all-on-start:
