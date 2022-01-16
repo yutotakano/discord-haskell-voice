@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-|
 Module      : Discord.Internal.Types.VoiceCommon
 Description : Strictly for internal use only. See Discord.Voice for the public interface.
@@ -30,7 +31,7 @@ module Discord.Internal.Types.VoiceCommon where
 
 import Control.Concurrent ( Chan, MVar, ThreadId )
 import Control.Concurrent.BoundedChan qualified as Bounded
-import Control.Exception.Safe ( Exception )
+import Control.Exception.Safe ( Exception, MonadMask, MonadCatch, MonadThrow )
 import Control.Lens ( makeFields )
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -47,12 +48,10 @@ import Discord.Internal.Gateway.EventLoop ( GatewayException(..) )
 import Discord.Internal.Types.VoiceUDP
 import Discord.Internal.Types.VoiceWebsocket
 
--- | @Voice@ is a type synonym for a ReaderT and ExceptT composition of monad
+-- | @Voice@ is a newtype Monad containing a composition of ReaderT and ExceptT
 -- transformers over the @DiscordHandler@ monad. It holds references to
 -- voice connections/threads. The content of the reader handle is strictly
--- internal, and is entirely subject to change irrespective of the Package
--- Versioning Policy. @Voice@ is still provided as a type synonym rather than a
--- @newtype@ to take advantage of existing instances for various type-classes.
+-- internal and is hidden deliberately behind the newtype wrapper.
 --
 -- Developer Note: ExceptT is on the base rather than ReaderT, so that when a
 -- critical exception/error occurs in @Voice@, it can propagate down the
@@ -61,8 +60,27 @@ import Discord.Internal.Types.VoiceWebsocket
 -- If ExceptT were on top of ReaderT, then errors would be swallowed before it
 -- propagates below ReaderT, and the monad would not halt there, continuing
 -- computation with an unstable state.
-type Voice =
-    ReaderT DiscordBroadcastHandle (ExceptT VoiceError DiscordHandler)
+newtype Voice a = Voice
+    { unVoice :: ReaderT DiscordBroadcastHandle (ExceptT VoiceError DiscordHandler) a
+    } deriving
+    ( Functor
+    , Applicative
+    , Monad
+    , MonadIO
+    -- ^ MonadIO gives the ability to perform 'liftIO'.
+    , MonadReader DiscordBroadcastHandle
+    -- ^ MonadReader is for internal use, to read the held broadcast handle.
+    , MonadError VoiceError
+    -- ^ MonadError is for internal use, to propagate errors.
+    , MonadFail
+    -- ^ MonadFail is for internal use, identical in function to the MonadFail
+    -- instance of ReaderT.
+    , MonadThrow
+    -- ^ MonadThrow, MonadCatch, and MonadMask are for internal use, to utilise
+    -- exception handling functions like @bracket@.
+    , MonadCatch
+    , MonadMask
+    )
 
 -- | @VoiceError@ represents the potential errors when initialising a voice
 -- connection. It does /not/ account for errors that occur after the initial

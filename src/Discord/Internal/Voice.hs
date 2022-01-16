@@ -112,10 +112,8 @@ updateStatusVoice
 updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts a b c d
 
 -- | @liftDiscord@ lifts a computation in DiscordHandler into a computation in
--- Voice. This is useful for performing DiscordHandler/IO actions inside the
+-- Voice. This is useful for performing DiscordHandler actions inside the
 -- Voice monad.
---
--- > liftDiscord ≡ lift . lift
 --
 -- Usage:
 -- 
@@ -123,13 +121,14 @@ updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceO
 -- runVoice $ do
 --     join (read "123456789012345") (read "67890123456789012")
 --     liftDiscord $ void $ restCall $ R.CreateMessage (read "2938481828383") "Joined!"
+--     liftIO $ threadDelay 5e6
 --     playYouTube "Rate of Reaction of Sodium Hydroxide and Hydrochloric Acid"
 --     liftDiscord $ void $ restCall $ R.CreateMessage (read "2938481828383") "Finished!"
 -- void $ restCall $ R.CreateMessage (read "2938481828383") "Finished all voice actions!"
 -- @
 --
 liftDiscord :: DiscordHandler a -> Voice a
-liftDiscord = lift . lift
+liftDiscord = Voice . lift . lift
 
 -- | Execute the voice actions stored in the Voice monad.
 --
@@ -156,7 +155,7 @@ runVoice action = do
 
     let initialState = DiscordBroadcastHandle voiceHandles mutEx
 
-    result <- finally (runExceptT $ flip runReaderT initialState $ action) $ do
+    result <- finally (runExceptT $ flip runReaderT initialState $ unVoice $ action) $ do
         -- Wrap cleanup action in @finally@ to ensure we always close the
         -- threads even if an exception occurred.
         finalState <- liftIO $ readMVar voiceHandles
@@ -215,14 +214,14 @@ runVoice action = do
 -- of the playback status.
 join :: GuildId -> ChannelId -> Voice (Voice ())
 join guildId channelId = do
-    h <- lift $ lift $ ask
+    h <- liftDiscord ask
     -- Duplicate the event channel, so we can read without taking data from event handlers
     events <- liftIO $ dupChan $ gatewayHandleEvents $ discordHandleGateway h
 
     -- To join a voice channel, we first need to send Voice State Update (Opcode
     -- 4) to the gateway, which will then send us two responses, Dispatch Event
     -- (Voice State Update) and Dispatch Event (Voice Server Update).
-    lift $ lift $ updateStatusVoice guildId (Just channelId) False False
+    liftDiscord $ updateStatusVoice guildId (Just channelId) False False
 
     (liftIO . doOrTimeout 5000) (waitForVoiceStatusServerUpdate events) >>= \case
         Nothing -> do
@@ -245,7 +244,7 @@ join guildId channelId = do
             -- ssrc to be filled in during initial handshake
             ssrcM <- liftIO $ newEmptyMVar
 
-            uid <- userId . cacheCurrentUser <$> (lift $ lift $ readCache)
+            uid <- userId . cacheCurrentUser <$> (liftDiscord readCache)
             let wsOpts = WebsocketLaunchOpts uid sessionId token guildId endpoint
                     events wsChans udpTidM udpChans ssrcM
 
@@ -273,7 +272,7 @@ join guildId channelId = do
 
             -- Give back a function used for leaving this voice channel.
             pure $ do
-                lift $ lift $ updateStatusVoice guildId Nothing False False
+                liftDiscord $ updateStatusVoice guildId Nothing False False
                 liftIO $ killWkThread wsTidWeak
   where
     -- | Continuously take the top item in the gateway event channel until both
@@ -351,11 +350,11 @@ updateSpeakingStatus micStatus = do
 play :: ConduitT () B.ByteString (ResourceT DiscordHandler) () -> Voice ()
 play source = do
     h <- ask
-    dh <- lift $ lift $ ask
+    dh <- liftDiscord ask
     handles <- liftIO $ readMVar $ h ^. voiceHandles
 
     updateSpeakingStatus True
-    lift $ lift $ UnliftIO.withMVar (h ^. mutEx) $ \_ -> do
+    liftDiscord $ UnliftIO.withMVar (h ^. mutEx) $ \_ -> do
         runConduitRes $ source .| encodeOpusC .| sinkHandles handles
     updateSpeakingStatus False
   where
