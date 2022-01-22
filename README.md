@@ -1,6 +1,6 @@
 # discord-haskell-voice
 
-![hackage version](https://img.shields.io/badge/Hackage-unreleased-5e5184)
+![hackage version](https://img.shields.io/hackage/v/discord-haskell-voice?color=%235e5184)
 ![discord-haskell version dependency](https://img.shields.io/badge/discord--haskell%20ver.-1.11.0-lightblue)
 
 Welcome to `discord-haskell-voice`! This library provides you with a high-level
