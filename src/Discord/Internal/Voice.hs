@@ -93,24 +93,6 @@ import Discord.Internal.Types.VoiceWebsocket
 import Discord.Internal.Voice.CommonUtils
 import Discord.Internal.Voice.WebsocketLoop
 
--- | Send a Gateway Websocket Update Voice State command (Opcode 4). Used to
--- indicate that the client voice status (deaf/mute) as well as the channel
--- they are active on.
--- This is not in the Voice monad because it has to be used after all voice
--- actions end, to quit the voice channels. It also has no benefit, since it
--- would cause extra transformer wrapping/unwrapping.
-updateStatusVoice
-    :: GuildId
-    -- ^ Id of Guild
-    -> Maybe ChannelId
-    -- ^ Id of the voice channel client wants to join (Nothing if disconnecting)
-    -> Bool
-    -- ^ Whether the client muted
-    -> Bool
-    -- ^ Whether the client deafened
-    -> DiscordHandler ()
-updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts a b c d
-
 -- | @liftDiscord@ lifts a computation in DiscordHandler into a computation in
 -- Voice. This is useful for performing DiscordHandler actions inside the
 -- Voice monad.
@@ -329,6 +311,24 @@ updateSpeakingStatus micStatus = do
             , speakingPayloadDelay      = 0
             , speakingPayloadSSRC       = handle ^. ssrc
             }
+
+-- | Send a Gateway Websocket Update Voice State command (Opcode 4). Used to
+-- indicate that the client voice status (deaf/mute) as well as the channel
+-- they are active on.
+-- This is not in the Voice monad because it has to be used after all voice
+-- actions end, to quit the voice channels. It also has no benefit, since it
+-- would cause extra transformer wrapping/unwrapping.
+updateStatusVoice
+    :: GuildId
+    -- ^ Id of Guild
+    -> Maybe ChannelId
+    -- ^ Id of the voice channel client wants to join (Nothing if disconnecting)
+    -> Bool
+    -- ^ Whether the client muted
+    -> Bool
+    -- ^ Whether the client deafened
+    -> DiscordHandler ()
+updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts a b c d
 
 -- | @play source@ plays some sound from the conduit @source@, provided in the
 -- form of 16-bit Little Endian PCM. The use of Conduit allows you to perform
