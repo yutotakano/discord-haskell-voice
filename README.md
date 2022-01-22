@@ -74,20 +74,42 @@ the library, including dynamically adjusting the stream audio using a TVar
 
 ## Installation
 
-This library is not published on Hackage or Stackage yet. It is using an
-unstable pinned version of the opus package, and until that is properly tested
-I do not want to publish it. It is, however available as a package candidate
-on Hackage (for viewing Haddock docs).
+This library is available on Hackage, at https://hackage.haskell.org/package/discord-haskell-voice.
 
-With Stack, use the `extra-deps` field in your project `stack.yaml` to specify
-the Git repo and the commit tag to use.
+### Cabal
 
-With Cabal, use the `source-repository-package` stanza in your `cabal.project`
-to specify the Git repo and the commit tag to use.
+To use it in your Cabal-based project, add `discord-haskell-voice` as a dependency in your `.cabal` file:
+
+```
+# --- myproject.cabal <truncated>
+ build-depends:
+      base >=4.7 && <5
+    , discord-haskell ==1.11.0
+    , discord-haskell-voice ==2.2.0
+```
+
+### Stack
+
+To use it in your Stack-based project, add `discord-haskell-voice` in both your `package.yaml` and `stack.yaml` files (since this library is not available in Stackage for the same reason `discord-haskell` is not on Stackage)
+
+```
+# --- stack.yaml <truncated>
+extra-deps:
+- discord-haskell-1.11.0
+- discord-haskell-voice-2.2.0
+```
+
+```
+# --- package.yaml <truncated>
+dependencies:
+- base >= 4.7 && < 5
+- discord-haskell == 1.11.0
+- discord-haskell-voice == 2.2.0
+```
 
 ## Documentation
 
-See the Haddock documentation on the [Hackage package candidate page](https://hackage.haskell.org/package/discord-haskell-voice-2.1.0/candidate).
+See the Haddock documentation on the Hackage page, at https://hackage.haskell.org/package/discord-haskell-voice/docs/Discord-Voice.html.
 
 ## Future Plans
 
