@@ -85,7 +85,7 @@ To use it in your Cabal-based project, add `discord-haskell-voice` as a dependen
  build-depends:
       base >=4.7 && <5
     , discord-haskell ==1.11.0
-    , discord-haskell-voice ==2.2.0
+    , discord-haskell-voice ==2.2.1
 ```
 
 ### Stack
@@ -96,7 +96,7 @@ To use it in your Stack-based project, add `discord-haskell-voice` in both your 
 # --- stack.yaml <truncated>
 extra-deps:
 - discord-haskell-1.11.0
-- discord-haskell-voice-2.2.0
+- discord-haskell-voice-2.2.1
 ```
 
 ```
@@ -104,7 +104,7 @@ extra-deps:
 dependencies:
 - base >= 4.7 && < 5
 - discord-haskell == 1.11.0
-- discord-haskell-voice == 2.2.0
+- discord-haskell-voice == 2.2.1
 ```
 
 ## Documentation

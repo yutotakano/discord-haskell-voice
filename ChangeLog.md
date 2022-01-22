@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+## 2.2.1
+
+- Patch README having incorrect non-published details after Hackage publication.
+
 ## 2.2.0
 
 - Change the definition of `Voice` from a type alias exposing dangerous internal handles, to a newtype wrapper. This also changes the definition of `liftDiscord` to maintain identical behaviour.
