@@ -2,6 +2,12 @@
 
 ## Unreleased changes
 
+## 2.2.2
+
+- Update `discord-haskell` dependency to 1.12.0
+- Bump copyright to 2022
+- Fix incomplete pattern match crash in the example bot when using `bot --bash-completion-script`
+
 ## 2.2.1
 
 - Patch README having incorrect non-published details after Hackage publication.
