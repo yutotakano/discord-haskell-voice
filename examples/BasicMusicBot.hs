@@ -85,6 +85,7 @@ eventHandler contexts (MessageCreate msg) = case messageGuildId msg of
                 Failure failure ->
                     void $ restCall $ R.CreateMessage (messageChannelId msg) $ T.pack $
                         fst $ renderFailure failure "bot"
+                _ -> pure ()
             _ -> pure ()
 eventHandler _ _ = pure ()
 
