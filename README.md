@@ -1,7 +1,7 @@
 # discord-haskell-voice
 
 ![hackage version](https://img.shields.io/hackage/v/discord-haskell-voice?color=%235e5184)
-![discord-haskell version dependency](https://img.shields.io/badge/discord--haskell%20ver.-1.12.0-lightblue)
+![discord-haskell version dependency](https://img.shields.io/badge/discord--haskell%20ver.-1.12.4-lightblue)
 
 Welcome to `discord-haskell-voice`! This library provides you with a high-level
 interface for interacting with Discord's Voice API, building on top of the
@@ -26,7 +26,7 @@ something like the following as well!
 rickrollHalfVolume :: Channel -> DiscordHandler ()
 rickrollHalfVolume c@(ChannelVoice {}) = do
     void $ runVoice $ do
-        join (channelGuild c) (channelId c)        
+        join (channelGuild c) (channelId c)
         let halfAmplitude = awaitForever $ \current ->
                 yield $ round $ fromIntegral current * 0.5
         playYouTube' "rickroll" $ packInt16C .| halfAmplitude .| unpackInt16C
@@ -84,7 +84,7 @@ To use it in your Cabal-based project, add `discord-haskell-voice` as a dependen
 # --- myproject.cabal <truncated>
  build-depends:
       base >=4.7 && <5
-    , discord-haskell ==1.12.0
+    , discord-haskell ==1.12.4
     , discord-haskell-voice ==2.2.2
 ```
 
@@ -95,7 +95,7 @@ To use it in your Stack-based project, add `discord-haskell-voice` in both your 
 ```
 # --- stack.yaml <truncated>
 extra-deps:
-- discord-haskell-1.12.0
+- discord-haskell-1.12.4
 - discord-haskell-voice-2.2.2
 ```
 
@@ -103,7 +103,7 @@ extra-deps:
 # --- package.yaml <truncated>
 dependencies:
 - base >= 4.7 && < 5
-- discord-haskell == 1.12.0
+- discord-haskell == 1.12.4
 - discord-haskell-voice == 2.2.2
 ```
 
