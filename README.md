@@ -36,8 +36,8 @@ rickrollHalfVolume c@(ChannelVoice {}) = do
 ## Requirements
 
 - The library uses [`saltine`](https://github.com/tel/saltine) for encryption
-and decryption of audio packets. This requires the appropriate libraries to be
-installed on your system. See their README for information.
+and decryption of audio packets. This requires libsodium to be installed on
+your system. See their README for information.
 - The library requires Opus libraries to be installed on your system. The
 `libopus-dev` package available on package repositories should be sufficient
 on most \*nix systems. The `libopusenc` brew package suffices on Mac. Windows
@@ -47,7 +47,7 @@ FFmpeg installed. To specify a custom executable name, see the `-With` function
 variants.
 - If you are to use any variants of `playYouTube`, you will additionally need
 youtube-dl installed. This is used to get the stream URL to pass to FFmpeg. To
-specify a custom executable name, use `playYouTubeWith`.
+specify a custom executable name (such as yt-dlp), use `playYouTubeWith`.
 
 ## Features
 
