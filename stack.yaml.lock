@@ -5,12 +5,12 @@
 
 packages:
 - completed:
-    hackage: discord-haskell-1.12.0@sha256:aa427494f6c1f646c9bba81b15330557b972cae4d32ff329262ce30d13b77e3e,4527
+    hackage: discord-haskell-1.12.5@sha256:939a677754edc67316d4af1982cd4c359761148badd75cf4b733bf22260235bd,4611
     pantry-tree:
-      size: 2681
-      sha256: 35edd22a7cfec04a512c1fdd7b2620674349904451d303a5cf3823ff75c45b80
+      size: 2844
+      sha256: 415a975ca69bb9ce9c49a569a61a12cdd9d91842e5777ca2c9496fea77dd2ed2
   original:
-    hackage: discord-haskell-1.12.0
+    hackage: discord-haskell-1.12.5
 - completed:
     hackage: emoji-0.1.0.2@sha256:d995572a5c7dcd28f98eb15c6e387a7b3bda1ac2477ab0d9dba8580d5d7b161f,1273
     pantry-tree:
