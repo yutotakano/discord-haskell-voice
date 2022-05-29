@@ -56,6 +56,8 @@ module Discord.Voice
     , playFileWith'
     , playYouTube
     , playYouTube'
+    , playYouTubeWith
+    , playYouTubeWith'
     , defaultFFmpegArgs
     ) where
 
