@@ -106,7 +106,8 @@ handleCommand contexts msg gid (JoinVoice cid) = do
                     let adjustVolume = awaitForever $ \current -> do
                             v' <- liftIO $ readTVarIO volume
                             yield $ round $ fromIntegral current * (fromIntegral v' / 100)
-                    playYouTube' x $ packInt16C .| adjustVolume .| unpackInt16C
+                    playYouTubeWith' "ffmpeg" defaultFFmpegArgs "yt-dlp" x $
+                        packInt16C .| adjustVolume .| unpackInt16C
 
     case result of
         Left e -> liftIO $ print e >> pure ()
