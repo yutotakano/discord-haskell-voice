@@ -125,9 +125,7 @@ launchWebsocket opts log = do
     -- @opts@ to report back to runVoice, so it can be killed in the
     -- future.
     websocketFsm WSStart retries udpInfo = do
-        -- Use of tryAsync (unsafe, as it catches asynchronous exceptions) is
-        -- justified here, since it will only log, then go to WSClosed.
-        next <- tryAsync $ connect (opts ^. endpoint) $ \conn -> do
+        next <- try $ connect (opts ^. endpoint) $ \conn -> do
             (libSends, sendTid) <- flip (setupSendLoop conn) log $ opts ^. wsHandle . _2
 
             result <- flip finally (killThread sendTid) $ runExceptT $ do
@@ -216,18 +214,16 @@ launchWebsocket opts log = do
         -- Connection is now closed.
         case next :: Either SomeException WSState of
             Left e -> do
-                (✍!) log $ "could not connect due to an exception: " <>
+                (✍!) log $ "connection terminated due to a synchronous exception: " <>
                     (tshow e)
                 writeChan (opts ^. wsHandle . _1) $ Left $
                     VoiceWebsocketCouldNotConnect
-                        "could not connect due to an exception"
+                        "connection terminated due to a synchronous exception"
                 websocketFsm WSClosed 0 udpInfo
             Right n -> websocketFsm n 0 udpInfo
 
     websocketFsm WSResume retries udpInfo = do
-        -- Use of tryAsync (unsafe, as it catches asynchronous exceptions) is
-        -- justified here, since it will only log, then go to WSClosed.
-        next <- tryAsync $ connect (opts ^. endpoint) $ \conn -> do
+        next <- try $ connect (opts ^. endpoint) $ \conn -> do
             (libSends, sendTid) <- flip (setupSendLoop conn) log $ opts ^. wsHandle . _2
             helloPacket <- getPayload conn
             case helloPacket of
@@ -247,26 +243,26 @@ launchWebsocket opts log = do
                         Right (Discord.Internal.Types.VoiceWebsocket.Resumed) -> do
                             -- use the previous UDP launch options since it's not resent
                             udpLaunchOpts <- readMVar udpInfo
-                            
+
                             -- Pass not the MVar but the raw options, since
                             -- there's no writing to be done.
                             finally (eventStream conn opts interval udpLaunchOpts libSends log) $
                                 (killThread heartGenTid >> killThread sendTid)
                         Right p -> do
-                            (✍!) log $ "First packet after Resume not " <> 
+                            (✍!) log $ "First packet after Resume not " <>
                                 "Opcode 9 Resumed: " <> (tshow p)
                             pure WSClosed
                 Right p -> do
                     (✍!) log $ "First packet not Opcode 8 Hello: " <> (tshow p)
                     pure WSClosed
 
-        -- Connection is now closed.
         case next :: Either SomeException WSState of
-            Left _ -> do
-                (✍!) log $ "could not resume, retrying after 5 seconds"
+            Left e -> do
+                (✍!) log $ "could not resume due to a synchronous exception: " <>
+                    (tshow e) <> ", retrying after 5 seconds"
                 threadDelay $ 5 * (10^(6 :: Int))
                 websocketFsm WSResume (retries + 1) udpInfo
-            Right n -> websocketFsm n 1 udpInfo
+            Right n -> websocketFsm n retries udpInfo
 
 -- | Create the library-specific sending packets Chan, and then create the
 -- thread for eternally sending contents in the said Chan, as well as the
