@@ -5,12 +5,12 @@
 
 packages:
 - completed:
-    hackage: discord-haskell-1.12.5@sha256:939a677754edc67316d4af1982cd4c359761148badd75cf4b733bf22260235bd,4611
+    hackage: discord-haskell-1.13.0@sha256:3b25487f1dc866dc598cbbc64affbb1f42302e1271bcb07a7c57de3179dc2fc2,4585
     pantry-tree:
       size: 2844
-      sha256: 415a975ca69bb9ce9c49a569a61a12cdd9d91842e5777ca2c9496fea77dd2ed2
+      sha256: 3ce1b90f8e301f1fba68b67fa4f4765050e0f879e83100e7e399d290c3f3e091
   original:
-    hackage: discord-haskell-1.12.5
+    hackage: discord-haskell-1.13.0
 - completed:
     hackage: stm-containers-1.2@sha256:a887f2e7692b7cf20e0b081e2d66e21076e2bd4b57016ec59c484edfa2d29397,3244
     pantry-tree:
