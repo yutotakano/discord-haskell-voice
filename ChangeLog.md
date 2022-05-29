@@ -3,6 +3,7 @@
 ## Unreleased changes
 
 - Export `playYouTubeWith` and `playYoUTubeWith'` from `Discord.Voice`.
+- Update `discord-haskell` dependency bounds to `>= 1.12.0 && <= 1.13.0`
 
 ## 2.2.2
 
