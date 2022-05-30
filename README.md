@@ -1,7 +1,7 @@
 # discord-haskell-voice
 
 [![hackage version](https://img.shields.io/hackage/v/discord-haskell-voice?color=%235e5184)](https://hackage.haskell.org/package/discord-haskell-voice)
-[![discord-haskell version dependency](https://img.shields.io/badge/discord--haskell%20ver.-1.12.5-lightblue)](https://hackage.haskell.org/package/discord-haskell)
+[![discord-haskell version dependency](https://img.shields.io/badge/discord--haskell-%3E=1.12.0%20%26%26%20%3C=1.13.0-lightblue)](https://hackage.haskell.org/package/discord-haskell)
 
 Welcome to `discord-haskell-voice`! This library provides you with a high-level
 interface for interacting with Discord's Voice API, building on top of the
@@ -55,8 +55,8 @@ What is supported:
 
 - Can join/leave Discord voice channels. It is possible to join multiple of them
 simultaneously (one per sever) and stream different contents to each.
-- It is also possible for many voice channels (across many servers) and play the
-same content, radio/subscriber-style.
+- It is also possible to join many voice channels (across many servers) and play
+the same content, radio/subscriber-style.
 - You can play arbitrary PCM audio, arbitrary audio (with FFmpeg), and arbitrary
 internet audio (with youtube-dl).
 - You can transform audio arbitrarily using Conduit.
@@ -85,7 +85,7 @@ To use it in your Cabal-based project, add `discord-haskell-voice` as a dependen
 # --- myproject.cabal <truncated>
  build-depends:
       base >=4.7 && <5
-    , discord-haskell ==1.12.5
+    , discord-haskell ==1.13.0
     , discord-haskell-voice ==2.2.2
 ```
 
@@ -96,7 +96,7 @@ To use it in your Stack-based project, add `discord-haskell-voice` in both your 
 ```
 # --- stack.yaml <truncated>
 extra-deps:
-- discord-haskell-1.12.5
+- discord-haskell-1.13.0
 - discord-haskell-voice-2.2.2
 ```
 
@@ -104,7 +104,7 @@ extra-deps:
 # --- package.yaml <truncated>
 dependencies:
 - base >= 4.7 && < 5
-- discord-haskell == 1.12.5
+- discord-haskell == 1.13.0
 - discord-haskell-voice == 2.2.2
 ```
 
