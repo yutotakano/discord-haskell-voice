@@ -26,7 +26,7 @@ Prisms are defined using TemplateHaskell for VoiceUDPPacket.
 -}
 module Discord.Internal.Types.VoiceUDP where
 
-import Control.Lens ( makePrisms )
+import Lens.Micro
 import Data.Binary.Get
 import Data.Binary.Put
 import Data.Binary
@@ -46,6 +46,10 @@ data VoiceUDPPacket
     | UnknownPacket BL.ByteString
     | MalformedPacket BL.ByteString
     deriving (Show, Eq)
+
+_IPDiscovery :: Traversal' VoiceUDPPacket (Integer, T.Text, Integer)
+_IPDiscovery f (IPDiscovery ssrc ip port) = (\(a, b, c) -> IPDiscovery a b c) <$> f (ssrc, ip, port)
+_IPDiscovery f packet = pure packet
 
 data VoiceUDPPacketHeader
     = Header Word8 Word8 Word16 Word32 Word32 
@@ -107,4 +111,4 @@ instance Binary VoiceUDPPacket where
         putLazyByteString a
     put (MalformedPacket a) = putLazyByteString a
 
-$(makePrisms ''VoiceUDPPacket)
+-- $(makePrisms ''VoiceUDPPacket)

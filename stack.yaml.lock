@@ -33,16 +33,30 @@ packages:
   original:
     hackage: emoji-0.1.0.2
 - completed:
+    hackage: microlens-0.4.13.0@sha256:40794f266977558e1138ac034701fa3ff66518bc4ca6a1fba5c575d4157cf0ba,4573
+    pantry-tree:
+      size: 461
+      sha256: 7e3c2e67a573a4ba4bd8ebff631b7a6e0e2d81fb785b9e9fcd6bd02f18743ac3
+  original:
+    hackage: microlens-0.4.13.0
+- completed:
+    hackage: microlens-th-0.4.3.10@sha256:601fe4d52e6b5e7246aedbde50ebb3096b6d7da331e603dc22d04d9dd577f7bf,2258
+    pantry-tree:
+      size: 558
+      sha256: e66eef492e2ed16ae0ad7c5f6bee440aca15743bcc737fda3705fb36e62ae486
+  original:
+    hackage: microlens-th-0.4.3.10
+- completed:
     name: opus
     version: 0.1.0.0
     git: https://github.com/yutotakano/opus.git
     pantry-tree:
-      size: 802
-      sha256: 3eac53c3432e79f5b0e400f184f57989a51da946314a6489cf07d70b9f384d86
-    commit: ace2ef14109b4cdbec74cfd5606f27261854b210
+      size: 857
+      sha256: 4951d56d45993a9863303caed92bd00f721906db67ea13c7fbb9a1b18e2ae9de
+    commit: 8ba5739821af9c27cf9d50f03b72b58ed88b913a
   original:
     git: https://github.com/yutotakano/opus.git
-    commit: ace2ef14109b4cdbec74cfd5606f27261854b210
+    commit: 8ba5739821af9c27cf9d50f03b72b58ed88b913a
 snapshots:
 - completed:
     size: 587821

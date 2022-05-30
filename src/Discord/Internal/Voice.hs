@@ -50,7 +50,8 @@ import Control.Concurrent
     )
 import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Exception.Safe ( finally, bracket, throwTo, catch, throwIO )
-import Control.Lens
+import Lens.Micro
+import Lens.Micro.Extras (view)
 import Control.Monad.Reader ( ask, liftIO, runReaderT )
 import Control.Monad.Except ( runExceptT, throwError )
 import Control.Monad.Trans ( lift )
@@ -149,8 +150,8 @@ runVoice action = do
         -- There is no way to prevent it, so as a consequence, the bot may
         -- linger in the voice call for a few minutes after the bot program is
         -- killed.
-        mapMOf_ (traverse . guildId) (\x -> updateStatusVoice x Nothing False False) finalState
-        mapMOf_ (traverse . websocket . _1) (liftIO . killWkThread) finalState
+        traverseOf_ (traverse . guildId) (\x -> updateStatusVoice x Nothing False False) finalState
+        traverseOf_ (traverse . websocket . _1) (liftIO . killWkThread) finalState
 
     pure result
 
@@ -303,7 +304,7 @@ updateSpeakingStatus :: Bool -> Voice ()
 updateSpeakingStatus micStatus = do
     h <- (^. voiceHandles) <$> ask
     handles <- liftIO $ readMVar h
-    flip (mapMOf_ traverse) handles $ \handle ->
+    flip (traverseOf_ traverse) handles $ \handle ->
         liftIO $ writeChan (handle ^. websocket . _2 . _2) $ Speaking $ SpeakingPayload
             { speakingPayloadMicrophone = micStatus
             , speakingPayloadSoundshare = False
@@ -383,9 +384,9 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
     encoder <- liftIO $ opusEncoderCreate enCfg
     loop encoder
   where
-    enCfg = _EncoderConfig # (opusSR48k, True, app_audio)
+    enCfg = mkEncoderConfig opusSR48k True app_audio
     -- 1275 is the max bytes an opus 20ms frame can have
-    streamCfg = _StreamConfig # (enCfg, 48*20, 1276)
+    streamCfg = mkStreamConfig enCfg (48*20) 1276
     loop encoder = await >>= \case
         Nothing -> do
             -- Send at least 5 blank frames (20ms * 5 = 100 ms)

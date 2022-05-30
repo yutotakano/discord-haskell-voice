@@ -32,7 +32,7 @@ module Discord.Internal.Types.VoiceCommon where
 import Control.Concurrent ( Chan, MVar, ThreadId )
 import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Exception.Safe ( Exception, MonadMask, MonadCatch, MonadThrow )
-import Control.Lens ( makeFields )
+import Lens.Micro.TH ( makeFields )
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.ByteString qualified as B
