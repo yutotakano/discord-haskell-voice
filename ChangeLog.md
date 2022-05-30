@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+
+## 2.3.0
+
 - Export `playYouTubeWith` and `playYoUTubeWith'` from `Discord.Voice`.
 - Update `discord-haskell` dependency bounds to `>= 1.12.0 && <= 1.13.0`.
 - Migrate from `lens` to `microlens`, following the `opus` package doing the same.
