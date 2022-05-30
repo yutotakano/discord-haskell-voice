@@ -24,7 +24,7 @@ module Discord.Internal.Voice.CommonUtils where
 
 import Control.Concurrent
 import Control.Concurrent.Async ( race )
-import Control.Lens
+import Lens.Micro
 import Data.Text qualified as T
 import Data.Time.Clock.POSIX
 import Data.Time

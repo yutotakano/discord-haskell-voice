@@ -27,7 +27,7 @@ Prisms are defined using TemplateHaskell for VoiceWebsocketReceivable.
 module Discord.Internal.Types.VoiceWebsocket where
 
 import Control.Applicative ( (<|>) )
-import Control.Lens ( makePrisms )
+import Lens.Micro
 import Data.Aeson
 import Data.Aeson.Types
 import Data.Text qualified as T
@@ -49,6 +49,19 @@ data VoiceWebsocketReceivable
     | ParseError T.Text                             -- Internal use
     | Reconnect                                     -- Internal use
     deriving (Show, Eq)
+
+_Ready :: Traversal' VoiceWebsocketReceivable ReadyPayload
+_Ready f (Ready rp) = Ready <$> f rp
+_Ready f rp = pure rp
+
+_SessionDescription :: Traversal' VoiceWebsocketReceivable (T.Text, [Word8])
+_SessionDescription f (SessionDescription t bytes) = uncurry SessionDescription <$> f (t, bytes)
+_SessionDescription f sd = pure sd
+
+_Hello :: Traversal' VoiceWebsocketReceivable Int
+_Hello f (Hello a) = Hello <$> f a
+_Hello f a = pure a
+
 
 data VoiceWebsocketSendable
     = Identify IdentifyPayload                      -- Opcode 0
@@ -196,4 +209,4 @@ instance ToJSON VoiceWebsocketSendable where
             ]
         ]
 
-$(makePrisms ''VoiceWebsocketReceivable)
+-- $(makePrisms ''VoiceWebsocketReceivable)

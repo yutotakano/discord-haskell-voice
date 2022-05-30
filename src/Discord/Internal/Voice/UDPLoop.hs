@@ -47,7 +47,7 @@ import Control.Concurrent
     )
 import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Exception.Safe ( handle, SomeException, finally, try, bracket )
-import Control.Lens
+import Lens.Micro
 import Control.Monad.IO.Class ( MonadIO )
 import Data.Binary ( encode, decode )
 import Data.ByteString.Lazy qualified as BL
@@ -288,8 +288,8 @@ encrypt byteKey byteNonce og = secretbox key nonce og
 
 decodeOpusData :: B.ByteString -> IO B.ByteString
 decodeOpusData bytes = do
-    let deCfg = _DecoderConfig # (opusSR48k, True)
-    let deStreamCfg = _DecoderStreamConfig # (deCfg, 48*20, 0)
+    let deCfg = mkDecoderConfig opusSR48k True
+    let deStreamCfg = mkDecoderStreamConfig deCfg (48*20) 0
     decoder <- opusDecoderCreate deCfg
     decoded <- opusDecode decoder deStreamCfg bytes
     pure decoded

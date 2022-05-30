@@ -48,7 +48,7 @@ import Control.Concurrent
     , readMVar
     )
 import Control.Exception.Safe ( try, tryAsync, SomeException, finally, handle )
-import Control.Lens
+import Lens.Micro
 import Control.Monad ( forever, guard )
 import Control.Monad.Except ( runExceptT, ExceptT (ExceptT), lift )
 import Control.Monad.IO.Class ( liftIO )

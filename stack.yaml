@@ -8,5 +8,7 @@ extra-deps:
 - stm-containers-1.2
 - stm-hamt-1.2.0.7
 - emoji-0.1.0.2
+- microlens-0.4.13.0
+- microlens-th-0.4.3.10
 - git: https://github.com/yutotakano/opus.git
-  commit: ace2ef14109b4cdbec74cfd5606f27261854b210
+  commit: 8ba5739821af9c27cf9d50f03b72b58ed88b913a
