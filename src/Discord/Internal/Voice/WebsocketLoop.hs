@@ -398,7 +398,7 @@ eventStream conn opts interval udpLaunchOpts libSends log = do
     -- is the heartbeat response), so if we don't get that, it's a sign of
     -- the connection gone, we should reconnect. For a quick heuristic accounting
     -- for any network delays, allow for a tolerance of double the time.
-    payload <- doOrTimeout (interval * 2) $ getPayload conn
+    payload <- timeoutMs (interval * 2) $ getPayload conn
     -- log ✍ ("(recv) " <> tshow payload) -- TODO: debug, remove.
     case payload of
         Nothing -> do

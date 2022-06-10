@@ -206,7 +206,7 @@ join guildId channelId = do
     -- (Voice State Update) and Dispatch Event (Voice Server Update).
     liftDiscord $ updateStatusVoice guildId (Just channelId) False False
 
-    (liftIO . doOrTimeout 5000) (waitForVoiceStatusServerUpdate events) >>= \case
+    (liftIO . timeoutMs 5000) (waitForVoiceStatusServerUpdate events) >>= \case
         Nothing -> do
             -- did not respond in time: no permission? or discord offline?
             throwError VoiceNotAvailable

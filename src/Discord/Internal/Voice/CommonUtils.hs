@@ -29,6 +29,7 @@ import Data.Text qualified as T
 import Data.Time.Clock.POSIX
 import Data.Time
 import GHC.Weak
+import System.Timeout ( timeout )
 
 -- | @tshow@ is a shorthand alias for @T.pack . show@.
 tshow :: Show a => a -> T.Text
@@ -39,12 +40,9 @@ tshow = T.pack . show
 maybeToRight :: a -> Maybe b -> Either a b
 maybeToRight a = maybe (Left a) Right
 
--- | @doOrTimeout@ performs an IO action for a maximum of @millisec@ milliseconds.
-doOrTimeout :: Int -> IO a -> IO (Maybe a)
-doOrTimeout millisec longAction = (^? _Right) <$> race waitSecs longAction
-  where
-    waitSecs :: IO (Maybe b)
-    waitSecs = threadDelay (millisec * 10^(3 :: Int)) >> pure Nothing
+-- | @timeoutMs@ performs an IO action for a maximum of @millisec@ milliseconds.
+timeoutMs :: Int -> IO a -> IO (Maybe a)
+timeoutMs millisec = timeout (millisec * 10^(3 :: Int))
 
 -- | @killWkThread@ kills a thread referenced by Weak ThreadId. If the thread is
 -- no longer alive (that is, if @deRefWeak@ is Nothing), this function will do
