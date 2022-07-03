@@ -1,7 +1,7 @@
 # discord-haskell-voice
 
 [![hackage version](https://img.shields.io/hackage/v/discord-haskell-voice?color=%235e5184)](https://hackage.haskell.org/package/discord-haskell-voice)
-[![discord-haskell version dependency](https://img.shields.io/badge/discord--haskell-%3E=1.12.0%20%26%26%20%3C=1.13.0-lightblue)](https://hackage.haskell.org/package/discord-haskell)
+[![discord-haskell version dependency](https://img.shields.io/badge/discord--haskell-%3E=1.12.0%20%26%26%20%3C=1.14.0-lightblue)](https://hackage.haskell.org/package/discord-haskell)
 
 Welcome to `discord-haskell-voice`! This library provides you with a high-level
 interface for interacting with Discord's Voice API, building on top of the
@@ -81,31 +81,31 @@ This library is available on Hackage, at https://hackage.haskell.org/package/dis
 
 To use it in your Cabal-based project, add `discord-haskell-voice` as a dependency in your `.cabal` file:
 
-```
+```yaml
 # --- myproject.cabal <truncated>
  build-depends:
       base >=4.7 && <5
-    , discord-haskell ==1.13.0
-    , discord-haskell-voice ==2.3.0
+    , discord-haskell ==1.14.0
+    , discord-haskell-voice ==2.3.1
 ```
 
 ### Stack
 
 To use it in your Stack-based project, add `discord-haskell-voice` in both your `package.yaml` and `stack.yaml` files (since this library is not available in Stackage for the same reason `discord-haskell` is not on Stackage)
 
-```
+```yaml
 # --- stack.yaml <truncated>
 extra-deps:
-- discord-haskell-1.13.0
-- discord-haskell-voice-2.3.0
+- discord-haskell-1.14.0
+- discord-haskell-voice-2.3.1
 ```
 
-```
+```yaml
 # --- package.yaml <truncated>
 dependencies:
 - base >= 4.7 && < 5
-- discord-haskell == 1.13.0
-- discord-haskell-voice == 2.3.0
+- discord-haskell == 1.14.0
+- discord-haskell-voice == 2.3.1
 ```
 
 ## Documentation
