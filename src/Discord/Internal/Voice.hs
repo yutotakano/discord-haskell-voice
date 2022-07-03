@@ -39,14 +39,13 @@ import Control.Concurrent
     , newChan
     , readChan
     , writeChan
-    , MVar
+    -- We prefer UnliftIO.MVar functions for most MVar-related operations in
+    -- DiscordHandler, but since the Voice monad doesn't have MonadUnliftIO
+    -- (because it has an ExceptT transformer), we use the default
+    -- Control.Concurrent.MVar functions there.
     , newEmptyMVar
-    , newMVar
-    , readMVar
-    , putMVar
-    , withMVar
-    , tryPutMVar
     , modifyMVar_
+    , readMVar
     )
 import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Exception.Safe ( finally, bracket, throwTo, catch, throwIO )
@@ -133,15 +132,15 @@ liftDiscord = Voice . lift . lift
 -- existing value is of failure.
 runVoice :: Voice () -> DiscordHandler (Either VoiceError ())
 runVoice action = do
-    voiceHandles <- liftIO $ newMVar []
-    mutEx <- liftIO $ newMVar ()
+    voiceHandles <- UnliftIO.newMVar []
+    mutEx <- UnliftIO.newMVar ()
 
     let initialState = DiscordBroadcastHandle voiceHandles mutEx
 
     result <- finally (runExceptT $ flip runReaderT initialState $ unVoice $ action) $ do
         -- Wrap cleanup action in @finally@ to ensure we always close the
         -- threads even if an exception occurred.
-        finalState <- liftIO $ readMVar voiceHandles
+        finalState <- UnliftIO.readMVar voiceHandles
 
         -- Unfortunately, the following updateStatusVoice doesn't always run
         -- when we have entered this @finally@ block through a SIGINT or other
@@ -225,7 +224,7 @@ join guildId channelId = do
             udpChans <- liftIO $ (,) <$> newChan <*> Bounded.newBoundedChan 100
             udpTidM <- liftIO newEmptyMVar
             -- ssrc to be filled in during initial handshake
-            ssrcM <- liftIO $ newEmptyMVar
+            ssrcM <- liftIO newEmptyMVar
 
             uid <- userId . cacheCurrentUser <$> (liftDiscord readCache)
             let wsOpts = WebsocketLaunchOpts uid sessionId token guildId endpoint
@@ -303,7 +302,7 @@ join guildId channelId = do
 updateSpeakingStatus :: Bool -> Voice ()
 updateSpeakingStatus micStatus = do
     h <- (^. voiceHandles) <$> ask
-    handles <- liftIO $ readMVar h
+    handles <- UnliftIO.readMVar h
     flip (traverseOf_ traverse) handles $ \handle ->
         liftIO $ writeChan (handle ^. websocket . _2 . _2) $ Speaking $ SpeakingPayload
             { speakingPayloadMicrophone = micStatus
@@ -352,7 +351,7 @@ play :: ConduitT () B.ByteString (ResourceT DiscordHandler) () -> Voice ()
 play source = do
     h <- ask
     dh <- liftDiscord ask
-    handles <- liftIO $ readMVar $ h ^. voiceHandles
+    handles <- UnliftIO.readMVar $ h ^. voiceHandles
 
     updateSpeakingStatus True
     liftDiscord $ UnliftIO.withMVar (h ^. mutEx) $ \_ -> do
