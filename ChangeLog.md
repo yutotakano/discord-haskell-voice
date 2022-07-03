@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Update `discord-haskell` dependency bounds to `>= 1.12.0 && <= 1.14.0`.
+- Use `UnliftIO.MVar` functions internally for MVar operations in `DiscordHandler`
 
 ## 2.3.0
 
