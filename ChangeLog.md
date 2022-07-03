@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 2.3.1
+
 - Update `discord-haskell` dependency bounds to `>= 1.12.0 && <= 1.14.0`.
 - Use `UnliftIO.MVar` functions internally for MVar operations in `DiscordHandler`
 - `IOException`s thrown by e.g. createProcess during `runVoice` are no longer caught and subdued - they are propagated to the user.
