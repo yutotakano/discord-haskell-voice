@@ -48,7 +48,7 @@ import Control.Concurrent
     , readMVar
     )
 import Control.Concurrent.BoundedChan qualified as Bounded
-import Control.Exception.Safe ( finally, bracket, throwTo, catch, throwIO )
+import Control.Exception.Safe ( bracket, throwTo, catch, throwIO )
 import Lens.Micro
 import Lens.Micro.Extras (view)
 import Control.Monad.Reader ( ask, liftIO, runReaderT )
@@ -128,8 +128,11 @@ liftDiscord = Voice . lift . lift
 --
 -- The return type of @runVoice@ represents result status of the voice computation.
 -- It is isomorphic to @Maybe@, but the use of Either explicitly denotes that
--- the correct\/successful\/"Right" behaviour is (), and that the potentially-
+-- the correct\/successful\/'Right' behaviour is (), and that the potentially-
 -- existing value is of failure.
+--
+-- This function may propagate and throw an 'IOException' if 'createProcess' 
+-- fails for e.g. ffmpeg or youtube-dl.
 runVoice :: Voice () -> DiscordHandler (Either VoiceError ())
 runVoice action = do
     voiceHandles <- UnliftIO.newMVar []
@@ -137,22 +140,23 @@ runVoice action = do
 
     let initialState = DiscordBroadcastHandle voiceHandles mutEx
 
-    result <- finally (runExceptT $ flip runReaderT initialState $ unVoice $ action) $ do
-        -- Wrap cleanup action in @finally@ to ensure we always close the
-        -- threads even if an exception occurred.
-        finalState <- UnliftIO.readMVar voiceHandles
+    result <- runExceptT $ flip runReaderT initialState $ unVoice $ action
 
-        -- Unfortunately, the following updateStatusVoice doesn't always run
-        -- when we have entered this @finally@ block through a SIGINT or other
-        -- asynchronous exception. The reason is that sometimes, the
-        -- discord-haskell websocket sendable thread is killed before this.
-        -- There is no way to prevent it, so as a consequence, the bot may
-        -- linger in the voice call for a few minutes after the bot program is
-        -- killed.
-        traverseOf_ (traverse . guildId) (\x -> updateStatusVoice x Nothing False False) finalState
-        traverseOf_ (traverse . websocket . _1) (liftIO . killWkThread) finalState
+    -- Wrap cleanup action in @finally@ to ensure we always close the
+    -- threads even if an exception occurred.
+    finalState <- UnliftIO.readMVar voiceHandles
 
-    pure result
+    -- Unfortunately, the following updateStatusVoice doesn't always run
+    -- when we have entered this @finally@ block through a SIGINT or other
+    -- asynchronous exception. The reason is that sometimes, the
+    -- discord-haskell websocket sendable thread is killed before this.
+    -- There is no way to prevent it, so as a consequence, the bot may
+    -- linger in the voice call for a few minutes after the bot program is
+    -- killed.
+    traverseOf_ (traverse . guildId) (\x -> updateStatusVoice x Nothing False False) finalState
+    traverseOf_ (traverse . websocket . _1) (liftIO . killWkThread) finalState
+
+    return result
 
 -- | Join a specific voice channel, given the Guild and Channel ID of the voice
 -- channel. Since the Channel ID is globally unique, there is theoretically no
