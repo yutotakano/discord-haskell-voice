@@ -1,3 +1,4 @@
+{-# LANGUAGE ApplicativeDo #-}
 module Main where
 
 import           Conduit
@@ -38,26 +39,31 @@ data GuildContext = GuildContext
     }
 
 parser :: ParserInfo BotAction
-parser = info
-    ( helper <*> subparser
-        ( command "join"
-            ( flip info (progDesc "Join a voice channel") $
-                JoinVoice <$>
-                argument auto (metavar "CHANID" <> help "Voice Channel ID"))
-        <> command "leave"
-            ( flip info (progDesc "Leave a voice channel") $
-                LeaveVoice <$>
-                argument auto (metavar "CHANID" <> help "Voice Channel ID"))
-        <> command "play"
-            ( flip info (progDesc "Queue something to play!") $
-                PlayVoice . intercalate " " <$>
-                some (argument str (metavar "QUERY" <> help "Search query/URL")))
-        <> command "volume"
-            ( flip info (progDesc "Change the volume for this server!") $
-                ChangeVolume <$>
-                argument auto (metavar "VOLUME" <> help "Integer volume"))
-        )
-    ) fullDesc
+parser = flip info fullDesc $ helper <*> commandParser
+  where
+    commandParser = subparser $ mconcat
+        [ joinParser
+        , leaveParser
+        , playParser
+        , volumeParser
+        ]
+
+    joinParser = command "join" $
+        flip info (progDesc "Join a voice channel") $
+            JoinVoice <$>
+            argument auto (metavar "CHANID" <> help "Voice Channel ID")
+    leaveParser = command "leave" $
+        flip info (progDesc "Leave a voice channel") $
+            LeaveVoice <$>
+            argument auto (metavar "CHANID" <> help "Voice Channel ID")
+    playParser = command "play" $
+        flip info (progDesc "Queue something to play!") $
+            PlayVoice . intercalate " " <$>
+            some (argument str (metavar "QUERY" <> help "Search query/URL"))
+    volumeParser = command "volume" $
+        flip info (progDesc "Change the volume for this server!") $
+            ChangeVolume <$>
+            argument auto (metavar "VOLUME" <> help "Integer volume")
 
 main :: IO ()
 main = do
