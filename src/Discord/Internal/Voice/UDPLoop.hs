@@ -27,13 +27,9 @@ module Discord.Internal.Voice.UDPLoop
     ) where
 
 import Codec.Audio.Opus.Decoder
-import Crypto.Saltine.Core.SecretBox
-    ( Key(..)
-    , Nonce(..)
-    , secretboxOpen
-    , secretbox
-    )
-import Crypto.Saltine.Class qualified as SC
+import Crypto.PubKey.Curve25519 qualified as X25519
+import Crypto.SecretBox qualified as SecretBox
+import Crypto.Error ( maybeCryptoError )
 import Control.Concurrent
     ( Chan
     , readChan
@@ -268,10 +264,9 @@ sendableLoop conn log sequence timestamp startTime = do
 -- This does no error handling on misformatted key/nonce since this function is
 -- only used in contexts where we are guaranteed they are valid.
 decrypt :: [Word8] -> B.ByteString -> B.ByteString -> Maybe B.ByteString
-decrypt byteKey byteNonce og = secretboxOpen key nonce og
+decrypt byteKey nonce ciphertext = SecretBox.open ciphertext nonce key
   where
-    key = fromJust $ SC.decode $ B.pack byteKey
-    nonce = fromJust $ SC.decode byteNonce
+    key = fromJust $ maybeCryptoError $ X25519.dhSecret $ B.pack byteKey
 
 -- | Encrypt a strict sound packet using the provided Discord key and header
 -- nonce. The argument is strict because it has to be converted to strict
@@ -281,10 +276,9 @@ decrypt byteKey byteNonce og = secretboxOpen key nonce og
 -- As with decryption, this function does no error handling on the format of the
 -- key and nonce (key = 32 bytes, nonce = 24 bytes).
 encrypt :: [Word8] -> B.ByteString -> B.ByteString -> B.ByteString
-encrypt byteKey byteNonce og = secretbox key nonce og
+encrypt byteKey nonce message = SecretBox.create message nonce key
   where
-    key = fromJust $ SC.decode $ B.pack byteKey
-    nonce = fromJust $ SC.decode byteNonce
+    key = fromJust $ maybeCryptoError $ X25519.dhSecret $ B.pack byteKey
 
 decodeOpusData :: B.ByteString -> IO B.ByteString
 decodeOpusData bytes = do
