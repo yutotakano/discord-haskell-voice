@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Add a compile flag to use a `cryptonite`-based encryption implementation, which removes the necessity for libsodium.
+- Improve the lisp-ish-ness of the BasicMusicBot example.
+
 ## 2.3.1
 
 - Update `discord-haskell` dependency bounds to `>= 1.12.0 && <= 1.14.0`.
