@@ -16,6 +16,12 @@ extra-source-files:
 
 default-extensions:  OverloadedStrings
 
+flags:
+  use-shecretbox:
+    description: Use Shecretbox, a Haskell implementation of secretbox encryption, powered using cryptonite. If off, requires libsodium to dynamically link to.
+    manual: yes
+    default: no
+
 dependencies:
 - aeson == 1.5.6.0
 - async >= 2.2.3 && < 2.4
@@ -24,7 +30,6 @@ dependencies:
 - BoundedChan == 1.0.3.0
 - bytestring >= 0.10.12.0 && < 0.11
 - conduit == 1.3.4.2
-- cryptonite >= 0.29
 - discord-haskell >= 1.12.0 && <= 1.14.0
 - microlens >= 0.4.13.0
 - microlens-th >= 0.4.3.10
@@ -33,12 +38,22 @@ dependencies:
 - opus == 0.1.0.0
 - process >= 1.6.9.0 && < 1.7
 - safe-exceptions >= 0.1.7.1 && < 0.1.8
-- shecretbox == 0.0.1
 - text >= 1.2.4.1 && < 2
 - time >= 1.9.3 && <= 1.13
 - unliftio >= 0.2.18 && < 0.3
 - websockets >= 0.12.7.2 && < 0.12.8
 - wuss >= 1.1.18 && <= 1.2
+
+when:
+- condition: flag(use-shecretbox)
+  then:
+    cpp-options: -DUSE_SHECRETBOX
+    dependencies:
+    - cryptonite >= 0.29
+    - shecretbox == 0.0.1
+  else:
+    dependencies:
+    - saltine >= 0.1.1.1 && < 0.2
 
 library:
   source-dirs: src

@@ -27,9 +27,6 @@ module Discord.Internal.Voice.UDPLoop
     ) where
 
 import Codec.Audio.Opus.Decoder
-import Crypto.PubKey.Curve25519 qualified as X25519
-import Crypto.SecretBox qualified as SecretBox
-import Crypto.Error ( maybeCryptoError )
 import Control.Concurrent
     ( Chan
     , readChan
@@ -53,8 +50,6 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time.Clock.POSIX
 import Data.Time
-import Data.Maybe ( fromJust )
-import Data.Word ( Word8 )
 import Network.Socket hiding ( socket )
 import Network.Socket qualified as S ( socket )
 import Network.Socket.ByteString.Lazy ( sendAll, recv )
@@ -62,6 +57,7 @@ import Network.Socket.ByteString.Lazy ( sendAll, recv )
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types.VoiceUDP
 import Discord.Internal.Voice.CommonUtils
+import Discord.Internal.Voice.Encryption
 
 data UDPState
     = UDPClosed
@@ -257,28 +253,6 @@ sendableLoop conn log sequence timestamp startTime = do
             sendableLoop conn log
                 (sequence + 1 `mod` 0xFFFF) (timestamp + 48*20 `mod` 0xFFFFFFFF) theoreticalNextTime
 
--- | Decrypt a sound packet using the provided Discord key and header nonce. The
--- argument is strict because it has to be strict when passed to Saltine anyway,
--- and having the same type signature leaves room for the caller to choose.
---
--- This does no error handling on misformatted key/nonce since this function is
--- only used in contexts where we are guaranteed they are valid.
-decrypt :: [Word8] -> B.ByteString -> B.ByteString -> Maybe B.ByteString
-decrypt byteKey nonce ciphertext = SecretBox.open ciphertext nonce key
-  where
-    key = fromJust $ maybeCryptoError $ X25519.dhSecret $ B.pack byteKey
-
--- | Encrypt a strict sound packet using the provided Discord key and header
--- nonce. The argument is strict because it has to be converted to strict
--- before passing onto Saltine anyway, and it leaves room for the caller of the
--- function to choose which laziness to use.
---
--- As with decryption, this function does no error handling on the format of the
--- key and nonce (key = 32 bytes, nonce = 24 bytes).
-encrypt :: [Word8] -> B.ByteString -> B.ByteString -> B.ByteString
-encrypt byteKey nonce message = SecretBox.create message nonce key
-  where
-    key = fromJust $ maybeCryptoError $ X25519.dhSecret $ B.pack byteKey
 
 decodeOpusData :: B.ByteString -> IO B.ByteString
 decodeOpusData bytes = do
