@@ -85,7 +85,11 @@ jobs:
       - name: Install libsodium (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          ${STACK} exec -- pacman -S --noconfirm mingw-w64-x86_64-libsodium mingw-w64-x86_64-opus
+          curl -Ls https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-mingw.tar.gz -o libsodium-1.0.18-stable-mingw.tar.gz
+          tar zxvf libsodium-1.0.18-stable-mingw.tar.gz
+          cd libsodium-win64
+          echo "LIBSODIUM_INCLUDES=$(pwd)/include" >> $GITHUB_ENV
+          echo "LIBSODIUM_LIBS=$(pwd)/lib" >> $GITHUB_ENV
 
       - name: Install libsodium (Linux)
         if: startsWith(matrix.os, 'ubuntu')
@@ -102,18 +106,18 @@ jobs:
           cabal sdist -z -o .
           cabal get discord-haskell-voice-*.tar.gz
           cd discord-haskell-voice-*/
-          ${CABAL} build --ghc --with-compiler=${GHC} --disable-tests --disable-benchmarks --dependencies-only -j2 all
-          ${CABAL} build --ghc --with-compiler=${GHC} --enable-tests --dependencies-only -j2 all
+          ${CABAL} build --ghc --with-compiler=${GHC} --extra-include-dirs=${LIBSODIUM_INCLUDES} --extra-lib-dirs=${LIBSODIUM_LIBS} --disable-tests --disable-benchmarks --dependencies-only -j2 all
+          ${CABAL} build --ghc --with-compiler=${GHC} --extra-include-dirs=${LIBSODIUM_INCLUDES} --extra-lib-dirs=${LIBSODIUM_LIBS} --enable-tests --dependencies-only -j2 all
 
       - name: build w/o tests
         run: |
           cd discord-haskell-voice-*/
-          ${CABAL} build --ghc --with-compiler=${GHC} --disable-tests --disable-benchmarks all
+          ${CABAL} build --ghc --with-compiler=${GHC} --extra-include-dirs=${LIBSODIUM_INCLUDES} --extra-lib-dirs=${LIBSODIUM_LIBS} --disable-tests --disable-benchmarks all
 
       - name: build
         run: |
           cd discord-haskell-voice-*/
-          ${CABAL} build --ghc --with-compiler=${GHC} --enable-tests all --write-ghc-environment-files=always
+          ${CABAL} build --ghc --with-compiler=${GHC} --extra-include-dirs=${LIBSODIUM_INCLUDES} --extra-lib-dirs=${LIBSODIUM_LIBS} --enable-tests all --write-ghc-environment-files=always
 
       - name: cabal check
         run: |
