@@ -31,14 +31,14 @@ jobs:
     strategy:
       matrix:
         os: ["ubuntu-20.04"]
-        ghc: ["8.10.4", "8.10.7", "9.0.2", "9.2.2"]
+        ghc: ["8.10.4", "8.10.7", "9.0.2"]
         include:
           - os: ubuntu-18.04
             ghc: latest
           - os: macOS-latest
-            ghc: latest
+            ghc: "8.10.7"
           - os: windows-latest
-            ghc: latest
+            ghc: "8.10.7"
       fail-fast: false
     steps:
       - name: checkout
@@ -85,10 +85,7 @@ jobs:
       - name: Install libsodium (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          curl -Ls https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-mingw.tar.gz -o libsodium-1.0.18-stable-mingw.tar.gz
-          tar zxvf libsodium-1.0.18-stable-mingw.tar.gz
-          cd libsodium-win64
-          echo $(pkg-config --variable pc_path pkg-config)
+          pacman -S mingw-w64-x86_64-libsodium
 
       - name: Install libsodium (Linux)
         if: startsWith(matrix.os, 'ubuntu')
