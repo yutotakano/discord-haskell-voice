@@ -23,8 +23,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes:
       60
-    container:
-      image: buildpack-deps:bionic
     continue-on-error: false
     strategy:
       matrix:
