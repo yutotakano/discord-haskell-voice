@@ -101,8 +101,8 @@ jobs:
           package opus
             extra-include-dirs: c:/msys64/mingw64/include
             extra-lib-dirs: c:/msys64/mingw64/lib
-          "@ >> ../cabal.project
-          cat ../cabal.project
+          "@ >> cabal.project
+          cat cabal.project
         shell: pwsh
 
       - name: Install libsodium (Linux)
