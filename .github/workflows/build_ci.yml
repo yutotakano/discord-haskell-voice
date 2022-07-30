@@ -89,7 +89,7 @@ jobs:
           tar zxvf libsodium-1.0.18-stable-mingw.tar.gz
           cd libsodium-win64
           echo "LIBSODIUM_INCLUDES=--extra-include-dirs=$(pwd)/include" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-          echo "LIBSODIUM_LIBS=--extra-lib-dirs=$(pwd)/lib" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          echo "LIBSODIUM_LIBS=--extra-lib-dirs=$(pwd)/bin" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
         shell: pwsh
 
       - name: Install libsodium (Linux)
@@ -101,10 +101,6 @@ jobs:
         if: matrix.os == 'macOS-latest'
         run: |
           brew install libsodium opus
-
-      - name: env
-        run: |
-          env
 
       - name: install dependencies
         run: |
