@@ -77,6 +77,25 @@ jobs:
             ${{ steps.setup-haskell-cabal.outputs.cabal-store }}
             dist-newstyle
           restore-keys: ${{ runner.os }}-${{ matrix.ghc }}
+
+      - name: Install libsodium (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          curl -Ls https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-mingw.tar.gz -o libsodium-1.0.18-stable-mingw.tar.gz
+          tar zxvf libsodium-1.0.18-stable-mingw.tar.gz
+          cd libsodium-win64
+          echo $(where bash)
+
+      - name: Install libsodium (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get install -y libsodium-dev
+
+      - name: Install libsodium (macOS)
+        if: matrix.os == 'macOS-latest'
+        run: |
+          brew install libsodium
+
       - name: install dependencies
         run: |
           cabal sdist -z -o .
