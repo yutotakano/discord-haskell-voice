@@ -85,7 +85,7 @@ jobs:
       - name: Install libsodium and Opus (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          pacman -S --noconfirm mingw-w64-x86_64-opus mingw-w64-x86_64-libsodium
+          pacman -S --noconfirm mingw-w64-x86_64-pkg-config mingw-w64-x86_64-opus mingw-w64-x86_64-libsodium
         shell: C:\shells\msys2bash.cmd {0}
 
       - name: Add to cabal.project (Windows)
