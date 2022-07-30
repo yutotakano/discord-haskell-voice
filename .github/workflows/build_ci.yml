@@ -85,7 +85,7 @@ jobs:
       - name: Install libsodium (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          pacman -S mingw-w64-x86_64-libsodium
+          pacman -S --noconfirm mingw-w64-x86_64-libsodium
         # https://github.com/actions/virtual-environments/blob/main/images/win/Windows2022-Readme.md#shells
         shell: C:\shells\msys2bash.cmd {0}
 
