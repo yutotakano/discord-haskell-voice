@@ -91,8 +91,8 @@ jobs:
           # https://github.com/haskell/cabal/issues/2997
           echo @"
           package saltine
-            extra-include-dirs: $(pwd)/include
-            extra-lib-dirs: $(pwd)/lib
+            extra-include-dirs: $(pwd | % {$_ -replace "^C:\\","/c/" -replace '[\\/]','/'})/include
+            extra-lib-dirs: $(pwd | % {$_ -replace "^C:\\","/c/" -replace '[\\/]','/'})/lib
           "@ | Out-File -FilePath cabal.project -Encoding utf8 -Append
         shell: pwsh
 
