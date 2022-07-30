@@ -17,6 +17,10 @@ on:
   - push
   - pull_request
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     name: Build - ${{ matrix.os }} - ${{ matrix.ghc }}
