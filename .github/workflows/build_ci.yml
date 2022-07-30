@@ -91,9 +91,10 @@ jobs:
           # https://github.com/haskell/cabal/issues/2997
           echo @"
           package saltine
-            extra-include-dirs: $(pwd | % {$_ -replace "^C:\\","/c/" -replace '[\\/]','/'})/include
-            extra-lib-dirs: $(pwd | % {$_ -replace "^C:\\","/c/" -replace '[\\/]','/'})/lib
+            extra-include-dirs: $(pwd | % {$_ -replace "^D:\\","/d/" -replace '[\\/]','/'})/include
+            extra-lib-dirs: $(pwd | % {$_ -replace "^D:\\","/d/" -replace '[\\/]','/'})/lib
           "@ | Out-File -FilePath cabal.project -Encoding utf8 -Append
+          cat cabal.project
         shell: pwsh
 
       - name: Install libsodium (Linux)
