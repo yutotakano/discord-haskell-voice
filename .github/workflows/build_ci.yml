@@ -82,16 +82,16 @@ jobs:
           cabal sdist -z -o .
           cabal get discord-haskell-voice-*.tar.gz
           cd discord-haskell-voice-*/
-          ${CABAL} build --ghc ${GHC} --disable-tests --disable-benchmarks --dependencies-only -j2 all
-          ${CABAL} build --ghc ${GHC} --enable-tests --dependencies-only -j2 all
+          ${CABAL} build --ghc --with-compiler=${GHC} --disable-tests --disable-benchmarks --dependencies-only -j2 all
+          ${CABAL} build --ghc --with-compiler=${GHC} --enable-tests --dependencies-only -j2 all
       - name: build w/o tests
         run: |
           cd discord-haskell-voice-*/
-          ${CABAL} build --ghc ${GHC} --disable-tests --disable-benchmarks all
+          ${CABAL} build --ghc --with-compiler=${GHC} --disable-tests --disable-benchmarks all
       - name: build
         run: |
           cd discord-haskell-voice-*/
-          ${CABAL} build --ghc ${GHC} --enable-tests all --write-ghc-environment-files=always
+          ${CABAL} build --ghc --with-compiler=${GHC} --enable-tests all --write-ghc-environment-files=always
       - name: cabal check
         run: |
           cd discord-haskell-voice-*/
