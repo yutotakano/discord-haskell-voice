@@ -88,7 +88,7 @@ jobs:
           curl -Ls https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-mingw.tar.gz -o libsodium-1.0.18-stable-mingw.tar.gz
           tar zxvf libsodium-1.0.18-stable-mingw.tar.gz
           cd libsodium-win64
-          echo $(where bash)
+          echo $(pkg-config --variable pc_path pkg-config)
 
       - name: Install libsodium (Linux)
         if: startsWith(matrix.os, 'ubuntu')
