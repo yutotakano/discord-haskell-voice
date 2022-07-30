@@ -85,11 +85,12 @@ jobs:
       - name: Install libsodium (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          curl -Ls https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-mingw.tar.gz -o libsodium-1.0.18-stable-mingw.tar.gz
+          Invoke-WebRequest https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-mingw.tar.gz -OutFile libsodium-1.0.18-stable-mingw.tar.gz
           tar zxvf libsodium-1.0.18-stable-mingw.tar.gz
           cd libsodium-win64
-          echo "LIBSODIUM_INCLUDES=--extra-include-dirs=$(pwd)/include" >> $GITHUB_ENV
-          echo "LIBSODIUM_LIBS=--extra-lib-dirs=$(pwd)/lib" >> $GITHUB_ENV
+          echo "LIBSODIUM_INCLUDES=--extra-include-dirs=$(pwd)/include" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          echo "LIBSODIUM_LIBS=--extra-lib-dirs=$(pwd)/lib" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+        shell: pwsh
 
       - name: Install libsodium (Linux)
         if: startsWith(matrix.os, 'ubuntu')
