@@ -51,9 +51,9 @@ jobs:
 
       - name: versions
         run: |
-          ${{ steps.setup-haskell.ghc-exe }} --version || true
-          ${{ steps.setup-haskell.cabal-exe }} --version || true
-          ${{ steps.setup-haskell.stack-exe }} --version || true
+          ${{ steps.setup-haskell.outputs.ghc-exe }} --version || true
+          ${{ steps.setup-haskell.outputs.cabal-exe }} --version || true
+          ${{ steps.setup-haskell.outputs.stack-exe }} --version || true
 
       - name: cache
         uses: actions/cache@v2
@@ -68,17 +68,17 @@ jobs:
           cabal sdist -z -o .
           cabal get discord-haskell-voice-*.tar.gz
           cd discord-haskell-voice-*/
-          ${{ steps.setup-haskell.cabal-exe }} build --ghc ${{ steps.setup-haskell.ghc-path }} --disable-tests --disable-benchmarks --dependencies-only -j2 all
-          ${{ steps.setup-haskell.cabal-exe }} build --ghc ${{ steps.setup-haskell.ghc-path }} --enable-tests --dependencies-only -j2 all
+          ${{ steps.setup-haskell.outputs.cabal-exe }} build --ghc ${{ steps.setup-haskell.outputs.ghc-path }} --disable-tests --disable-benchmarks --dependencies-only -j2 all
+          ${{ steps.setup-haskell.outputs.cabal-exe }} build --ghc ${{ steps.setup-haskell.outputs.ghc-path }} --enable-tests --dependencies-only -j2 all
       - name: build w/o tests
         run: |
           cd discord-haskell-voice-*/
-          ${{ steps.setup-haskell.cabal-exe }} build --ghc ${{ steps.setup-haskell.ghc-path }} --disable-tests --disable-benchmarks all
+          ${{ steps.setup-haskell.outputs.cabal-exe }} build --ghc ${{ steps.setup-haskell.outputs.ghc-path }} --disable-tests --disable-benchmarks all
       - name: build
         run: |
           cd discord-haskell-voice-*/
-          ${{ steps.setup-haskell.cabal-exe }} build --ghc ${{ steps.setup-haskell.ghc-path }} --enable-tests all --write-ghc-environment-files=always
+          ${{ steps.setup-haskell.outputs.cabal-exe }} build --ghc ${{ steps.setup-haskell.outputs.ghc-path }} --enable-tests all --write-ghc-environment-files=always
       - name: cabal check
         run: |
           cd discord-haskell-voice-*/
-          ${{ steps.setup-haskell.cabal-exe }} -vnormal check
+          ${{ steps.setup-haskell.outputs.cabal-exe }} -vnormal check
