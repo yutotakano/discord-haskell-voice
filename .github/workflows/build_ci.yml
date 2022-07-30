@@ -88,8 +88,12 @@ jobs:
           Invoke-WebRequest https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-mingw.tar.gz -OutFile libsodium-1.0.18-stable-mingw.tar.gz
           tar zxvf libsodium-1.0.18-stable-mingw.tar.gz
           cd libsodium-win64
-          echo "LIBSODIUM_INCLUDES=--extra-include-dirs=$(pwd)/include" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-          echo "LIBSODIUM_LIBS=--extra-lib-dirs=$(pwd)/bin" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          # https://github.com/haskell/cabal/issues/2997
+          echo @"
+          package saltine
+            extra-include-dirs: $(pwd)/include
+            extra-lib-dirs: $(pwd)/lib
+          "@ | Out-File -FilePath cabal.project -Encoding utf8 -Append
         shell: pwsh
 
       - name: Install libsodium (Linux)
