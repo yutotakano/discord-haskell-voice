@@ -87,7 +87,7 @@ jobs:
         run: |
           pacman -S mingw-w64-x86_64-libsodium
         # https://github.com/actions/virtual-environments/blob/main/images/win/Windows2022-Readme.md#shells
-        shell: msys2bash.cmd
+        shell: C:\shells\msys2bash.cmd {0}
 
       - name: Install libsodium (Linux)
         if: startsWith(matrix.os, 'ubuntu')
