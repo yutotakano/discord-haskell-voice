@@ -1,0 +1,84 @@
+name: Build (Stack)
+on:
+  - push
+  - pull_request
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build (stack) - ${{ matrix.os }} - ${{ matrix.ghc }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes:
+      60
+    continue-on-error: false
+    strategy:
+      matrix:
+        os: ["ubuntu-20.04"]
+        ghc: ["8.10.4", "8.10.7", "9.0.2"]
+        include:
+          - os: ubuntu-18.04
+            ghc: "8.10.7"
+          - os: macOS-latest
+            ghc: "8.10.7"
+          - os: windows-latest
+            ghc: "8.10.7"
+      fail-fast: false
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+
+      - uses: haskell/actions/setup@v2
+        id: setup-haskell
+        with:
+          ghc-version: ${{ matrix.ghc }}
+          enable-stack: true
+
+      - name: Set Haskell PATH and environment variables
+        run: |
+          echo "GHC=${{ steps.setup-haskell.outputs.ghc-exe }}" >> $GITHUB_ENV
+          echo "GHC_VER=$(ghc --numeric-version)" >> $GITHUB_ENV
+          echo "STACK=${{ steps.setup-haskell.outputs.stack-exe }}" >> $GITHUB_ENV
+          echo "STACK_VER=$(stack --numeric-version)" >> $GITHUB_ENV
+          echo "STACK_ROOT=${{ steps.setup-haskell.outputs.stack-root }}" >> $GITHUB_ENV
+
+      - name: Print GHC/Stack versions and env
+        run: |
+          ${GHC} --version || true
+          ${STACK} --version || true
+          env
+
+      - name: Install libsodium and Opus (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          ${STACK} exec -- pacman -S --noconfirm mingw-w64-x86_64-pkg-config mingw-w64-x86_64-opus mingw-w64-x86_64-libsodium
+        shell: C:\shells\msys2bash.cmd {0}
+
+      - name: Install libsodium (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get install -y libsodium-dev libopus-dev
+
+      - name: Install libsodium (macOS)
+        if: matrix.os == 'macOS-latest'
+        run: |
+          brew install libsodium opus
+
+      - name: Cache Stack Dependencies
+        id: cache
+        uses: actions/cache@v2
+        with:
+          key: ${{ runner.os }}-${{ env.GHC_VER }}-${{ env.STACK_VER }}-${{ hashFiles('stack.yaml') }}
+          path: |
+            ${{ env.STACK_ROOT }}
+
+      - name: Install dependencies
+        if: ${{ !steps.cache.outputs.cache-hit }}
+        run: |
+          ${STACK} build --test --only-dependencies
+
+      - name: Build discord-haskell-voice
+        run: |
+          ${STACK} build --test --no-run-tests
