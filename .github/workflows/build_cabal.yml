@@ -35,9 +35,6 @@ jobs:
         with:
           ghc-version: ${{ matrix.ghc }}
 
-      - name: Update cabal package database
-        run: cabal update
-
       - name: Set Haskell PATH and environment variables
         run: |
           echo "GHC=${{ steps.setup-haskell.outputs.ghc-exe }}" >> $GITHUB_ENV
@@ -84,6 +81,12 @@ jobs:
         if: matrix.os == 'macOS-latest'
         run: |
           brew install libsodium opus
+
+      # set up a build plan
+      - name: Update cabal package database
+        run: |
+          cabal update
+          cabal configure
 
       - name: Cache Cabal Dependencies
         id: cache
