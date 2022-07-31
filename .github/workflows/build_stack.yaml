@@ -1,3 +1,4 @@
+# Heavy references from agda/agda's workflows, thank you!
 name: Build (Stack)
 on:
   - push
@@ -54,7 +55,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           ${STACK} exec -- pacman -Sy --noconfirm msys2-keyring
-          ${STACK} exec -- pacman -S --noconfirm mingw-w64-x86_64-opus mingw-w64-x86_64-libsodium
+          ${STACK} exec -- pacman -S --noconfirm mingw-w64-x86_64-pkg-config mingw-w64-x86_64-opus mingw-w64-x86_64-libsodium
 
       - name: Install libsodium (Linux)
         if: startsWith(matrix.os, 'ubuntu')

@@ -1,3 +1,4 @@
+# Heavy references from agda/agda's workflows, thank you!
 name: Build (Cabal)
 on:
   - push
