@@ -1,8 +1,10 @@
 # Heavy references from agda/agda's workflows, thank you!
 name: Build (Stack)
 on:
-  - push
-  - pull_request
+  push:
+    branches:
+      - master
+  pull_request: {}
 
 defaults:
   run:
