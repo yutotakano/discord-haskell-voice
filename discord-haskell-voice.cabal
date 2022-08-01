@@ -76,7 +76,7 @@ library
       , shecretbox ==0.0.1
   else
     build-depends:
-        saltine >=0.1.1.1 && <0.2
+        saltine >=0.1.1.1 && <0.3
   default-language: Haskell2010
 
 executable basic-music-bot
@@ -118,7 +118,7 @@ executable basic-music-bot
       , shecretbox ==0.0.1
   else
     build-depends:
-        saltine >=0.1.1.1 && <0.2
+        saltine >=0.1.1.1 && <0.3
   default-language: Haskell2010
 
 executable join-all-on-start
@@ -157,5 +157,5 @@ executable join-all-on-start
       , shecretbox ==0.0.1
   else
     build-depends:
-        saltine >=0.1.1.1 && <0.2
+        saltine >=0.1.1.1 && <0.3
   default-language: Haskell2010
