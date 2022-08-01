@@ -53,7 +53,7 @@ when:
     - shecretbox == 0.0.1
   else:
     dependencies:
-    - saltine >= 0.1.1.1 && < 0.2
+    - saltine >= 0.1.1.1 && < 0.3
 
 library:
   source-dirs: src
