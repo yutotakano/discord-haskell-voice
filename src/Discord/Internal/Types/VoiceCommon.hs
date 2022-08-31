@@ -29,6 +29,7 @@ Template Haskell.
 -}
 module Discord.Internal.Types.VoiceCommon where
 
+import Conduit
 import Control.Concurrent ( Chan, MVar, ThreadId )
 import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Exception.Safe ( Exception, MonadMask, MonadCatch, MonadThrow )
@@ -36,6 +37,8 @@ import Lens.Micro.TH ( makeFields )
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.ByteString qualified as B
+import Data.ByteString.Lazy qualified as BL
+import Data.List.NonEmpty
 import Data.Text qualified as T
 import Data.Word ( Word8 )
 import GHC.Weak ( Weak )
@@ -81,6 +84,59 @@ newtype Voice a = Voice
     , MonadCatch
     , MonadMask
     )
+
+data FFmpegFilter
+    = Reverb Int
+
+data AudioCodec
+    = OPUSCodec
+    -- ^ The audio is in OPUS format which can be directly sent to Discord.
+    | PCMCodec
+    -- ^ The audio is in PCM format which can be encoded and sent to Discord.
+    | ProbeCodec String
+    -- ^ The audio is in an unknown format, but we want to probe it using
+    -- `ffprobe` (executable name specified) first to determine the best
+    -- pipeline for the audio. This can sometimes result in more efficient
+    -- audio pipelines with minimal transcoding, at the expense of an initial
+    -- delay probing for the codec.
+    | UnknownCodec
+    -- ^ The audio is in an unknown format, and we want to unconditionally
+    -- run FFmpeg on it to convert it to OPUS which we can send to Discord.
+    deriving (Eq)
+
+data AudioCodecNoFurtherFFmpeg
+    = OPUSFinalOutput
+    | PCMFinalOutput
+    deriving (Eq)
+
+-- | The pipeline of the audio processing before it is given to the Haskell side.
+data AudioPipeline = AudioPipeline
+    { audioPipelineNeedsFFmpeg :: Bool
+    -- ^ Whether the pipeline needs FFmpeg to do transformations or transcoding.
+    , audioPipelineOutputCodec :: AudioCodecNoFurtherFFmpeg
+    -- ^ What format the pipeline will output its audio. If FFmpeg is required,
+    -- this is the codec that FFmpeg will output. If FFmpeg is not required, this
+    -- is the original codec of the file/input.
+    }
+
+data AudioTransformation
+    = FFmpegTransformation (NonEmpty FFmpegFilter)
+    | HaskellTransformation (ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ())
+    | (NonEmpty FFmpegFilter) ::.: (ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ())
+
+-- | Datatype to use for playing stuff
+data AudioResource = AudioResource
+    { audioResourceStream :: Either String BL.ByteString
+    -- ^ The stream source. If it's Left, the value is a URL or filepath that
+    -- can be passed to ffmpeg. If it is Right, it contains the lazy ByteString
+    -- for the entire audio.
+    , audioResourceYouTubeDLInfo :: Maybe Object
+    -- ^ If this audio resource was created through youtube-dl, then other
+    -- metadata listed by youtube-dl.
+    , audioResourceTransform :: Maybe AudioTransformation
+    -- ^ Any transformations to perform on the audio resource, both via ffmpeg
+    -- filters and via ByteString Conduits.
+    }
 
 -- | @VoiceError@ represents the potential errors when initialising a voice
 -- connection. It does /not/ account for errors that occur after the initial
@@ -197,6 +253,8 @@ data UDPConn = UDPConn
     , uDPConnSocket     :: Socket
     }
 
+$(makeFields ''AudioPipeline)
+$(makeFields ''AudioResource)
 $(makeFields ''DiscordVoiceHandle)
 $(makeFields ''DiscordBroadcastHandle)
 $(makeFields ''WebsocketLaunchOpts)
