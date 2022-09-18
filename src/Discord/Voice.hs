@@ -46,6 +46,9 @@ module Discord.Voice
     , join
       -- * Play Some Audio
     , play
+    , createYoutubeResource
+    , AudioTransformation(..)
+    , AudioCodec(..)
     ) where
 
 import Discord.Internal.Types.VoiceCommon
