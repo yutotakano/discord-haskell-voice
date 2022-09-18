@@ -46,19 +46,6 @@ module Discord.Voice
     , join
       -- * Play Some Audio
     , play
-      -- ** More Accessible Variants
-      -- $moreAccessibleVariants
-    , playPCMFile
-    , playPCMFile'
-    , playFile
-    , playFile'
-    , playFileWith
-    , playFileWith'
-    , playYouTube
-    , playYouTube'
-    , playYouTubeWith
-    , playYouTubeWith'
-    , defaultFFmpegArgs
     ) where
 
 import Discord.Internal.Types.VoiceCommon
