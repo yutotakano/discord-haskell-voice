@@ -1,15 +1,17 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
-import           Control.Monad              ( forM_
-                                            , forever
-                                            , void
+import           Conduit
+import           Control.Concurrent         ( threadDelay
                                             )
 import           Control.Exception.Safe     ( catch
                                             , SomeException
                                             )
+import           Control.Monad              ( forM_
+                                            , forever
+                                            , void
+                                            )
 import           Control.Monad.Trans        ( lift )
-import           Conduit
 import qualified Data.Text.IO as TIO
 import           Discord
 import           Discord.Voice
@@ -17,7 +19,6 @@ import qualified Discord.Requests as R
 import           Discord.Types
 import           UnliftIO                   ( liftIO
                                             )
-import Control.Concurrent
 
 main :: IO ()
 main = do
@@ -50,7 +51,8 @@ startHandler = do
 
         -- play something, then sit around in silence for 30 seconds
         resource <- createYoutubeResource "https://www.youtube.com/watch?v=dQw4w9WgXcQ" $
-            Nothing
+            -- TODO: opus output with no transformation is not yet supported
+            Just $ HaskellTransformation $ awaitForever yield
         case resource of
             Nothing -> liftIO $ print "whoops"
             Just re -> catch (play re UnknownCodec) (\(e :: SomeException) -> liftIO $ print e)
