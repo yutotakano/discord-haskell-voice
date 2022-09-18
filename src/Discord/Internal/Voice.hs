@@ -64,7 +64,15 @@ import Data.Maybe ( fromJust )
 import Data.Text qualified as T
 import GHC.Weak ( deRefWeak, Weak )
 import System.Exit ( ExitCode(..) )
-import System.IO ( hClose, hGetContents, hWaitForInput, hIsOpen )
+import System.IO
+    ( hClose
+    , hGetContents
+    , hWaitForInput
+    , hIsOpen
+    , hSetBuffering
+    , hSetBinaryMode
+    , BufferMode(..)
+    )
 import System.IO.Error ( isEOFError )
 import System.Process
 import UnliftIO qualified as UnliftIO
@@ -347,7 +355,46 @@ probeCodec = undefined
 -- acts as an abstraction layer that basically returns what things are necessary
 -- for a given audio resource.
 getPipeline :: AudioResource -> AudioCodec -> AudioPipeline
-getPipeline = undefined
+getPipeline (AudioResource (Left path) _ Nothing) OPUSCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = OPUSFinalOutput
+    }
+getPipeline (AudioResource (Right bs) _ Nothing) OPUSCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = False
+    , audioPipelineOutputCodec = OPUSFinalOutput
+    }
+getPipeline (AudioResource (Left path) _ Nothing) PCMCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = PCMFinalOutput
+    }
+getPipeline (AudioResource (Right bs) _ Nothing) PCMCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = False
+    , audioPipelineOutputCodec = PCMFinalOutput
+    }
+getPipeline (AudioResource _ _ Nothing) UnknownCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = OPUSFinalOutput
+    }
+getPipeline (AudioResource _ _ (Just (FFmpegTransformation _))) _ = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = OPUSFinalOutput
+    }
+getPipeline (AudioResource (Left path) _ (Just (HaskellTransformation _))) PCMCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = PCMFinalOutput
+    }
+getPipeline (AudioResource (Right bs) _ (Just (HaskellTransformation _))) PCMCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = False
+    , audioPipelineOutputCodec = PCMFinalOutput
+    }
+getPipeline (AudioResource _ _ (Just (HaskellTransformation _))) _ = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = PCMFinalOutput
+    }
+getPipeline (AudioResource _ _ (Just (_ ::.: _))) _ = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = PCMFinalOutput
+    }
 
 -- TODO
 -- | @play source@ plays some sound from the conduit @source@, provided in the
@@ -390,6 +437,7 @@ play resource codec = do
             OPUSFinalOutput -> sinkHandles handles
             PCMFinalOutput -> case resource ^. transform of
                 Just (HaskellTransformation tsC) -> tsC .| encodeOpusC .| sinkHandles handles
+                Just (_ ::.: tsC) -> tsC .| encodeOpusC .| sinkHandles handles
                 _ -> encodeOpusC .| sinkHandles handles
 
     if not (pipeline ^. needsFFmpeg) then do
@@ -407,7 +455,9 @@ play resource codec = do
                 Left filepath -> (filepath, Inherit)
                 Right lbs -> ("pipe:0", CreatePipe)
         let outputFlags = case pipeline ^. outputCodec of
-                OPUSFinalOutput -> ["-c:a", "libopus", "-b:a", "48K"]
+                -- OPUS output from FFmpeg will be in an OGG container.
+                -- TODO: create code to unwrap it, ala https://github.com/Rapptz/discord.py/blob/1be36c9c3ede72eaa2262dfa0e62cbd8b8929e66/discord/oggparse.py#L50
+                OPUSFinalOutput -> ["-f", "opus", "-map", "0:a", "-c:a", "libopus", "-b:a", "128K", "-ar", "48000", "-ac", "2"]
                 PCMFinalOutput -> ["-f", "s16le", "-ar", "48000", "-ac", "2"]
         let args = [ "-i", iFlag
                     , "-loglevel", "warning"
@@ -435,9 +485,12 @@ play resource codec = do
     -- I don't have to touch again.
         (errorReadEnd, errorWriteEnd) <- liftIO $ createPipe
         (a, Just stdout, c, ph) <- liftIO $ createProcess_ "ffmpeg" (proc "ffmpeg" args)
-            { std_out = CreatePipe
+            { std_in  = stdinHandle
+            , std_out = CreatePipe
             , std_err = UseHandle errorWriteEnd
             }
+        liftIO $ hSetBuffering stdout NoBuffering
+        liftIO $ hSetBinaryMode stdout True
 
     -- We maintain a forked thread that constantly monitors the stderr output,
     -- and if it sees an error, it kills the ffmpeg process so it doesn't block
