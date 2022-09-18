@@ -124,6 +124,11 @@ data AudioTransformation
     | HaskellTransformation (ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ())
     | (NonEmpty FFmpegFilter) ::.: (ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ())
 
+instance Show AudioTransformation where
+    show (FFmpegTransformation filters) = "<FFmpeg Transformations>"
+    show (HaskellTransformation conduit) = "<Haskell Transformations>"
+    show (a ::.: b) = "<FFmpeg Transformations> ::.: <Haskell Transformations>"
+
 -- | Datatype to use for playing stuff
 data AudioResource = AudioResource
     { audioResourceStream :: Either String BL.ByteString
@@ -137,6 +142,7 @@ data AudioResource = AudioResource
     -- ^ Any transformations to perform on the audio resource, both via ffmpeg
     -- filters and via ByteString Conduits.
     }
+    deriving Show
 
 -- | @VoiceError@ represents the potential errors when initialising a voice
 -- connection. It does /not/ account for errors that occur after the initial

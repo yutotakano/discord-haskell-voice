@@ -1,8 +1,12 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
 import           Control.Monad              ( forM_
                                             , forever
                                             , void
+                                            )
+import           Control.Exception.Safe     ( catch
+                                            , SomeException
                                             )
 import           Control.Monad.Trans        ( lift )
 import           Conduit
@@ -45,7 +49,12 @@ startHandler = do
                 _     -> pure ()
 
         -- play something, then sit around in silence for 30 seconds
-        playYouTube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        resource <- createYoutubeResource "https://www.youtube.com/watch?v=dQw4w9WgXcQ" $
+            Nothing
+        case resource of
+            Nothing -> liftIO $ print "whoops"
+            Just re -> catch (play re UnknownCodec) (\(e :: SomeException) -> liftIO $ print e)
+
         liftIO $ threadDelay $ 30 * 1000 * 1000
 
     liftIO $ print result

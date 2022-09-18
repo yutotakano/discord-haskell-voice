@@ -238,7 +238,7 @@ join guildId channelId = do
             -- monad using the current Reader state. Not much of a problem
             -- since many of the fields are mutable references.
             wsTid <- liftIO $ forkIO $ launchWebsocket wsOpts $ discordHandleLog h
-            
+
             wsTidWeak <- liftIO $ mkWeakThreadId wsTid
 
             -- TODO: check if readMVar ever blocks if the UDP thread fails to
@@ -271,7 +271,7 @@ join guildId channelId = do
         :: Chan (Either GatewayException EventInternalParse)
         -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
     waitForVoiceStatusServerUpdate = loopForBothEvents Nothing Nothing
-    
+
     loopForBothEvents
         :: Maybe T.Text
         -> Maybe (T.Text, GuildId, Maybe T.Text)
@@ -513,3 +513,23 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
             -- send it
             yield encoded
             loop encoder
+
+createYoutubeResource :: String -> Maybe AudioTransformation -> Voice (Maybe AudioResource)
+createYoutubeResource query mbTransform = do
+    extractedInfo <- liftIO $ withCreateProcess (proc "yt-dlp" -- TODO: accept youtube-dl
+        [ "-j"
+        , "--default-search", "ytsearch"
+        , "--format", "bestaudio/best"
+        , query
+        ]) { std_out = CreatePipe } $ \stdin (Just stdout) stderr ph ->
+            B.hGetContents stdout
+
+    pure $ do
+        -- Chain the Maybe monad
+        result <- decodeStrict extractedInfo
+        url <- flip parseMaybe result $ \obj -> obj .: "url"
+        pure $ AudioResource
+            { audioResourceStream = Left url
+            , audioResourceYouTubeDLInfo = Just result
+            , audioResourceTransform = mbTransform
+            }
