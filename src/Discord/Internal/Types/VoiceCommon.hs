@@ -87,6 +87,7 @@ newtype Voice a = Voice
 
 data FFmpegFilter
     = Reverb Int
+    -- ^ Integer is milliseconds to delay the echo. 0 - 50 is the ideal range.
 
 data AudioCodec
     = OPUSCodec

@@ -13,6 +13,7 @@ import           Control.Monad              ( forM_
                                             )
 import           Control.Monad.Trans        ( lift )
 import qualified Data.Text.IO as TIO
+import           Data.List.NonEmpty         ( NonEmpty((:|)) )
 import           Discord
 import           Discord.Voice
 import qualified Discord.Requests as R
@@ -52,7 +53,7 @@ startHandler = do
         -- play something, then sit around in silence for 30 seconds
         resource <- createYoutubeResource "https://www.youtube.com/watch?v=dQw4w9WgXcQ" $
             -- TODO: opus output with no transformation is not yet supported
-            Just $ HaskellTransformation $ awaitForever yield
+            Just $ (Reverb 150 :| []) ::.: (awaitForever yield)
         case resource of
             Nothing -> liftIO $ print "whoops"
             Just re -> catch (play re UnknownCodec) (\(e :: SomeException) -> liftIO $ print e)

@@ -59,7 +59,9 @@ import Data.Aeson
 import Data.Aeson.Types ( parseMaybe )
 import Data.ByteString qualified as B
 import Data.Foldable ( traverse_ )
-import Data.List ( partition )
+import Data.Function ( on )
+import Data.List ( partition, intercalate, groupBy, sort )
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Maybe ( fromJust )
 import Data.Text qualified as T
 import GHC.Weak ( deRefWeak, Weak )
@@ -446,17 +448,22 @@ play resource codec = do
         -- or bytestring stdin.
         let (iFlag, stdinHandle) = case resource ^. stream of
                 Left filepath -> (filepath, Inherit)
-                Right lbs -> ("pipe:0", CreatePipe)
+                Right lbs     -> ("pipe:0", CreatePipe)
+        -- Get all the filter argument pairs
+        let filtArgs = groupFiltArgs $ concatMap filterToArg $ case resource ^. transform of
+                Just (FFmpegTransformation fils) -> NonEmpty.toList fils
+                Just (fils ::.: _)               -> NonEmpty.toList fils
+                _ -> []
         let outputFlags = case pipeline ^. outputCodec of
                 -- OPUS output from FFmpeg will be in an OGG container.
                 -- TODO: create code to unwrap it, ala https://github.com/Rapptz/discord.py/blob/1be36c9c3ede72eaa2262dfa0e62cbd8b8929e66/discord/oggparse.py#L50
                 OPUSFinalOutput -> ["-f", "opus", "-map", "0:a", "-c:a", "libopus", "-b:a", "128K", "-ar", "48000", "-ac", "2"]
-                PCMFinalOutput -> ["-f", "s16le", "-ar", "48000", "-ac", "2"]
+                PCMFinalOutput -> ["-f", "s16le", "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2"]
         let args = [ "-i", iFlag
+                    ] <> concatMap (\(k, v) -> [k, v]) filtArgs <> outputFlags <>
+                    [ "pipe:1"
                     , "-loglevel", "warning"
                     , "-xerror"
-                    ] <> outputFlags <>
-                    [ "pipe:1"
                     ]
 
     -- NOTE: We use CreatePipe for the stdout handle of ffmpeg, but a preexisting
@@ -579,3 +586,17 @@ createYoutubeResource query mbTransform = do
             , audioResourceYouTubeDLInfo = Just result
             , audioResourceTransform = mbTransform
             }
+
+-- |
+-- >>> groupFiltArgs $ map filterToArg $ [Reverb 10, Reverb 20]
+-- [("-af","aecho=1.0:0.7:10:0.5;aecho=1.0:0.7:20:0.5")]
+filterToArg :: FFmpegFilter -> [(String, String)]
+filterToArg (Reverb i) =
+    [ ("-guess_layout_max", "0")
+    , ("-i", "static/st-patricks-church-patrington.wav")
+    , ("-filter_complex", "[0] [1] afir=dry=10:wet=10 [reverb]; [0] [reverb] amix=inputs=2:weights=10 2")
+    ]
+
+groupFiltArgs :: [(String, String)] -> [(String, String)]
+groupFiltArgs argPairs = groupBy ((==) `on` fst) argPairs
+    & map (\args -> (fst (head args), intercalate ";" (map snd args)))

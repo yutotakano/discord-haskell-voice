@@ -49,6 +49,7 @@ module Discord.Voice
     , createYoutubeResource
     , AudioTransformation(..)
     , AudioCodec(..)
+    , FFmpegFilter(..)
     ) where
 
 import Discord.Internal.Types.VoiceCommon
