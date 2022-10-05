@@ -22,17 +22,14 @@ This module is the internal entry point into @discord-haskell-voice@. Any use of
 this module (or other Internal modules) is discouraged. Please see "Discord.Voice"
 for the public interface.
 -}
-module Discord.Internal.Voice where
+module Discord.Internal.Voice
+    ( module Discord.Internal.Voice
+    ) where
 
 import Codec.Audio.Opus.Encoder
 import Conduit
-import Control.Concurrent.Async ( race )
 import Control.Concurrent
-    ( ThreadId
-    , myThreadId
-    , threadDelay
-    , killThread
-    , forkIO
+    ( forkIO
     , mkWeakThreadId
     , Chan
     , dupChan
@@ -49,12 +46,11 @@ import Control.Concurrent
     )
 import Control.Concurrent.STM ( atomically, newEmptyTMVar, putTMVar, tryReadTMVar )
 import Control.Concurrent.BoundedChan qualified as Bounded
-import Control.Exception.Safe ( bracket, throwTo, catch, throwIO )
+import Control.Exception.Safe ( catch )
 import Lens.Micro
 import Lens.Micro.Extras (view)
-import Control.Monad.Reader ( ask, liftIO, runReaderT )
+import Control.Monad.Reader ( ask, runReaderT )
 import Control.Monad.Except ( runExceptT, throwError )
-import Control.Monad.Trans ( lift )
 import Control.Monad ( when, void, forM_ )
 import Data.Aeson
 import Data.Aeson.Types ( parseMaybe )
@@ -62,21 +58,11 @@ import Data.ByteString qualified as B
 import Data.Conduit.Process.Typed
 import Data.Foldable ( traverse_ )
 import Data.Function ( on )
-import Data.List ( partition, intercalate, groupBy, sort )
+import Data.List ( intercalate, groupBy )
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Maybe ( fromJust, isNothing )
+import Data.Maybe ( isNothing )
 import Data.Text qualified as T
-import GHC.Weak ( deRefWeak, Weak )
-import System.Exit ( ExitCode(..) )
-import System.IO
-    ( hClose
-    , hGetContents
-    , hWaitForInput
-    , hIsOpen
-    , hSetBuffering
-    , hSetBinaryMode
-    , BufferMode(..)
-    )
+import System.IO ( hGetContents, hWaitForInput )
 import System.IO.Error ( isEOFError )
 import UnliftIO qualified as UnliftIO
 
@@ -90,7 +76,6 @@ import Discord.Internal.Gateway.EventLoop
 import Discord.Internal.Types
     ( GuildId
     , ChannelId
-    , UserId
     , User(..)
     , GatewaySendable(..)
     , UpdateStatusVoiceOpts(..)
@@ -288,7 +273,7 @@ join guildId channelId = do
         -> Maybe (T.Text, GuildId, Maybe T.Text)
         -> Chan (Either GatewayException EventInternalParse)
         -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
-    loopForBothEvents (Just a) (Just (b, c, d)) events = pure (a, b, c, d)
+    loopForBothEvents (Just a) (Just (b, c, d)) _ = pure (a, b, c, d)
     loopForBothEvents mb1 mb2 events = readChan events >>= \case
         -- Parse UnknownEvent, which are events not handled by discord-haskell.
         Right (InternalUnknownEvent "VOICE_STATE_UPDATE" obj) -> do
@@ -361,19 +346,19 @@ probeCodec = undefined
 -- acts as an abstraction layer that basically returns what things are necessary
 -- for a given audio resource.
 getPipeline :: AudioResource -> AudioCodec -> AudioPipeline
-getPipeline (AudioResource (Left path) _ Nothing) OPUSCodec = AudioPipeline
+getPipeline (AudioResource (Left _path) _ Nothing) OPUSCodec = AudioPipeline
     { audioPipelineNeedsFFmpeg = True
     , audioPipelineOutputCodec = OPUSFinalOutput
     }
-getPipeline (AudioResource (Right bs) _ Nothing) OPUSCodec = AudioPipeline
+getPipeline (AudioResource (Right _bs) _ Nothing) OPUSCodec = AudioPipeline
     { audioPipelineNeedsFFmpeg = False
     , audioPipelineOutputCodec = OPUSFinalOutput
     }
-getPipeline (AudioResource (Left path) _ Nothing) PCMCodec = AudioPipeline
+getPipeline (AudioResource (Left _path) _ Nothing) PCMCodec = AudioPipeline
     { audioPipelineNeedsFFmpeg = True
     , audioPipelineOutputCodec = PCMFinalOutput
     }
-getPipeline (AudioResource (Right bs) _ Nothing) PCMCodec = AudioPipeline
+getPipeline (AudioResource (Right _bs) _ Nothing) PCMCodec = AudioPipeline
     { audioPipelineNeedsFFmpeg = False
     , audioPipelineOutputCodec = PCMFinalOutput
     }
@@ -385,11 +370,11 @@ getPipeline (AudioResource _ _ (Just (FFmpegTransformation _))) _ = AudioPipelin
     { audioPipelineNeedsFFmpeg = True
     , audioPipelineOutputCodec = OPUSFinalOutput
     }
-getPipeline (AudioResource (Left path) _ (Just (HaskellTransformation _))) PCMCodec = AudioPipeline
+getPipeline (AudioResource (Left _path) _ (Just (HaskellTransformation _))) PCMCodec = AudioPipeline
     { audioPipelineNeedsFFmpeg = True
     , audioPipelineOutputCodec = PCMFinalOutput
     }
-getPipeline (AudioResource (Right bs) _ (Just (HaskellTransformation _))) PCMCodec = AudioPipeline
+getPipeline (AudioResource (Right _bs) _ (Just (HaskellTransformation _))) PCMCodec = AudioPipeline
     { audioPipelineNeedsFFmpeg = False
     , audioPipelineOutputCodec = PCMFinalOutput
     }
@@ -401,6 +386,8 @@ getPipeline (AudioResource _ _ (Just (_ ::.: _))) _ = AudioPipeline
     { audioPipelineNeedsFFmpeg = True
     , audioPipelineOutputCodec = PCMFinalOutput
     }
+getPipeline _ (ProbeCodec _) = error $
+    "Impossible! getPipeline should only be called after codec is probed." -- TODO: encode in type
 
 -- | @play resource codec@ plays the specified @resource@. The codec argument
 -- should be 'OPUSCodec' or 'PCMCodec' if you know that the resource is already
@@ -419,7 +406,6 @@ play resource codec = do
     -- If we are given a codec of some sort, check if we need transcoding. Also
     -- check if we have any transformations that will need FFmpeg.
     h <- ask
-    dh <- liftDiscord ask
     handles <- UnliftIO.readMVar $ h ^. voiceHandles
 
     updateSpeakingStatus True
@@ -479,7 +465,7 @@ play resource codec = do
         -- (which may never happen).
         liftDiscord $ withProcessTerm processConfig $ \process -> do
             errorSignal <- liftIO $ atomically $ newEmptyTMVar
-            liftIO $ forkIO $
+            void $ liftIO $ forkIO $
                 -- wait indefinitely until end of handle to see if we catch any
                 -- output in stderr.
                 void $ hWaitForInput (getStderr process) (-1) `catch` \e -> do
@@ -552,7 +538,7 @@ createYoutubeResource query mbTransform = do
             , "--format", "bestaudio/best"
             , query
             ]
-    (exitCode, stdout, stderr) <- liftIO $ readProcess processConfig
+    (_exitCode, stdout, _stderr) <- liftIO $ readProcess processConfig
 
     pure $ do
         -- Chain the Maybe monad
@@ -568,7 +554,7 @@ createYoutubeResource query mbTransform = do
 -- >>> groupFiltArgs $ map filterToArg $ [Reverb 10, Reverb 20]
 -- [("-af","aecho=1.0:0.7:10:0.5;aecho=1.0:0.7:20:0.5")]
 filterToArg :: FFmpegFilter -> [(String, String)]
-filterToArg (Reverb i) =
+filterToArg (Reverb _i) =
     [ ("-guess_layout_max", "0")
     , ("-i", "static/st-patricks-church-patrington.wav")
     , ("-filter_complex", "[0] [1] afir=dry=10:wet=10 [reverb]; [0] [reverb] amix=inputs=2:weights=10 2")
