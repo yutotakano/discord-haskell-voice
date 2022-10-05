@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         os: ["ubuntu-20.04"]
-        ghc: ["8.10.4", "8.10.7", "9.0.2"]
+        ghc: ["8.10.7", "9.0.2", "9.2.4"]
         include:
           - os: ubuntu-18.04
             ghc: "8.10.7"
@@ -73,15 +73,17 @@ jobs:
         id: cache
         uses: actions/cache@v2
         with:
-          key: ${{ runner.os }}-${{ env.GHC_VER }}-${{ env.STACK_VER }}-${{ hashFiles('stack.yaml') }}
+          key: stack-${{ runner.os }}-${{ env.GHC_VER }}-${{ env.STACK_VER }}-${{ hashFiles('stack.yaml') }}
           path: |
             ${{ env.STACK_ROOT }}
+          restore-keys: |
+            stack-${{ runner.os }}-${{ env.GHC_VER }}-${{ env.STACK_VER }}-
 
       - name: Install dependencies
         if: ${{ !steps.cache.outputs.cache-hit }}
         run: |
-          ${STACK} build --test --only-dependencies
+          ${STACK} build --system-ghc --test --only-dependencies
 
       - name: Build discord-haskell-voice
         run: |
-          ${STACK} build --test --no-run-tests
+          ${STACK} build --system-ghc --test --no-run-tests

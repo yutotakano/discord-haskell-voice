@@ -94,10 +94,12 @@ jobs:
         id: cache
         uses: actions/cache@v2
         with:
-          key: ${{ runner.os }}-${{ env.GHC_VER }}-${{ env.CABAL_VER }}-${{ hashFiles('**/plan.json') }}
+          key: cabal-${{ runner.os }}-${{ env.GHC_VER }}-${{ env.CABAL_VER }}-${{ hashFiles('**/plan.json') }}
           path: |
             ${{ steps.setup-haskell.outputs.cabal-store }}
             dist-newstyle
+          restore-keys: |
+            cabal-${{ runner.os }}-${{ env.GHC_VER }}-${{ env.CABAL_VER }}-
 
       - name: Install dependencies
         if: ${{ !steps.cache.outputs.cache-hit }}
