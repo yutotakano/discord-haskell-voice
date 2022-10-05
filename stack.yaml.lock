@@ -5,6 +5,13 @@
 
 packages:
 - completed:
+    hackage: conduit-extra-1.3.6@sha256:83303e6fea78a683fdbb41682fc8dbc47b1d8830da1f09e88940f9a744a7f984,4355
+    pantry-tree:
+      size: 2332
+      sha256: af351369329e815381147ccb834deaac9c942d7526528103b1426a3b1130f0da
+  original:
+    hackage: conduit-extra-1.3.6
+- completed:
     hackage: discord-haskell-1.14.0@sha256:29e94370c861952a39a1d136decc6577e6f65d9ec582d98f33df09b6ad547216,3927
     pantry-tree:
       size: 2847

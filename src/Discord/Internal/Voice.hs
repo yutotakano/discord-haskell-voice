@@ -47,6 +47,7 @@ import Control.Concurrent
     , modifyMVar_
     , readMVar
     )
+import Control.Concurrent.STM ( atomically, newEmptyTMVar, putTMVar, tryReadTMVar )
 import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Exception.Safe ( bracket, throwTo, catch, throwIO )
 import Lens.Micro
@@ -58,11 +59,12 @@ import Control.Monad ( when, void, forM_ )
 import Data.Aeson
 import Data.Aeson.Types ( parseMaybe )
 import Data.ByteString qualified as B
+import Data.Conduit.Process.Typed
 import Data.Foldable ( traverse_ )
 import Data.Function ( on )
 import Data.List ( partition, intercalate, groupBy, sort )
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Maybe ( fromJust )
+import Data.Maybe ( fromJust, isNothing )
 import Data.Text qualified as T
 import GHC.Weak ( deRefWeak, Weak )
 import System.Exit ( ExitCode(..) )
@@ -76,7 +78,6 @@ import System.IO
     , BufferMode(..)
     )
 import System.IO.Error ( isEOFError )
-import System.Process
 import UnliftIO qualified as UnliftIO
 
 import Discord ( DiscordHandler, sendCommand, readCache )
@@ -446,9 +447,9 @@ play resource codec = do
     else do
         -- We need the FFmpeg subprocess. Sources may be file input, stream URL,
         -- or bytestring stdin.
-        let (iFlag, stdinHandle) = case resource ^. stream of
-                Left filepath -> (filepath, Inherit)
-                Right lbs     -> ("pipe:0", CreatePipe)
+        let (iFlag, inputStream) = case resource ^. stream of
+                Left filepath -> (filepath, nullStream)
+                Right lbs     -> ("pipe:0", byteStringInput lbs)
         -- Get all the filter argument pairs
         let filtArgs = groupFiltArgs $ concatMap filterToArg $ case resource ^. transform of
                 Just (FFmpegTransformation fils) -> NonEmpty.toList fils
@@ -466,62 +467,34 @@ play resource codec = do
                     , "-xerror"
                     ]
 
-    -- NOTE: We use CreatePipe for the stdout handle of ffmpeg, but a preexisting
-    -- handle for stderr. This is because we want to retain the stderr output
-    -- when ffmpeg has exited with an error code, and capture it before manually
-    -- closing the handle. Otherwise, the stderr of ffmpeg may be lost. Using
-    -- a preexisting handle for stdout is however, avoided, because createProcess_
-    -- does not automatically close UseHandles when done, while conduit's
-    -- sourceHandle will patiently wait and block forever for the handle to close.
-    -- We may use createProcess (notice the lack of underscore) to automatically
-    -- close the UseHandles passed into it, but then we 1. lose the error output
-    -- for stderr, and 2. there have been frequent occasions of ffmpeg trying to
-    -- write to the closed pipe, causing a "broken pipe" fatal error. We want to
-    -- therefore make sure that even if that happens, the error is captured and
-    -- stored. Perhaps this explanation makes no sense, but I have suffered too
-    -- long on this problem (of calling a subprocess, streaming its output,
-    -- storing its errors, and making sure they gracefully kill themselves upon
-    -- the parent thread being killed) and I am hoping that this is something
-    -- I don't have to touch again.
-        (errorReadEnd, errorWriteEnd) <- liftIO $ createPipe
-        (a, Just stdout, c, ph) <- liftIO $ createProcess_ "ffmpeg" (proc "ffmpeg" args)
-            { std_in  = stdinHandle
-            , std_out = CreatePipe
-            , std_err = UseHandle errorWriteEnd
-            }
-        liftIO $ hSetBuffering stdout NoBuffering
-        liftIO $ hSetBinaryMode stdout True
-
-    -- We maintain a forked thread that constantly monitors the stderr output,
-    -- and if it sees an error, it kills the ffmpeg process so it doesn't block
-    -- (sometimes ffmpeg outputs a fatal error but still tries to continue,
-    -- especially during streams), and then rethrows the error as a
-    -- SubprocessException to the parent (this) thread. The idea is for the
-    -- @bracket@ to handle it, properly clean up any remnants, then rethrow it
-    -- further up so that user code can handle it, or let it propagate to
-    -- the "discord-haskell encountered an exception" handler. However in
-    -- practice, I have not seen this exception appear in the logs even once,
-    -- even when the preceding putStrLn executes.
-        myTid <- liftIO myThreadId
-        bracket (liftIO $ forkIO $ do
-            thereIsAnError <- hWaitForInput errorReadEnd (-1) `catch` \e ->
-                if isEOFError e then return False else throwIO e
-            when thereIsAnError $ do
-                exitCode <- terminateProcess ph >> waitForProcess ph
-                case exitCode of
-                    ExitSuccess -> do
-                        putStrLn "ffmpeg exited successfully"
-                        pure ()
-                    ExitFailure i -> do
-                        err <- hGetContents errorReadEnd
-                        exitCode <- terminateProcess ph >> waitForProcess ph
-                        putStrLn $ "ffmpeg exited with code " ++ show exitCode ++ ": " ++ err
-                        throwTo myTid $ SubprocessException err
-            ) (\tid -> do
-                liftIO $ cleanupProcess (a, Just stdout, c, ph)
-                liftIO $ killThread tid
-            ) $ const $ liftDiscord $ runConduitRes $ sourceHandle stdout .| finalProcessing
-        liftIO $ hClose errorReadEnd >> hClose errorWriteEnd
+        let processConfig = proc "ffmpeg" args
+                & setStdin inputStream
+                & setStdout createSource
+                & setStderr createPipe
+        -- run the process, but send SIGTERM and terminate it when our inner
+        -- function exits. Since we use the stdout conduit source, the inner
+        -- func shouldn't exit prematurely. The only possible way we may exit
+        -- prematurely is when we get a signal from stderr, in which case it's
+        -- desired to stop the process rather than wait until safe termination
+        -- (which may never happen).
+        liftDiscord $ withProcessTerm processConfig $ \process -> do
+            errorSignal <- liftIO $ atomically $ newEmptyTMVar
+            liftIO $ forkIO $
+                -- wait indefinitely until end of handle to see if we catch any
+                -- output in stderr.
+                void $ hWaitForInput (getStderr process) (-1) `catch` \e -> do
+                    when (not $ isEOFError e) $ do
+                        -- when there is output in stderr, signal its contents
+                        -- back to main thread
+                        err <- hGetContents (getStderr process)
+                        atomically $ putTMVar errorSignal err
+                    return True
+            runConduitRes
+                $ ( do
+                    -- check if we have received an error signal, if so terminate
+                    errorsExist <- liftIO $ atomically $ tryReadTMVar errorSignal
+                    when (isNothing errorsExist) $ getStdout process
+                ) .| finalProcessing
 
         updateSpeakingStatus False
     where
@@ -569,17 +542,17 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
 
 createYoutubeResource :: String -> Maybe AudioTransformation -> Voice (Maybe AudioResource)
 createYoutubeResource query mbTransform = do
-    extractedInfo <- liftIO $ withCreateProcess (proc "yt-dlp" -- TODO: accept youtube-dl
-        [ "-j"
-        , "--default-search", "ytsearch"
-        , "--format", "bestaudio/best"
-        , query
-        ]) { std_out = CreatePipe } $ \stdin (Just stdout) stderr ph ->
-            B.hGetContents stdout
+    let processConfig = proc "yt-dlp"
+            [ "-j"
+            , "--default-search", "ytsearch"
+            , "--format", "bestaudio/best"
+            , query
+            ]
+    (exitCode, stdout, stderr) <- liftIO $ readProcess processConfig
 
     pure $ do
         -- Chain the Maybe monad
-        result <- decodeStrict extractedInfo
+        result <- decode stdout
         url <- flip parseMaybe result $ \obj -> obj .: "url"
         pure $ AudioResource
             { audioResourceStream = Left url
