@@ -48,6 +48,7 @@ library
       src
   default-extensions:
       OverloadedStrings
+  ghc-options: -Werror -Wall -Wcpp-undef -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -Wmissing-deriving-strategies -Wmissing-export-lists -Wunused-packages -Wno-name-shadowing -Wno-type-defaults
   build-depends:
       BoundedChan ==1.0.3.0
     , aeson ==1.5.6.0

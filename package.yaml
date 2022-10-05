@@ -59,6 +59,20 @@ when:
 
 library:
   source-dirs: src
+  # ghc-options:
+  #   - -Werror
+  #   - -Wall
+  #   - -Wcpp-undef
+  #   - -Widentities
+  #   - -Wincomplete-record-updates
+  #   - -Wincomplete-uni-patterns
+  #   - -Wpartial-fields
+  #   - -Wredundant-constraints
+  #   - -Wmissing-deriving-strategies
+  #   - -Wmissing-export-lists
+  #   - -Wunused-packages
+  #   - -Wno-name-shadowing
+  #   - -Wno-type-defaults
   # The exposed-module specifies the exact order the modules will appear in the
   # generated cabal file, and thus on Haddock. The default is alphabetical, but
   # internals should be later.
