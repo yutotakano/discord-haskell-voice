@@ -498,12 +498,16 @@ play resource codec = do
 
         updateSpeakingStatus False
     where
+        -- | @sinkHandles handles@ is a conduit that sinks the source to the
+        -- individual channels within DiscordVoiceHandle.
         sinkHandles
             :: [DiscordVoiceHandle]
             -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
         sinkHandles handles = getZipSink $
             traverse_ (ZipSink . sinkChan . view (udp . _2 . _2)) handles
 
+        -- | @sinkChan chan@ is a conduit that sinks the source to a single
+        -- bounded channel.
         sinkChan
             :: Bounded.BoundedChan B.ByteString
             -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
