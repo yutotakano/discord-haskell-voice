@@ -345,7 +345,10 @@ updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceO
 probeCodec :: String -> AudioResource -> IO AudioCodec
 probeCodec = undefined
 
--- | todo
+-- | @getPipeline resource codec@ returns some information about the pipeline
+-- required for the audio before it is sent to Discord. See the 'AudioPipeline'
+-- datatype for the flags set.
+--
 -- The audio resource pipeline can be complex. Even if the source is already
 -- OPUS encoded (and Discord wants OPUS), if there is an FFmpeg filter desired
 -- then discord-haskell-voice will need to launch a FFmpeg subprocess. If there
@@ -396,23 +399,13 @@ getPipeline (AudioResource _ _ (Just (_ ::.: _))) _ = AudioPipeline
     , audioPipelineOutputCodec = PCMFinalOutput
     }
 
--- TODO
--- | @play source@ plays some sound from the conduit @source@, provided in the
--- form of 16-bit Little Endian PCM. The use of Conduit allows you to perform
--- arbitrary lazy transformations of audio data, using all the advantages that
--- Conduit brings. As the base monad for the Conduit is @ResourceT DiscordHandler@,
--- you can access any DiscordHandler effects (through @lift@) or IO effects
--- (through @liftIO@) in the conduit as well.
---
--- For a more specific interface that is easier to use, see the 'playPCMFile',
--- 'playFile', and 'playYouTube' functions.
--- @
--- import Conduit ( sourceFile )
---
--- runVoice $ do
---   join gid cid
---   play $ sourceFile ".\/audio\/example.pcm"
--- @
+-- | @play resource codec@ plays the specified @resource@. The codec argument
+-- should be 'OPUSCodec' or 'PCMCodec' if you know that the resource is already
+-- in this format (it can save computational power to transcode). If you do not
+-- know and want to unconditionally use ffmpeg to transcode, then specify the
+-- codec as 'UnknownCodec'. If you do not know but can afford to wait a few
+-- seconds at first to probe the codec (using @ffprobe@) so that we may be able
+-- to skip transcoding if it's either PCM or OPUS, then use 'ProbeCodec'.
 play :: AudioResource -> AudioCodec -> Voice ()
 play resource (ProbeCodec ffprobeExe) = do
     -- If we are told the audio should be probed for info, do so and rerun play.
