@@ -1,0 +1,14 @@
+resolver: nightly-2022-10-07
+
+packages:
+- .
+
+extra-deps:
+- discord-haskell-1.15.3@rev:1
+- emoji-0.1.0.2
+- saltine-0.2.0.1
+- git: https://github.com/yutotakano/opus.git
+  commit: 8ba5739821af9c27cf9d50f03b72b58ed88b913a
+- git: https://github.com/yutotakano/shecretbox.git
+  commit: 5979a7ee7e31bd8ed05e84e6e55e2c56b6d8477a
+
