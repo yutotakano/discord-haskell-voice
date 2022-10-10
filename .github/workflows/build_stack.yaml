@@ -71,7 +71,7 @@ jobs:
 
       - name: Cache Stack Dependencies
         id: cache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           key: stack-${{ runner.os }}-${{ env.GHC_VER }}-${{ env.STACK_VER }}-${{ hashFiles('stack.yaml') }}
           path: |

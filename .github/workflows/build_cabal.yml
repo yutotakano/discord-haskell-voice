@@ -98,7 +98,7 @@ jobs:
 
       - name: Cache Cabal Dependencies
         id: cache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           key: cabal-${{ runner.os }}-${{ env.GHC_VER }}-${{ env.CABAL_VER }}-${{ hashFiles('**/plan.json') }}
           path: |
