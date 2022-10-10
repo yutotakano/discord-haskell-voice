@@ -85,15 +85,16 @@ jobs:
         run: |
           brew install libsodium opus
 
-          # Add PKG_CONFIG_PATH to GitHub Env: agda/agda#6163
-          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
-          echo "PKG_CONFIG_PATH=${PKG_CONFIG_PATH}" >> ${GITHUB_ENV}
+          # Temporary until runner image is updated: actions/runner-images#6364
+          # or until cabal is updated: haskell/cabal#8496
+          # whichever is earlier
+          brew update && brew reinstall highway
 
       - name: Update cabal database and set up build plan
         run: |
           cabal update
           cabal configure
-          cabal build --dry-run
+          cabal build --dry-run -v
 
       - name: Cache Cabal Dependencies
         id: cache
