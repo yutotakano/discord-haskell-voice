@@ -42,15 +42,15 @@ jobs:
       - name: Set Haskell PATH and environment variables
         run: |
           echo "GHC=${{ steps.setup-haskell.outputs.ghc-exe }}" >> $GITHUB_ENV
-          echo "GHC_VER=$( ${GHC} --numeric-version )" >> $GITHUB_ENV
           echo "STACK=${{ steps.setup-haskell.outputs.stack-exe }}" >> $GITHUB_ENV
-          echo "STACK_VER=$( ${STACK} --numeric-version )" >> $GITHUB_ENV
           echo "STACK_ROOT=${{ steps.setup-haskell.outputs.stack-root }}" >> $GITHUB_ENV
 
-      - name: Print GHC/Stack versions and env
+      - name: Print and set GHC/Stack versions
         run: |
           ${GHC} --version || true
           ${STACK} --version || true
+          echo "GHC_VER=$($GHC --numeric-version )" >> $GITHUB_ENV
+          echo "STACK_VER=$($STACK --numeric-version )" >> $GITHUB_ENV
           env
 
       - name: Install libsodium and Opus (Windows)
