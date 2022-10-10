@@ -42,9 +42,9 @@ jobs:
       - name: Set Haskell PATH and environment variables
         run: |
           echo "GHC=${{ steps.setup-haskell.outputs.ghc-exe }}" >> $GITHUB_ENV
-          echo "GHC_VER=$(ghc --numeric-version)" >> $GITHUB_ENV
+          echo "GHC_VER=$( ${GHC} --numeric-version )" >> $GITHUB_ENV
           echo "STACK=${{ steps.setup-haskell.outputs.stack-exe }}" >> $GITHUB_ENV
-          echo "STACK_VER=$(stack --numeric-version)" >> $GITHUB_ENV
+          echo "STACK_VER=$( ${STACK} --numeric-version )" >> $GITHUB_ENV
           echo "STACK_ROOT=${{ steps.setup-haskell.outputs.stack-root }}" >> $GITHUB_ENV
 
       - name: Print GHC/Stack versions and env
@@ -78,12 +78,13 @@ jobs:
             ${{ env.STACK_ROOT }}
           restore-keys: |
             stack-${{ runner.os }}-${{ env.GHC_VER }}-${{ env.STACK_VER }}-
+            stack-${{ runner.os }}-${{ env.GHC_VER }}-
 
       - name: Install dependencies
         if: ${{ !steps.cache.outputs.cache-hit }}
         run: |
-          ${STACK} build --system-ghc --test --only-dependencies
+          ${STACK} build --system-ghc --test --only-dependencies --stack-yaml stack-${GHC_VER}.yaml
 
       - name: Build discord-haskell-voice
         run: |
-          ${STACK} build --system-ghc --test --no-run-tests
+          ${STACK} build --system-ghc --test --no-run-tests --stack-yaml stack-${GHC_VER}.yaml

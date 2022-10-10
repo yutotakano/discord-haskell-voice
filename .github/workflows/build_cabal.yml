@@ -105,6 +105,7 @@ jobs:
             dist-newstyle
           restore-keys: |
             cabal-${{ runner.os }}-${{ env.GHC_VER }}-${{ env.CABAL_VER }}-
+            cabal-${{ runner.os }}-${{ env.GHC_VER }}-
 
       - name: Install dependencies
         if: ${{ !steps.cache.outputs.cache-hit }}
