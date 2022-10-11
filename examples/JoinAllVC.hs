@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-missing-export-lists #-}
 module Main where
 
 import           Conduit
@@ -8,24 +9,20 @@ import           Control.Exception.Safe     ( catch
                                             , SomeException
                                             )
 import           Control.Monad              ( forM_
-                                            , forever
                                             , void
                                             )
-import           Control.Monad.Trans        ( lift )
 import qualified Data.Text.IO as TIO
 import           Data.List.NonEmpty         ( NonEmpty((:|)) )
 import           Discord
 import           Discord.Voice
 import qualified Discord.Requests as R
 import           Discord.Types
-import           UnliftIO                   ( liftIO
-                                            )
 
 main :: IO ()
 main = do
     tok <- TIO.readFile "./examples/production.secret"
 
-    t <- runDiscord $ def
+    void $ runDiscord $ def
         { discordToken = tok
         , discordOnStart = startHandler
         , discordOnEnd = liftIO $ putStrLn "Ended"
@@ -35,7 +32,7 @@ main = do
     putStrLn "Finished!"
 
 eventHandler :: Event -> DiscordHandler ()
-eventHandler event = pure ()
+eventHandler _event = pure ()
 
 startHandler :: DiscordHandler ()
 startHandler = do
