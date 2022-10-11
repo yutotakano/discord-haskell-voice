@@ -28,12 +28,14 @@ applicable to both the UPD and Websocket components of the Voice API. Many of
 the structures defined in this module have Lenses derived for them using
 Template Haskell.
 -}
-module Discord.Internal.Types.VoiceCommon where
+module Discord.Internal.Types.VoiceCommon
+    ( module Discord.Internal.Types.VoiceCommon
+    ) where
 
 import Conduit
 import Control.Concurrent ( Chan, MVar, ThreadId )
 import Control.Concurrent.BoundedChan qualified as Bounded
-import Control.Exception.Safe ( Exception, MonadMask, MonadCatch, MonadThrow )
+import Control.Exception.Safe ( Exception, MonadMask, MonadCatch )
 import Lens.Micro.TH ( makeFields )
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -48,7 +50,6 @@ import Network.WebSockets ( ConnectionException, Connection )
 
 import Discord
 import Discord.Types
-import Discord.Internal.Gateway.EventLoop ( GatewayException(..) )
 import Discord.Internal.Types.VoiceUDP
 import Discord.Internal.Types.VoiceWebsocket
 
@@ -127,9 +128,9 @@ data AudioTransformation
     | (NonEmpty FFmpegFilter) ::.: (ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ())
 
 instance Show AudioTransformation where
-    show (FFmpegTransformation filters) = "<FFmpeg Transformations>"
-    show (HaskellTransformation conduit) = "<Haskell Transformations>"
-    show (a ::.: b) = "<FFmpeg Transformations> ::.: <Haskell Transformations>"
+    show (FFmpegTransformation _filters) = "<FFmpeg Transformations>"
+    show (HaskellTransformation _conduit) = "<Haskell Transformations>"
+    show (_a ::.: _b) = "<FFmpeg Transformations> ::.: <Haskell Transformations>"
 
 -- | Datatype to use for playing stuff
 data AudioResource = AudioResource
