@@ -1,7 +1,7 @@
 {-|
 Module      : Discord.Voice
 Description : Voice support for discord-haskell!
-Copyright   : (c) Yuto Takano (2021)
+Copyright   : (c) 2021-2022 Yuto Takano
 License     : MIT
 Maintainer  : moa17stock@gmail.com
 

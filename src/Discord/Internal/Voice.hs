@@ -3,7 +3,7 @@
 {-|
 Module      : Discord.Internal.Voice
 Description : Strictly for internal use only. See Discord.Voice for the public interface.
-Copyright   : (c) Yuto Takano (2021)
+Copyright   : (c) 2021-2022 Yuto Takano
 License     : MIT
 Maintainer  : moa17stock@gmail.com
 
