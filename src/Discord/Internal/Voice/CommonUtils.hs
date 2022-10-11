@@ -20,14 +20,12 @@ __any warning__ between minor versions of this package.
 
 This module provides useful utility functions used in discord-haskell-voice.
 -}
-module Discord.Internal.Voice.CommonUtils where
+module Discord.Internal.Voice.CommonUtils
+    ( module Discord.Internal.Voice.CommonUtils
+    ) where
 
 import Control.Concurrent
-import Control.Concurrent.Async ( race )
-import Lens.Micro
 import Data.Text qualified as T
-import Data.Time.Clock.POSIX
-import Data.Time
 import GHC.Weak
 import System.Timeout ( timeout )
 

@@ -25,14 +25,15 @@ the official Discord documentation for v4 of the gateway.
 
 Prisms are defined using TemplateHaskell for VoiceWebsocketReceivable.
 -}
-module Discord.Internal.Types.VoiceWebsocket where
+module Discord.Internal.Types.VoiceWebsocket
+    ( module Discord.Internal.Types.VoiceWebsocket
+    ) where
 
 import Control.Applicative ( (<|>) )
 import Lens.Micro
 import Data.Aeson
 import Data.Aeson.Types
 import Data.Text qualified as T
-import Data.ByteString qualified as B
 import Data.Word ( Word8 )
 
 import Discord.Internal.Types.Prelude
@@ -53,15 +54,15 @@ data VoiceWebsocketReceivable
 
 _Ready :: Traversal' VoiceWebsocketReceivable ReadyPayload
 _Ready f (Ready rp) = Ready <$> f rp
-_Ready f rp = pure rp
+_Ready _ rp = pure rp
 
 _SessionDescription :: Traversal' VoiceWebsocketReceivable (T.Text, [Word8])
 _SessionDescription f (SessionDescription t bytes) = uncurry SessionDescription <$> f (t, bytes)
-_SessionDescription f sd = pure sd
+_SessionDescription _ sd = pure sd
 
 _Hello :: Traversal' VoiceWebsocketReceivable Int
 _Hello f (Hello a) = Hello <$> f a
-_Hello f a = pure a
+_Hello _ a = pure a
 
 
 data VoiceWebsocketSendable

@@ -51,7 +51,7 @@ data VoiceUDPPacket
 
 _IPDiscovery :: Traversal' VoiceUDPPacket (Integer, T.Text, Integer)
 _IPDiscovery f (IPDiscovery ssrc ip port) = (\(a, b, c) -> IPDiscovery a b c) <$> f (ssrc, ip, port)
-_IPDiscovery f packet = pure packet
+_IPDiscovery _ packet = pure packet
 
 data VoiceUDPPacketHeader
     = Header Word8 Word8 Word16 Word32 Word32 
@@ -99,10 +99,10 @@ instance Binary VoiceUDPPacket where
                 header <- getByteString 12
                 a <- getRemainingLazyByteString
                 pure $ SpeakingDataEncryptedExtra header a
-            other -> do
+            _other -> do
                 a <- getRemainingLazyByteString
                 pure $ UnknownPacket a
-    put (IPDiscovery ssrc ip port) = do
+    put (IPDiscovery ssrc _ip port) = do
         putWord16be 1 -- 1 is request, 2 is response
         putWord16be 70 -- specified in docs
         putWord32be $ fromIntegral ssrc
@@ -112,5 +112,8 @@ instance Binary VoiceUDPPacket where
         putByteString header
         putLazyByteString a
     put (MalformedPacket a) = putLazyByteString a
+
+    -- Other datatypes should logically never be used with put.
+    put _ = undefined
 
 -- $(makePrisms ''VoiceUDPPacket)

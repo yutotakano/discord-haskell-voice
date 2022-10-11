@@ -29,9 +29,7 @@ module Discord.Internal.Voice.UDPLoop
 import Codec.Audio.Opus.Decoder
 import Control.Concurrent
     ( Chan
-    , readChan
     , writeChan
-    , MVar
     , readMVar
     , forkIO
     , killThread
@@ -39,15 +37,12 @@ import Control.Concurrent
     , myThreadId
     )
 import Control.Concurrent.BoundedChan qualified as Bounded
-import Control.Exception.Safe ( handle, SomeException, finally, try, bracket )
+import Control.Exception.Safe ( SomeException, finally, try, bracket )
 import Lens.Micro
-import Control.Monad.IO.Class ( MonadIO )
 import Data.Binary ( encode, decode )
 import Data.ByteString.Lazy qualified as BL
-import Data.ByteString.Builder
 import Data.ByteString qualified as B
 import Data.Text qualified as T
-import Data.Text.Encoding qualified as TE
 import Data.Time.Clock.POSIX
 import Data.Time
 import Network.Socket hiding ( socket )
@@ -90,8 +85,8 @@ launchUdp :: UDPLaunchOpts -> Chan T.Text -> IO ()
 launchUdp opts log = loop UDPStart 0
   where
     loop :: UDPState -> Int -> IO ()
-    loop UDPClosed retries = pure ()
-    loop UDPStart retries = do
+    loop UDPClosed _retries = pure ()
+    loop UDPStart _retries = do
         next <- try $ do
             let hints = defaultHints
                     { addrSocketType = Datagram
@@ -140,7 +135,7 @@ launchUdp opts log = loop UDPStart 0
                 startForks (UDPConn opts sock) log
 
         case next :: Either SomeException UDPState of
-            Left e -> do
+            Left _e -> do
                 log ✍! "could not reconnect to UDP, will restart in 10 secs."
                 threadDelay $ 10 * (10^(6 :: Int))
                 loop UDPReconnect (retries + 1)

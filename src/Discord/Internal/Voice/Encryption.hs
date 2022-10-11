@@ -21,7 +21,9 @@ __any warning__ between minor versions of this package.
 This module provides encryption and decryption of secretbox schemes, abstracting
 over either Saltine/Libsodium (standard) or Shecretbox/Cryptonite.
 -}
-module Discord.Internal.Voice.Encryption where
+module Discord.Internal.Voice.Encryption
+    ( module Discord.Internal.Voice.Encryption
+    ) where
 
 #ifdef USE_SHECRETBOX
 import Crypto.PubKey.Curve25519 qualified as X25519
@@ -29,13 +31,10 @@ import Crypto.SecretBox qualified as SecretBox
 import Crypto.Error ( maybeCryptoError )
 #else
 import Crypto.Saltine.Core.SecretBox
-    ( Key(..)
-    , Nonce(..)
-    , secretboxOpen
+    ( secretboxOpen
     , secretbox
     )
 import Crypto.Saltine.Class qualified as SC
-import Control.Concurrent
 #endif
 
 import Data.ByteString qualified as B

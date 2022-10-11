@@ -1,4 +1,5 @@
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-|
 Module      : Discord.Voice.Conduit
 Description : Convenient Conduits for transforming voice data
