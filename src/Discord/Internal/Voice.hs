@@ -47,8 +47,6 @@ import Control.Concurrent
 import Control.Concurrent.STM ( atomically, newEmptyTMVar, putTMVar, tryReadTMVar )
 import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Exception.Safe ( catch )
-import Lens.Micro
-import Lens.Micro.Extras (view)
 import Control.Monad.Reader ( ask, runReaderT )
 import Control.Monad.Except ( runExceptT, throwError )
 import Control.Monad ( when, void, forM_ )
@@ -62,6 +60,8 @@ import Data.List ( intercalate, groupBy )
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Maybe ( isNothing )
 import Data.Text qualified as T
+import Lens.Micro
+import Lens.Micro.Extras (view)
 import System.IO ( hGetContents, hWaitForInput )
 import System.IO.Error ( isEOFError )
 import UnliftIO qualified as UnliftIO
