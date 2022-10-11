@@ -73,12 +73,12 @@ jobs:
         id: cache
         uses: actions/cache@v3
         with:
-          key: stack-${{ runner.os }}-${{ env.GHC_VER }}-${{ env.STACK_VER }}-${{ hashFiles('stack.yaml') }}
+          key: stack-${{ matrix.os }}-${{ env.GHC_VER }}-${{ env.STACK_VER }}-${{ hashFiles('stack.yaml') }}
           path: |
             ${{ env.STACK_ROOT }}
           restore-keys: |
-            stack-${{ runner.os }}-${{ env.GHC_VER }}-${{ env.STACK_VER }}-
-            stack-${{ runner.os }}-${{ env.GHC_VER }}-
+            stack-${{ matrix.os }}-${{ env.GHC_VER }}-${{ env.STACK_VER }}-
+            stack-${{ matrix.os }}-${{ env.GHC_VER }}-
 
       - name: Install dependencies
         if: ${{ !steps.cache.outputs.cache-hit }}

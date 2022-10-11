@@ -100,13 +100,13 @@ jobs:
         id: cache
         uses: actions/cache@v3
         with:
-          key: cabal-${{ runner.os }}-${{ env.GHC_VER }}-${{ env.CABAL_VER }}-${{ hashFiles('**/plan.json') }}
+          key: cabal-${{ matrix.os }}-${{ env.GHC_VER }}-${{ env.CABAL_VER }}-${{ hashFiles('**/plan.json') }}
           path: |
             ${{ steps.setup-haskell.outputs.cabal-store }}
             dist-newstyle
           restore-keys: |
-            cabal-${{ runner.os }}-${{ env.GHC_VER }}-${{ env.CABAL_VER }}-
-            cabal-${{ runner.os }}-${{ env.GHC_VER }}-
+            cabal-${{ matrix.os }}-${{ env.GHC_VER }}-${{ env.CABAL_VER }}-
+            cabal-${{ matrix.os }}-${{ env.GHC_VER }}-
 
       - name: Install dependencies
         if: ${{ !steps.cache.outputs.cache-hit }}
