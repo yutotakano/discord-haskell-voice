@@ -1,4 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE DerivingStrategies #-}
 module Main where
 
 import           Conduit
@@ -30,7 +31,7 @@ data BotAction
     | LeaveVoice ChannelId
     | PlayVoice String
     | ChangeVolume Int
-    deriving ( Read )
+    deriving stock ( Read )
 
 data GuildContext = GuildContext
     { songQueries :: [String]

@@ -1,5 +1,5 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-|
 Module      : Discord.Internal.Types.VoiceUDP
 Description : Strictly for internal use only. See Discord.Voice for the public interface.
@@ -24,7 +24,9 @@ payload, as according to the official Discord documentation for v4 of the gatewa
 
 Prisms are defined using TemplateHaskell for VoiceUDPPacket.
 -}
-module Discord.Internal.Types.VoiceUDP where
+module Discord.Internal.Types.VoiceUDP
+    ( module Discord.Internal.Types.VoiceUDP
+    ) where
 
 import Lens.Micro
 import Data.Binary.Get
@@ -45,7 +47,7 @@ data VoiceUDPPacket
     -- ^ header, and encrypted audio bytes with extended header inside
     | UnknownPacket BL.ByteString
     | MalformedPacket BL.ByteString
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 _IPDiscovery :: Traversal' VoiceUDPPacket (Integer, T.Text, Integer)
 _IPDiscovery f (IPDiscovery ssrc ip port) = (\(a, b, c) -> IPDiscovery a b c) <$> f (ssrc, ip, port)

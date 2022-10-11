@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-|
 Module      : Discord.Internal.Types.VoiceWebsocket
 Description : Strictly for internal use only. See Discord.Voice for the public interface.
@@ -48,7 +49,7 @@ data VoiceWebsocketReceivable
     | UnknownOPCode Integer Object                  -- Opcode unknown
     | ParseError T.Text                             -- Internal use
     | Reconnect                                     -- Internal use
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 _Ready :: Traversal' VoiceWebsocketReceivable ReadyPayload
 _Ready f (Ready rp) = Ready <$> f rp
@@ -70,7 +71,7 @@ data VoiceWebsocketSendable
       -- ^ Int because threadDelay uses it
     | Speaking SpeakingPayload                      -- Opcode 5
     | Resume GuildId T.Text T.Text                  -- Opcode 7
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 data ReadyPayload = ReadyPayload
     { readyPayloadSSRC  :: Integer -- contains the 32-bit SSRC identifier
@@ -79,7 +80,7 @@ data ReadyPayload = ReadyPayload
     , readyPayloadModes :: [T.Text]
     -- , readyPayloadHeartbeatInterval <- This should not be used, as per Discord documentation
     }
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 data SpeakingPayload = SpeakingPayload
     { speakingPayloadMicrophone :: Bool
@@ -88,7 +89,7 @@ data SpeakingPayload = SpeakingPayload
     , speakingPayloadDelay      :: Integer
     , speakingPayloadSSRC       :: Integer
     }
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 data IdentifyPayload = IdentifyPayload
     { identifyPayloadServerId  :: GuildId
@@ -96,7 +97,7 @@ data IdentifyPayload = IdentifyPayload
     , identifyPayloadSessionId :: T.Text
     , identifyPayloadToken     :: T.Text
     }
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 data SelectProtocolPayload = SelectProtocolPayload
     { selectProtocolPayloadProtocol :: T.Text
@@ -104,7 +105,7 @@ data SelectProtocolPayload = SelectProtocolPayload
     , selectProtocolPayloadPort     :: Integer
     , selectProtocolPayloadMode     :: T.Text
     }
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 instance FromJSON VoiceWebsocketReceivable where
     parseJSON = withObject "payload" $ \o -> do
