@@ -4,6 +4,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-|
 Module      : Discord.Internal.Types.VoiceCommon
 Description : Strictly for internal use only. See Discord.Voice for the public interface.
@@ -65,7 +66,7 @@ import Discord.Internal.Types.VoiceWebsocket
 -- computation with an unstable state.
 newtype Voice a = Voice
     { unVoice :: ReaderT DiscordBroadcastHandle (ExceptT VoiceError DiscordHandler) a
-    } deriving
+    } deriving newtype
     ( Functor
     , Applicative
     , Monad
@@ -103,12 +104,12 @@ data AudioCodec
     | UnknownCodec
     -- ^ The audio is in an unknown format, and we want to unconditionally
     -- run FFmpeg on it to convert it to OPUS which we can send to Discord.
-    deriving (Eq)
+    deriving stock (Eq)
 
 data AudioCodecNoFurtherFFmpeg
     = OPUSFinalOutput
     | PCMFinalOutput
-    deriving (Eq)
+    deriving stock (Eq)
 
 -- | The pipeline of the audio processing before it is given to the Haskell side.
 data AudioPipeline = AudioPipeline
@@ -143,7 +144,7 @@ data AudioResource = AudioResource
     -- ^ Any transformations to perform on the audio resource, both via ffmpeg
     -- filters and via ByteString Conduits.
     }
-    deriving Show
+    deriving stock Show
 
 -- | @VoiceError@ represents the potential errors when initialising a voice
 -- connection. It does /not/ account for errors that occur after the initial
@@ -152,13 +153,13 @@ data VoiceError
     = VoiceNotAvailable
     | NoServerAvailable
     | InvalidPayloadOrder
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 -- | @SubprocessException@ is an Exception that may be thrown when a subprocess
 -- such as FFmpeg encounters an error.
 --
 -- TODO: This has never actually been seen, so it's untested whether it works.
-data SubprocessException = SubprocessException String deriving (Eq, Show)
+data SubprocessException = SubprocessException String deriving stock (Eq, Show)
 instance Exception SubprocessException
 
 -- | @DiscordVoiceHandle@ represents the handles for a single voice connection
@@ -198,7 +199,7 @@ data VoiceWebsocketException
     | VoiceWebsocketEventParseError T.Text
     | VoiceWebsocketUnexpected VoiceWebsocketReceivable T.Text
     | VoiceWebsocketConnection ConnectionException T.Text
-    deriving (Show)
+    deriving stock (Show)
 
 type VoiceWebsocketReceiveChan =
     Chan (Either VoiceWebsocketException VoiceWebsocketReceivable)
