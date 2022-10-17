@@ -87,6 +87,7 @@ import Discord.Internal.Types.VoiceWebsocket
     , SpeakingPayload(..)
     )
 import Discord.Internal.Voice.CommonUtils
+import Discord.Internal.Voice.OggParser
 import Discord.Internal.Voice.WebsocketLoop
 
 -- | @liftDiscord@ lifts a computation in DiscordHandler into a computation in
@@ -416,7 +417,7 @@ play resource codec = do
     -- have to apply (or perhaps none, if it was a PCM bytestring with no FFmpeg).
     -- We then use the Haskell opus library to transcode and send natively.
     let finalProcessing = case pipeline ^. outputCodec of
-            OPUSFinalOutput -> sinkHandles handles
+            OPUSFinalOutput -> transPipe liftIO unwrapOggPacketsC .| sinkHandles handles
             PCMFinalOutput -> case resource ^. transform of
                 Just (HaskellTransformation tsC) -> tsC .| encodeOpusC .| sinkHandles handles
                 Just (_ ::.: tsC) -> tsC .| encodeOpusC .| sinkHandles handles
