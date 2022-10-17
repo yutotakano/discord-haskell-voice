@@ -10,6 +10,7 @@ import           Control.Exception.Safe     ( catch
                                             )
 import           Control.Monad              ( forM_
                                             , void
+                                            , forever
                                             )
 import qualified Data.Text.IO as TIO
 import           Data.List.NonEmpty         ( NonEmpty((:|)) )
@@ -48,12 +49,11 @@ startHandler = do
                 _     -> pure ()
 
         -- play something, then sit around in silence for 30 seconds
-        resource <- createYoutubeResource "https://www.youtube.com/watch?v=dQw4w9WgXcQ" $
-            -- TODO: opus output with no transformation is not yet supported
-            Just $ (Reverb 150 :| []) ::.: (awaitForever yield)
-        case resource of
-            Nothing -> liftIO $ print "whoops"
-            Just re -> catch (play re UnknownCodec) (\(e :: SomeException) -> liftIO $ print e)
+        forever $ do
+            resource <- createYoutubeResource "https://www.youtube.com/watch?v=dQw4w9WgXcQ" Nothing
+            case resource of
+                Nothing -> liftIO $ print "whoops"
+                Just re -> catch (play re UnknownCodec) (\(e :: SomeException) -> liftIO $ print e)
 
         liftIO $ threadDelay $ 30 * 1000 * 1000
 
