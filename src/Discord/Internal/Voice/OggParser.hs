@@ -7,7 +7,7 @@ module Discord.Internal.Voice.OggParser
 
 import Codec.Audio.Opus.Encoder
 import Conduit
-import Control.Monad ( forM_, replicateM, void )
+import Control.Monad ( forM_, replicateM, void, unless )
 import Data.Binary
 import Data.Binary.Put
 import Data.Binary.Get
@@ -134,7 +134,9 @@ opusPacketExtractC = loop BS.empty
                     yield encoded
             Just (OggPage hdr segsBytes) -> do
                 let (pkts, untermSeg, _) = splitOggPackets (oggPageSegmentLengths hdr) segsBytes opusSegment
-                forM_ pkts yield
+                forM_ pkts $ \pkt ->
+                    unless (BS.take 8 pkt `elem` ["OpusHead", "OpusTags"]) $
+                        yield pkt
                 loop untermSeg
 
 -- Keep droping one byte at a time until the first four bytes say OggS.
