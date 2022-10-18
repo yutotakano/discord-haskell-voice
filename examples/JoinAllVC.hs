@@ -10,10 +10,9 @@ import           Control.Exception.Safe     ( catch
                                             )
 import           Control.Monad              ( forM_
                                             , void
-                                            , forever
+                                            -- , forever
                                             )
 import qualified Data.Text.IO as TIO
-import           Data.List.NonEmpty         ( NonEmpty((:|)) )
 import           Discord
 import           Discord.Voice
 import qualified Discord.Requests as R
@@ -49,11 +48,11 @@ startHandler = do
                 _     -> pure ()
 
         -- play something, then sit around in silence for 30 seconds
-        forever $ do
-            resource <- createYoutubeResource "https://www.youtube.com/watch?v=dQw4w9WgXcQ" Nothing
-            case resource of
-                Nothing -> liftIO $ print "whoops"
-                Just re -> catch (play re UnknownCodec) (\(e :: SomeException) -> liftIO $ print e)
+        -- forever $ do
+        resource <- createYoutubeResource "https://www.youtube.com/watch?v=BZP1rYjoBgI" Nothing
+        case resource of
+            Nothing -> liftIO $ print "whoops"
+            Just re -> catch (play re UnknownCodec) (\(e :: SomeException) -> liftIO $ print e)
 
         liftIO $ threadDelay $ 30 * 1000 * 1000
 

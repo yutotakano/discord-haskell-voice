@@ -7,15 +7,12 @@ module Discord.Internal.Voice.OggParser
 
 import Codec.Audio.Opus.Encoder
 import Conduit
-import Control.Monad ( forM_, unless, replicateM, forM )
+import Control.Monad ( forM_, replicateM, void )
 import Data.Binary
 import Data.Binary.Put
 import Data.Binary.Get
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.Foldable ( toList )
-import Data.Int
-import Data.Sequence as S ( empty, Seq, viewl, (|>) )
 import Lens.Micro
 
 -- | The Ogg Page Header, after the initial 4 byte pattern of "OggS".
@@ -67,7 +64,7 @@ instance Binary OggPageHeader where
             putWord8 $ fromIntegral len
     get = do
         -- Ignore the OggS pattern
-        getByteString 4
+        void $ getByteString 4
         ver <- getWord8
         flags <- getWord8
         granularPosition <- getWord64le
@@ -82,7 +79,7 @@ data OggPage = OggPage
     { oggPageHdr :: OggPageHeader
     , oggPageSegs :: BS.ByteString
     }
-    deriving (Eq, Show)
+    deriving stock (Eq, Show)
 
 unwrapOggPacketsC :: ConduitT BS.ByteString BS.ByteString IO ()
 unwrapOggPacketsC = oggPageExtractC .| opusPacketExtractC
@@ -110,9 +107,9 @@ oggPageExtractC = loop BS.empty
                 case decodeOrFail (BL.fromStrict page) of
                     Left (_unconsumed, _consumedAmt, _err) -> do
                         -- TOOD: log warning
-                        error "warning"
+                        void $ error "warning"
                         loop page
-                    Right (unconsumed, consumedAmt, hdr) -> do
+                    Right (unconsumed, _consumedAmt, hdr) -> do
                         let (page, rest) = BL.splitAt (fromIntegral $ sum $ oggPageSegmentLengths hdr) unconsumed
                         yield $ OggPage hdr (BL.toStrict page)
                         loop $ BL.toStrict rest
@@ -188,5 +185,5 @@ splitOggPackets sl bytes ps = loop sl bytes ps
         -- Handle the case when the segment length doesn't match!! This only
         -- happens if the network packet was lost somewhere, or if the Ogg packet
         -- is simply corrupt.
-        | BS.length bytes < segLen
+        | otherwise
         = error "TODO think of a better (non-crashing) way to handle this here"
