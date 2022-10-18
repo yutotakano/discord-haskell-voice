@@ -58,7 +58,6 @@ library
     , bytestring >=0.10.12.0 && <0.12
     , conduit >=1.3.4.2 && <=1.4.0.0
     , conduit-extra ==1.3.6
-    , containers ==0.6.5.1
     , discord-haskell >=1.12.0 && <=1.15.3
     , microlens >=0.4.11.2
     , microlens-th >=0.4.3.10
