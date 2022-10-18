@@ -13,6 +13,7 @@ import Data.Binary.Put
 import Data.Binary.Get
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
+import Data.Maybe ( fromMaybe )
 import Lens.Micro
 
 -- | The Ogg Page Header, after the initial 4 byte pattern of "OggS".
@@ -101,22 +102,20 @@ oggPageExtractC = loop BS.empty
         -- the next item, and it'll just loop forever on the same failing input.
         -- See: https://stackoverflow.com/a/26872574
         mbChunk <- await
-        let mbUnconsumedBytes = if BS.null unconsumedBytes then Nothing else Just unconsumedBytes
-        case (mbUnconsumedBytes <> mbChunk) of
-            -- No more upstream content.
-            Nothing -> pure ()
-            Just chunk -> do
-                -- Get the segment beginning from OggS, which is an Ogg page.
-                let page = dropUntilPageStart chunk
-                case decodeOrFail (BL.fromStrict page) of
-                    Left (_unconsumed, _consumedAmt, _err) -> do
-                        -- TOOD: log warning
-                        void $ error "warning"
-                        loop page
-                    Right (unconsumed, _consumedAmt, hdr) -> do
-                        let (page, rest) = BL.splitAt (fromIntegral $ sum $ oggPageSegmentLengths hdr) unconsumed
-                        yield $ OggPage hdr (BL.toStrict page)
-                        loop $ BL.toStrict rest
+        if BS.null unconsumedBytes && mbChunk == Nothing then
+            pure ()
+        else do
+            let chunk = unconsumedBytes <> fromMaybe BS.empty mbChunk
+            let page = dropUntilPageStart chunk
+            case decodeOrFail (BL.fromStrict page) of
+                Left (_unconsumed, _consumedAmt, _err) -> do
+                    -- TOOD: log warning
+                    void $ error "warning"
+                    loop page
+                Right (unconsumed, _consumedAmt, hdr) -> do
+                    let (page, rest) = BL.splitAt (fromIntegral $ sum $ oggPageSegmentLengths hdr) unconsumed
+                    yield $ OggPage hdr (BL.toStrict page)
+                    loop $ BL.toStrict rest
 
 -- | Conduit to extract the Opus bytes from an Ogg Page. This also handles the
 -- addition of empty frames when there is no audio.
