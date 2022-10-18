@@ -82,14 +82,14 @@ data OggPage = OggPage
     deriving stock (Eq, Show)
 
 unwrapOggPacketsC :: ConduitT BS.ByteString BS.ByteString IO ()
-unwrapOggPacketsC = oggPageExtractC .| opusPacketExtractC
+unwrapOggPacketsC = oggPageExtractC .| opusPacketExtractC .| filterOpusNonMetaC
 
 oggPageExtractC :: ConduitT BS.ByteString OggPage IO ()
 oggPageExtractC = loop BS.empty
   where
     -- | Keep awaiting for new chunks of bytestrings, concat that with any
     -- previous leftover chunks, and try to parse it as an Ogg, yielding any
-    -- parsed bytes.
+    -- parsed pages.
     loop :: BS.ByteString -> ConduitT BS.ByteString OggPage IO ()
     loop unconsumedBytes = do
         -- Get the bytestring chunks that sourceHandle reads, which is
@@ -114,6 +114,8 @@ oggPageExtractC = loop BS.empty
                         yield $ OggPage hdr (BL.toStrict page)
                         loop $ BL.toStrict rest
 
+-- | Conduit to extract the Opus bytes from an Ogg Page. This also handles the
+-- addition of empty frames when there is no audio.
 opusPacketExtractC :: ConduitT OggPage BS.ByteString IO ()
 opusPacketExtractC = loop BS.empty
   where
@@ -134,10 +136,18 @@ opusPacketExtractC = loop BS.empty
                     yield encoded
             Just (OggPage hdr segsBytes) -> do
                 let (pkts, untermSeg, _) = splitOggPackets (oggPageSegmentLengths hdr) segsBytes opusSegment
-                forM_ pkts $ \pkt ->
-                    unless (BS.take 8 pkt `elem` ["OpusHead", "OpusTags"]) $
-                        yield pkt
+                forM_ pkts yield
                 loop untermSeg
+
+-- | Conduit to filter out any packets beginning with OpusHead or OpusTag.
+filterOpusNonMetaC :: (Monad m) => ConduitT BS.ByteString BS.ByteString m ()
+filterOpusNonMetaC = do
+    mbPkt <- await
+    case mbPkt of
+        Nothing -> pure ()
+        Just pkt -> do
+            unless (BS.take 8 pkt `elem` ["OpusHead", "OpusTags"]) $
+                yield pkt
 
 -- Keep droping one byte at a time until the first four bytes say OggS.
 dropUntilPageStart :: BS.ByteString -> BS.ByteString
