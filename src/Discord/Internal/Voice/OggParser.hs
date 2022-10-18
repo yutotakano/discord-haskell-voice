@@ -103,6 +103,9 @@ oggPageExtractC = loop BL.empty
         -- the next item, and it'll just loop forever on the same failing input.
         -- See: https://stackoverflow.com/a/26872574
         mbChunk <- await
+        -- Return early and prevent the bytestring append operation if neither
+        -- the unconsumed bytes nor the conduit data exist. Both BL.null and
+        -- equality check are O(1).
         if BL.null unconsumedBytes && mbChunk == Nothing then
             pure ()
         else do
