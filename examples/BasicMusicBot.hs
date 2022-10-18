@@ -1,15 +1,14 @@
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# OPTIONS_GHC -Wno-missing-export-lists #-}
 module Main where
 
 import           Conduit
 import           Control.Concurrent.STM.TVar
-import           Control.Monad              ( when
-                                            , guard
-                                            , void
+import           Control.Monad              ( void
                                             , forever
                                             )
 import           Data.List                  ( intercalate
-                                            )
-import           Data.Maybe                 ( fromJust
                                             )
 import qualified Data.Text.IO as TIO
 import qualified Data.Text as T
@@ -20,8 +19,7 @@ import           Discord.Voice
 import           Discord.Voice.Conduit
 import           Discord
 import           Options.Applicative
-import           UnliftIO                   ( liftIO
-                                            , atomically
+import           UnliftIO                   ( atomically
                                             )
 
 data BotAction
@@ -29,7 +27,7 @@ data BotAction
     | LeaveVoice ChannelId
     | PlayVoice String
     | ChangeVolume Int
-    deriving ( Read )
+    deriving stock ( Read )
 
 data GuildContext = GuildContext
     { songQueries :: [String]
@@ -38,33 +36,38 @@ data GuildContext = GuildContext
     }
 
 parser :: ParserInfo BotAction
-parser = info
-    ( helper <*> subparser
-        ( command "join"
-            ( flip info (progDesc "Join a voice channel") $
-                JoinVoice <$>
-                argument auto (metavar "CHANID" <> help "Voice Channel ID"))
-        <> command "leave"
-            ( flip info (progDesc "Leave a voice channel") $
-                LeaveVoice <$>
-                argument auto (metavar "CHANID" <> help "Voice Channel ID"))
-        <> command "play"
-            ( flip info (progDesc "Queue something to play!") $
-                PlayVoice . intercalate " " <$>
-                some (argument str (metavar "QUERY" <> help "Search query/URL")))
-        <> command "volume"
-            ( flip info (progDesc "Change the volume for this server!") $
-                ChangeVolume <$>
-                argument auto (metavar "VOLUME" <> help "Integer volume"))
-        )
-    ) fullDesc
+parser = flip info fullDesc $ helper <*> commandParser
+  where
+    commandParser = subparser $ mconcat
+        [ joinParser
+        , leaveParser
+        , playParser
+        , volumeParser
+        ]
+
+    joinParser = command "join" $
+        flip info (progDesc "Join a voice channel") $
+            JoinVoice <$>
+            argument auto (metavar "CHANID" <> help "Voice Channel ID")
+    leaveParser = command "leave" $
+        flip info (progDesc "Leave a voice channel") $
+            LeaveVoice <$>
+            argument auto (metavar "CHANID" <> help "Voice Channel ID")
+    playParser = command "play" $
+        flip info (progDesc "Queue something to play!") $
+            PlayVoice . intercalate " " <$>
+            some (argument str (metavar "QUERY" <> help "Search query/URL"))
+    volumeParser = command "volume" $
+        flip info (progDesc "Change the volume for this server!") $
+            ChangeVolume <$>
+            argument auto (metavar "VOLUME" <> help "Integer volume")
 
 main :: IO ()
 main = do
     tok <- TIO.readFile "./examples/auth-token.secret"
 
     queries <- M.newIO
-    t <- runDiscord $ def
+    void $ runDiscord $ def
         { discordToken = tok
         , discordOnStart = pure ()
         , discordOnEnd = liftIO $ putStrLn "Ended"
@@ -90,7 +93,7 @@ eventHandler contexts (MessageCreate msg) = case messageGuildId msg of
 eventHandler _ _ = pure ()
 
 handleCommand :: M.Map String GuildContext -> Message -> GuildId -> BotAction -> DiscordHandler ()
-handleCommand contexts msg gid (JoinVoice cid) = do
+handleCommand contexts _msg gid (JoinVoice cid) = do
     result <- runVoice $ do
         leave <- join gid cid
         volume <- liftIO $ newTVarIO 100
@@ -106,14 +109,17 @@ handleCommand contexts msg gid (JoinVoice cid) = do
                     let adjustVolume = awaitForever $ \current -> do
                             v' <- liftIO $ readTVarIO volume
                             yield $ round $ fromIntegral current * (fromIntegral v' / 100)
-                    playYouTubeWith' "ffmpeg" defaultFFmpegArgs "yt-dlp" x $
-                        packInt16C .| adjustVolume .| unpackInt16C
+
+                    resource <- createYoutubeResource x $ Just $ HaskellTransformation $ packInt16C .| adjustVolume .| unpackInt16C
+                    case resource of
+                        Nothing -> liftIO $ print "whoops"
+                        Just re -> play re UnknownCodec
 
     case result of
         Left e -> liftIO $ print e >> pure ()
         Right _ -> pure ()
 
-handleCommand contexts msg gid (LeaveVoice cid) = do
+handleCommand contexts _msg gid (LeaveVoice _cid) = do
     context <- atomically $ M.lookup (show gid) contexts
     case context of
         Nothing -> pure ()
@@ -131,13 +137,13 @@ handleCommand contexts msg gid (PlayVoice q) = do
                 pure $ xs ++ [q]
     void $ restCall $ R.CreateMessage (messageChannelId msg) $ case resultQueue of
         [] -> T.pack $ "Can't play something when I'm not in a voice channel!"
-        xs -> T.pack $ "Queued for playback: " <> show resultQueue
+        _ -> T.pack $ "Queued for playback: " <> show resultQueue
 
 handleCommand contexts msg gid (ChangeVolume amount) = do
     context <- atomically $ M.lookup (show gid) contexts
     case context of
         Nothing -> pure ()
-        Just (GuildContext q v l) -> do
-            atomically $ swapTVar v amount
+        Just (GuildContext _q v _l) -> do
+            void $ atomically $ swapTVar v amount
             void $ restCall $ R.CreateMessage (messageChannelId msg) $
                 (T.pack $ "Volume set to " <> show amount <> " / 100")

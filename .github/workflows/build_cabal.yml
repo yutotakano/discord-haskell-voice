@@ -1,0 +1,123 @@
+# Heavy references from agda/agda's workflows, thank you!
+name: Build (Cabal)
+on:
+  push:
+    branches:
+      - master
+  pull_request: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build (cabal) - ${{ matrix.os }} - ${{ matrix.ghc }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes:
+      60
+    continue-on-error: false
+    strategy:
+      matrix:
+        os: ["ubuntu-20.04"]
+        ghc: ["8.10.7", "9.0.2", "9.2.4"]
+        include:
+          - os: ubuntu-22.04
+            ghc: "8.10.7"
+          - os: macOS-latest
+            ghc: "8.10.7"
+          - os: windows-latest
+            ghc: "8.10.7"
+      fail-fast: false
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+
+      - uses: haskell/actions/setup@v2
+        id: setup-haskell
+        with:
+          ghc-version: ${{ matrix.ghc }}
+
+      - name: Set Haskell PATH and environment variables
+        run: |
+          echo "GHC=${{ steps.setup-haskell.outputs.ghc-exe }}" >> $GITHUB_ENV
+          echo "GHC_VER=$(ghc --numeric-version)" >> $GITHUB_ENV
+          echo "CABAL=${{ steps.setup-haskell.outputs.cabal-exe }}" >> $GITHUB_ENV
+          echo "CABAL_VER=$(cabal --numeric-version)" >> $GITHUB_ENV
+
+      - name: Print GHC/Cabal versions and env
+        run: |
+          ${GHC} --version || true
+          ${CABAL} --version || true
+          env
+
+      - name: Install libsodium and Opus (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          pacman -S --noconfirm mingw-w64-x86_64-pkg-config mingw-w64-x86_64-opus mingw-w64-x86_64-libsodium
+        shell: C:\shells\msys2bash.cmd {0}
+
+      - name: Add to cabal.project (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          echo "PATH=C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:Path" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+          echo "PKG_CONFIG_PATH=C:\msys64\mingw64\lib\pkgconfig" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+          # https://github.com/haskell/cabal/issues/2997
+          echo @"
+          package saltine
+            extra-include-dirs: c:/msys64/mingw64/include
+            extra-lib-dirs: c:/msys64/mingw64/lib
+          package opus
+            extra-include-dirs: c:/msys64/mingw64/include
+            extra-lib-dirs: c:/msys64/mingw64/lib
+          "@ >> cabal.project
+          cat cabal.project
+        shell: pwsh
+
+      - name: Install libsodium (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get install -y libsodium-dev libopus-dev
+
+      - name: Install libsodium (macOS)
+        if: matrix.os == 'macOS-latest'
+        run: |
+          brew install libsodium opus
+
+          # Temporary until runner image is updated: actions/runner-images#6364
+          # or until cabal is updated: haskell/cabal#8496
+          # whichever is earlier
+          brew update && brew reinstall highway
+
+      - name: Update cabal database and set up build plan
+        run: |
+          cabal update
+          cabal configure
+          cabal build --dry-run -v
+
+      - name: Cache Cabal Dependencies
+        id: cache
+        uses: actions/cache@v3
+        with:
+          key: cabal-${{ matrix.os }}-${{ env.GHC_VER }}-${{ env.CABAL_VER }}-${{ hashFiles('**/plan.json') }}
+          path: |
+            ${{ steps.setup-haskell.outputs.cabal-store }}
+            dist-newstyle
+          restore-keys: |
+            cabal-${{ matrix.os }}-${{ env.GHC_VER }}-${{ env.CABAL_VER }}-
+            cabal-${{ matrix.os }}-${{ env.GHC_VER }}-
+
+      - name: Install dependencies
+        if: ${{ !steps.cache.outputs.cache-hit }}
+        run: |
+          ${CABAL} build --disable-tests --disable-benchmarks --dependencies-only -j2 all
+          ${CABAL} build --enable-tests --dependencies-only -j2 all
+
+      - name: Cabal check
+        run: |
+          ${CABAL} -vnormal check
+
+      - name: Build discord-haskell-voice
+        run: |
+          ${CABAL} build

@@ -1,9 +1,10 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-|
 Module      : Discord.Internal.Voice.WebsocketLoop
 Description : Strictly for internal use only. See Discord.Voice for the public interface.
-Copyright   : (c) Yuto Takano (2021)
+Copyright   : (c) 2021-2022 Yuto Takano
 License     : MIT
 Maintainer  : moa17stock@gmail.com
 
@@ -47,7 +48,7 @@ import Control.Concurrent
     , newMVar
     , readMVar
     )
-import Control.Exception.Safe ( try, tryAsync, SomeException, finally, handle )
+import Control.Exception.Safe ( try, SomeException, finally )
 import Lens.Micro
 import Control.Monad ( forever, guard )
 import Control.Monad.Except ( runExceptT, ExceptT (ExceptT), lift )
@@ -62,15 +63,11 @@ import Data.Word ( Word16 )
 import Network.WebSockets
     ( ConnectionException(..)
     , Connection
-    , sendClose
     , receiveData
     , sendTextData
     )
 import Wuss ( runSecureClient )
 
-import Discord
-import Discord.Internal.Gateway ( GatewayException )
-import Discord.Internal.Types ( GuildId, UserId, User(..), Event(..) )
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types.VoiceWebsocket
 import Discord.Internal.Types.VoiceUDP
@@ -81,7 +78,7 @@ data WSState
     = WSStart
     | WSClosed
     | WSResume
-    deriving Show
+    deriving stock Show
 
 -- | A custom logging function that writes the date/time and the thread ID.
 (✍) :: Chan T.Text -> T.Text -> IO ()
@@ -116,7 +113,7 @@ launchWebsocket opts log = do
     websocketFsm :: WSState -> Int -> MVar UDPLaunchOpts -> IO ()
     -- Websocket closed legitimately. The UDP thread and this thread
     -- will be closed by the cleanup in runVoice.
-    websocketFsm WSClosed retries udpInfo = pure ()
+    websocketFsm WSClosed _retries _udpInfo = pure ()
 
     -- First time. Let's open a Websocket connection to the Voice
     -- Gateway, do the initial Websocket handshake routine, then
@@ -124,7 +121,7 @@ launchWebsocket opts log = do
     -- When creating the UDP thread, we will fill in the MVars in
     -- @opts@ to report back to runVoice, so it can be killed in the
     -- future.
-    websocketFsm WSStart retries udpInfo = do
+    websocketFsm WSStart _retries udpInfo = do
         next <- try $ connect (opts ^. endpoint) $ \conn -> do
             (libSends, sendTid) <- flip (setupSendLoop conn) log $ opts ^. wsHandle . _2
 
@@ -373,7 +370,7 @@ heartbeatLoop
     -- ^ milliseconds
     -> Chan T.Text
     -> IO ()
-heartbeatLoop libSends interval log = do
+heartbeatLoop libSends interval _log = do
     threadDelay $ 1 * 10^(6 :: Int)
     forever $ do
         time <- round <$> getPOSIXTime
@@ -422,14 +419,14 @@ eventStream conn opts interval udpLaunchOpts libSends log = do
     -- | Handle Websocket Close codes by logging appropriate messages and
     -- closing the connection.
     handleClose :: Word16 -> BL.ByteString -> IO WSState
-    handleClose 1000 str = log ✍! "websocket closed normally."
+    handleClose 1000 _str = log ✍! "websocket closed normally."
         >> pure WSClosed
-    handleClose 4001 str = log ✍! "websocket closed due to unknown opcode"
+    handleClose 4001 _str = log ✍! "websocket closed due to unknown opcode"
         >> pure WSClosed
-    handleClose 4014 str = log ✍! ("vc deleted, main gateway closed, or bot " <>
+    handleClose 4014 _str = log ✍! ("vc deleted, main gateway closed, or bot " <>
         "forcefully disconnected... Restarting voice.")
         >> pure WSStart
-    handleClose 4015 str = log ✍! "server crashed on Discord side, resuming"
+    handleClose 4015 _str = log ✍! "server crashed on Discord side, resuming"
         >> pure WSResume
     handleClose code str = (✍!) log ("connection closed with code: [" <>
         tshow code <> "] " <> (TE.decodeUtf8 $ BL.toStrict str))
