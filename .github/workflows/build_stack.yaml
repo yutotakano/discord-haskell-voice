@@ -73,7 +73,7 @@ jobs:
         id: cache
         uses: actions/cache@v3
         with:
-          key: stack-${{ matrix.os }}-${{ env.GHC_VER }}-${{ env.STACK_VER }}-${{ hashFiles('stack.yaml') }}
+          key: stack-${{ matrix.os }}-${{ env.GHC_VER }}-${{ env.STACK_VER }}-${{ hashFiles(format('stack-{0}.yaml', env.GHC_VER)) }}
           path: |
             ${{ env.STACK_ROOT }}
           restore-keys: |
