@@ -22,8 +22,6 @@ jobs:
         os: ["ubuntu-20.04"]
         ghc: ["8.10.7", "9.0.2", "9.2.4"]
         include:
-          - os: ubuntu-18.04
-            ghc: "8.10.7"
           - os: macOS-latest
             ghc: "8.10.7"
           - os: windows-latest
