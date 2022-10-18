@@ -444,7 +444,6 @@ play resource codec = do
                 _ -> []
         let outputFlags = case pipeline ^. outputCodec of
                 -- OPUS output from FFmpeg will be in an OGG container.
-                -- TODO: create code to unwrap it, ala https://github.com/Rapptz/discord.py/blob/1be36c9c3ede72eaa2262dfa0e62cbd8b8929e66/discord/oggparse.py#L50
                 OPUSFinalOutput -> ["-f", "opus", "-map", "0:a", "-c:a", "libopus", "-b:a", "128K", "-ar", "48000", "-ac", "2"]
                 PCMFinalOutput -> ["-f", "s16le", "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2"]
         let args = [ "-i", iFlag
