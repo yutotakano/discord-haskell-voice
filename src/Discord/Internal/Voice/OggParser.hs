@@ -13,7 +13,6 @@ import Data.Binary.Put
 import Data.Binary.Get
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.Maybe ( fromMaybe )
 import Lens.Micro
 
 -- | The Ogg Page Header, after the initial 4 byte pattern of "OggS".
@@ -86,12 +85,14 @@ unwrapOggPacketsC :: ConduitT BS.ByteString BS.ByteString IO ()
 unwrapOggPacketsC = oggPageExtractC .| opusPacketExtractC .| filterOpusNonMetaC
 
 oggPageExtractC :: (Monad m) => ConduitT BS.ByteString OggPage m ()
-oggPageExtractC = loop BS.empty
+oggPageExtractC = loop BL.empty
   where
     -- | Keep awaiting for new chunks of bytestrings, concat that with any
     -- previous leftover chunks, and try to parse it as an Ogg, yielding any
     -- parsed pages.
-    loop :: (Monad m) => BS.ByteString -> ConduitT BS.ByteString OggPage m ()
+    -- Since we perform concatenation between large bytestrings repeatedly,
+    -- we use lazy bytestrings for the intermediate unconsumedBytes variable.
+    loop :: (Monad m) => BL.ByteString -> ConduitT BS.ByteString OggPage m ()
     loop unconsumedBytes = do
         -- Get the bytestring chunks that sourceHandle reads, which is
         -- defaultChunkSize, roughly 32k bytes.
@@ -102,12 +103,18 @@ oggPageExtractC = loop BS.empty
         -- the next item, and it'll just loop forever on the same failing input.
         -- See: https://stackoverflow.com/a/26872574
         mbChunk <- await
-        if BS.null unconsumedBytes && mbChunk == Nothing then
+        if BL.null unconsumedBytes && mbChunk == Nothing then
             pure ()
         else do
-            let chunk = unconsumedBytes <> fromMaybe BS.empty mbChunk
+            -- Since these are lazy bytestrings, appending is only dependent
+            -- on the length of the spine in @unconsumedBytes@. Furthermore,
+            -- conversion of strict to lazy with BL.fromStrict is O(1).
+            -- This is better than using strict bytestrings, where appending
+            -- incurs two memory copies.
+            -- https://hackage.haskell.org/package/bytestring-0.11.3.1/docs/src/Data.ByteString.Internal.html#append
+            let chunk = unconsumedBytes <> maybe BL.empty BL.fromStrict mbChunk
             let page = dropUntilPageStart chunk
-            case decodeOrFail (BL.fromStrict page) of
+            case decodeOrFail page of
                 Left (_unconsumed, _consumedAmt, _err) -> do
                     -- TOOD: log warning
                     void $ error "warning"
@@ -115,7 +122,7 @@ oggPageExtractC = loop BS.empty
                 Right (unconsumed, _consumedAmt, hdr) -> do
                     let (page, rest) = BL.splitAt (fromIntegral $ sum $ oggPageSegmentLengths hdr) unconsumed
                     yield $ OggPage hdr (BL.toStrict page)
-                    loop $ BL.toStrict rest
+                    loop rest
 
 -- | Conduit to extract the Opus bytes from an Ogg Page. This also handles the
 -- addition of empty frames when there is no audio.
@@ -153,14 +160,14 @@ filterOpusNonMetaC = do
                 yield pkt
 
 -- Keep droping one byte at a time until the first four bytes say OggS.
-dropUntilPageStart :: BS.ByteString -> BS.ByteString
+dropUntilPageStart :: BL.ByteString -> BL.ByteString
 dropUntilPageStart bsChunk
-    | BS.length bsChunk < 4
-    = BS.empty
-    | BS.take 4 bsChunk == "OggS"
+    | BL.length bsChunk < 4
+    = BL.empty
+    | BL.take 4 bsChunk == "OggS"
     = bsChunk
     | otherwise
-    = dropUntilPageStart $ BS.tail bsChunk
+    = dropUntilPageStart $ BL.tail bsChunk
 
 -- | split according to the given lengths, return any segments that were not
 -- properly finished, like if the last item in the segLengths was 255
