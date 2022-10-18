@@ -186,27 +186,44 @@ splitOggPackets
     -> ([BS.ByteString], BS.ByteString, BS.ByteString)
     -- ^ A tuple containing: (the list of parsed and concatted packets, any
     -- unterminated segments, any leftover bytes that were after the segments).
-splitOggPackets sl bytes ps = loop sl bytes ps
+splitOggPackets sl bytes ps = loop sl bytes (BL.fromStrict ps)
   where
     loop
         :: [Int]
+        -- ^ Length of remaining segments in bytes (0-255).
         -> BS.ByteString
-        -> BS.ByteString
+        -- ^ The remaining bytes.
+        -> BL.ByteString
+        -- ^ Any previous unterminated segments that need to be prepended with
+        -- this one to construct a complete Opus packet. This argument is lazy
+        -- since it can undergo an append operation on each loop. If we use
+        -- strict bytestrings here, in the worst case when all segments within
+        -- an Ogg Page are 255 long, there will be 0 byte copies at the first
+        -- iteration, 255*2 at the second iteration (strict append has O(m+n)),
+        -- 255*3 at third etc. If we use lazy bytestrings, then there will be
+        -- 0 byte copies at the first, 255 at the second (lazy append has O(m)),
+        -- 255*2 at second etc. In ffmpeg outputs set to what Discord wants,
+        -- an Opus packet spans more than one segment, usually two to three. We
+        -- can therefore benefit from laziness.
+        --
+        -- The toStrict operations are costly. They are a temporary necessity
+        -- until the return type of 'splitOggPackets' is lazy (which will
+        -- happen soon).
         -> ([BS.ByteString], BS.ByteString, BS.ByteString)
-    loop [] bytes previousSegment = ([], previousSegment, bytes)
+    loop [] bytes previousSegment = ([], BL.toStrict previousSegment, bytes)
     loop (segLen : segLengths) bytes previousSegment
         -- Handle the case when there is at least another segment after this in
         -- the same packet
         | (seg, rest) <- BS.splitAt (segLen) bytes
         , BS.length seg == segLen
         , segLen == 255
-        = loop segLengths rest (previousSegment <> seg)
+        = loop segLengths rest (previousSegment <> BL.fromStrict seg)
         -- Handle the case when this segment terminates a packet (or is self-
         -- conclusive)
         | (seg, rest) <- BS.splitAt (segLen) bytes
         , BS.length seg == segLen
         , segLen < 255
-        = _1 %~ (previousSegment <> seg :) $ loop segLengths rest BS.empty
+        = _1 %~ (BL.toStrict (previousSegment <> BL.fromStrict seg) :) $ loop segLengths rest BL.empty
         -- Handle the case when the segment length doesn't match!! This only
         -- happens if the network packet was lost somewhere, or if the Ogg packet
         -- is simply corrupt.
