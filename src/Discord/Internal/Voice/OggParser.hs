@@ -42,10 +42,10 @@ data OggPageHeader = OggPageHeader
     , oggPageCRCChecksum :: Word32
     -- ^ The index 22 to 25 is the CRC checksum of the entire page, with the
     -- checksum field set to 0.
-    , oggPageSegmentAmt :: Word8
+    , oggPageSegmentAmt :: Int
     -- ^ The index 26 is "page_segments", which is the number of entries
     -- appearing in the segment table below.
-    , oggPageSegmentLengths :: [Word8]
+    , oggPageSegmentLengths :: [Int]
     -- ^ Index 27 onwards in the header contains the length of each segment that
     -- follows this header in the body, up to the number of segments specified
     -- in segmentAmt. These are also called the lacing values.
@@ -62,9 +62,9 @@ instance Binary OggPageHeader where
         putWord32le oggPageStreamSerial
         putWord32le oggPageSeqNumber
         putWord32le oggPageCRCChecksum
-        putWord8 oggPageSegmentAmt
+        putWord8 $ fromIntegral oggPageSegmentAmt
         forM_ oggPageSegmentLengths $ \len ->
-            putWord8 len
+            putWord8 $ fromIntegral len
     get = do
         -- Ignore the OggS pattern
         getByteString 4
@@ -74,33 +74,36 @@ instance Binary OggPageHeader where
         streamSerial <- getWord32le
         seqNumber <- getWord32le
         crcChecksum <- getWord32le
-        segmentAmt <- getWord8
-        segmentLengths <- replicateM (fromIntegral segmentAmt) getWord8
+        segmentAmt <- fromIntegral <$> getWord8
+        segmentLengths <- replicateM segmentAmt $ fromIntegral <$> getWord8
         pure $ OggPageHeader ver flags granularPosition streamSerial seqNumber crcChecksum segmentAmt segmentLengths
 
+data OggPage = OggPage
+    { oggPageHdr :: OggPageHeader
+    , oggPageSegs :: BS.ByteString
+    }
+    deriving (Eq, Show)
+
 unwrapOggPacketsC :: ConduitT BS.ByteString BS.ByteString IO ()
-unwrapOggPacketsC = loop BS.empty BS.empty
+unwrapOggPacketsC = oggPageExtractC .| opusPacketExtractC
+
+oggPageExtractC :: ConduitT BS.ByteString OggPage IO ()
+oggPageExtractC = loop BS.empty
   where
     -- | Keep awaiting for new chunks of bytestrings, concat that with any
     -- previous leftover chunks, and try to parse it as an Ogg, yielding any
     -- parsed bytes.
-    loop :: BS.ByteString -> BS.ByteString -> ConduitT BS.ByteString BS.ByteString IO ()
-    loop unconsumedBytes inProgressOpusSegment = do
+    loop :: BS.ByteString -> ConduitT BS.ByteString OggPage IO ()
+    loop unconsumedBytes = do
         -- Get the bytestring chunks that sourceHandle reads, which is
         -- defaultChunkSize, roughly 32k bytes.
         -- Prepend any previous bytes we didn't consume since it wasn't part of
         -- the page.
-        mbChunk <- (fmap (unconsumedBytes <>)) <$> await
-        case mbChunk of
+        mbChunk <- await
+        let mbUnconsumedBytes = if BS.null unconsumedBytes then Nothing else Just unconsumedBytes
+        case (mbUnconsumedBytes <> mbChunk) of
             -- No more upstream content.
-            Nothing -> do
-                -- Send at least 5 blank frames (20ms * 5 = 100 ms)
-                let enCfg = mkEncoderConfig opusSR48k True app_audio
-                encoder <- opusEncoderCreate enCfg
-                let frame = BS.pack $ concat $ replicate 1280 [0xF8, 0xFF, 0xFE]
-                encoded <- opusEncode encoder (mkStreamConfig enCfg (48*20) 1276) frame
-                forM_ [0..4] $ \_ -> do
-                    yield encoded
+            Nothing -> pure ()
             Just chunk -> do
                 -- Get the segment beginning from OggS, which is an Ogg page.
                 let page = dropUntilPageStart chunk
@@ -108,14 +111,34 @@ unwrapOggPacketsC = loop BS.empty BS.empty
                     Left (_unconsumed, _consumedAmt, _err) -> do
                         -- TOOD: log warning
                         error "warning"
-                        loop page inProgressOpusSegment
+                        loop page
                     Right (unconsumed, consumedAmt, hdr) -> do
-                        if (BL.take 8 unconsumed `elem` ["OpusHead", "OpusTags"]) then
-                            loop BS.empty BS.empty
-                        else do
-                            let (pkts, unterminatedSeg, nextPage) = splitOggPackets (oggPageSegmentLengths hdr) (BL.toStrict unconsumed) inProgressOpusSegment
-                            forM pkts yield
-                            loop nextPage unterminatedSeg
+                        let (page, rest) = BL.splitAt (fromIntegral $ sum $ oggPageSegmentLengths hdr) unconsumed
+                        yield $ OggPage hdr (BL.toStrict page)
+                        loop $ BL.toStrict rest
+
+opusPacketExtractC :: ConduitT OggPage BS.ByteString IO ()
+opusPacketExtractC = loop BS.empty
+  where
+    loop :: BS.ByteString -> ConduitT OggPage BS.ByteString IO ()
+    loop opusSegment = do
+        mbPage <- await
+        case mbPage of
+            Nothing -> do
+                -- Send any incomplete leftovers
+                if BS.null opusSegment then pure () else yield opusSegment
+
+                -- Send at least 5 blank frames (20ms * 5 = 100 ms)
+                let enCfg = mkEncoderConfig opusSR48k True app_audio
+                encoder <- opusEncoderCreate enCfg
+                let frame = BS.pack $ concat $ replicate 1280 [0xF8, 0xFF, 0xFE]
+                encoded <- opusEncode encoder (mkStreamConfig enCfg (48*20) 1276) frame
+                forM_ [0..4] $ \_ -> do
+                    yield encoded
+            Just (OggPage hdr segsBytes) -> do
+                let (pkts, untermSeg, _) = splitOggPackets (oggPageSegmentLengths hdr) segsBytes opusSegment
+                forM_ pkts yield
+                loop untermSeg
 
 -- Keep droping one byte at a time until the first four bytes say OggS.
 dropUntilPageStart :: BS.ByteString -> BS.ByteString
@@ -130,7 +153,7 @@ dropUntilPageStart bsChunk
 -- | split according to the given lengths, return any segments that were not
 -- properly finished, like if the last item in the segLengths was 255
 splitOggPackets
-    :: [Word8]
+    :: [Int]
     -- ^ Length of each segment in bytes (0 - 255). This list can be up to 255
     -- long, and is taken from the segmentAmt header.
     -> BS.ByteString
@@ -144,7 +167,7 @@ splitOggPackets
 splitOggPackets sl bytes ps = loop sl bytes ps
   where
     loop
-        :: [Word8]
+        :: [Int]
         -> BS.ByteString
         -> BS.ByteString
         -> ([BS.ByteString], BS.ByteString, BS.ByteString)
@@ -152,18 +175,18 @@ splitOggPackets sl bytes ps = loop sl bytes ps
     loop (segLen : segLengths) bytes previousSegment
         -- Handle the case when there is at least another segment after this in
         -- the same packet
-        | (seg, rest) <- BS.splitAt (fromIntegral segLen) bytes
-        , BS.length seg == fromIntegral segLen
+        | (seg, rest) <- BS.splitAt (segLen) bytes
+        , BS.length seg == segLen
         , segLen == 255
         = loop segLengths rest (previousSegment <> seg)
         -- Handle the case when this segment terminates a packet (or is self-
         -- conclusive)
-        | (seg, rest) <- BS.splitAt (fromIntegral segLen) bytes
-        , BS.length seg == fromIntegral segLen
+        | (seg, rest) <- BS.splitAt (segLen) bytes
+        , BS.length seg == segLen
         , segLen < 255
         = _1 %~ (previousSegment <> seg :) $ loop segLengths rest BS.empty
         -- Handle the case when the segment length doesn't match!! This only
         -- happens if the network packet was lost somewhere, or if the Ogg packet
         -- is simply corrupt.
-        | BS.length bytes < fromIntegral segLen
+        | BS.length bytes < segLen
         = error "TODO think of a better (non-crashing) way to handle this here"
