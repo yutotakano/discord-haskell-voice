@@ -84,18 +84,22 @@ data OggPage = OggPage
 unwrapOggPacketsC :: ConduitT BS.ByteString BS.ByteString IO ()
 unwrapOggPacketsC = oggPageExtractC .| opusPacketExtractC .| filterOpusNonMetaC
 
-oggPageExtractC :: ConduitT BS.ByteString OggPage IO ()
+oggPageExtractC :: (Monad m) => ConduitT BS.ByteString OggPage m ()
 oggPageExtractC = loop BS.empty
   where
     -- | Keep awaiting for new chunks of bytestrings, concat that with any
     -- previous leftover chunks, and try to parse it as an Ogg, yielding any
     -- parsed pages.
-    loop :: BS.ByteString -> ConduitT BS.ByteString OggPage IO ()
+    loop :: (Monad m) => BS.ByteString -> ConduitT BS.ByteString OggPage m ()
     loop unconsumedBytes = do
         -- Get the bytestring chunks that sourceHandle reads, which is
         -- defaultChunkSize, roughly 32k bytes.
         -- Prepend any previous bytes we didn't consume since it wasn't part of
         -- the page.
+        -- We cannot use 'leftover' to put back the unconsumed bytes at the end
+        -- of each iteration, since conduit does not concatenate those bytes with
+        -- the next item, and it'll just loop forever on the same failing input.
+        -- See: https://stackoverflow.com/a/26872574
         mbChunk <- await
         let mbUnconsumedBytes = if BS.null unconsumedBytes then Nothing else Just unconsumedBytes
         case (mbUnconsumedBytes <> mbChunk) of
