@@ -169,6 +169,7 @@ filterOpusNonMetaC = do
         Just pkt -> do
             unless (BS.take 8 pkt `elem` ["OpusHead", "OpusTags"]) $
                 yield pkt
+            filterOpusNonMetaC
 
 -- Keep droping one byte at a time until the first four bytes say OggS.
 dropUntilPageStart :: BL.ByteString -> BL.ByteString
