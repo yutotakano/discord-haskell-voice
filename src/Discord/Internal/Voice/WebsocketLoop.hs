@@ -327,7 +327,19 @@ sendSelectProtocol conn ip port mode = do
     sendTextData conn $ encode $ SelectProtocol $ 
         SelectProtocolPayload "udp" ip port mode
     
-    getPayload conn
+    -- Skip payloads until we get the Opcode 4 Session Description, since there
+    -- tends to be Opcode 11 Client Connect, Opcode 18 Client Flags, and
+    -- Opcode 20 Client Platform before it sometimes, all of which we can ignore.
+
+    waitUntilSessionDescription
+  where
+    waitUntilSessionDescription :: IO (Either ConnectionException VoiceWebsocketReceivable)
+    waitUntilSessionDescription = do
+        payload <- getPayload conn
+        case payload of
+            Left e -> pure $ Left e
+            Right s@(SessionDescription _ _) -> pure $ Right s
+            Right _ -> waitUntilSessionDescription
 
     -- We do not do getPayload here, since there's no guarantee the next
     -- received packet is an Opcode 4 Session Description, when heartbeats
