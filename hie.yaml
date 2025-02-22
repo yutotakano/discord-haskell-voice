@@ -1,2 +1,16 @@
 cradle:
   stack:
+    - path: "./src"
+      component: "discord-haskell-voice:lib"
+
+    - path: "././examples/BasicMusicBot.hs"
+      component: "discord-haskell-voice:exe:basic-music-bot"
+
+    - path: "././Paths_discord_haskell_voice.hs"
+      component: "discord-haskell-voice:exe:basic-music-bot"
+
+    - path: "././examples/JoinAllVC.hs"
+      component: "discord-haskell-voice:exe:join-all-on-start"
+
+    - path: "././Paths_discord_haskell_voice.hs"
+      component: "discord-haskell-voice:exe:join-all-on-start"

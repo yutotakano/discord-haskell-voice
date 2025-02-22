@@ -1,9 +1,9 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-|
 Module      : Discord.Internal.Types.VoiceUDP
 Description : Strictly for internal use only. See Discord.Voice for the public interface.
-Copyright   : (c) Yuto Takano (2021)
+Copyright   : (c) 2021-2022 Yuto Takano
 License     : MIT
 Maintainer  : moa17stock@gmail.com
 
@@ -24,7 +24,9 @@ payload, as according to the official Discord documentation for v4 of the gatewa
 
 Prisms are defined using TemplateHaskell for VoiceUDPPacket.
 -}
-module Discord.Internal.Types.VoiceUDP where
+module Discord.Internal.Types.VoiceUDP
+    ( module Discord.Internal.Types.VoiceUDP
+    ) where
 
 import Lens.Micro
 import Data.Binary.Get
@@ -45,11 +47,11 @@ data VoiceUDPPacket
     -- ^ header, and encrypted audio bytes with extended header inside
     | UnknownPacket BL.ByteString
     | MalformedPacket BL.ByteString
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 _IPDiscovery :: Traversal' VoiceUDPPacket (Integer, T.Text, Integer)
 _IPDiscovery f (IPDiscovery ssrc ip port) = (\(a, b, c) -> IPDiscovery a b c) <$> f (ssrc, ip, port)
-_IPDiscovery f packet = pure packet
+_IPDiscovery _ packet = pure packet
 
 data VoiceUDPPacketHeader
     = Header Word8 Word8 Word16 Word32 Word32 
@@ -97,10 +99,10 @@ instance Binary VoiceUDPPacket where
                 header <- getByteString 12
                 a <- getRemainingLazyByteString
                 pure $ SpeakingDataEncryptedExtra header a
-            other -> do
+            _other -> do
                 a <- getRemainingLazyByteString
                 pure $ UnknownPacket a
-    put (IPDiscovery ssrc ip port) = do
+    put (IPDiscovery ssrc _ip port) = do
         putWord16be 1 -- 1 is request, 2 is response
         putWord16be 70 -- specified in docs
         putWord32be $ fromIntegral ssrc
@@ -110,5 +112,8 @@ instance Binary VoiceUDPPacket where
         putByteString header
         putLazyByteString a
     put (MalformedPacket a) = putLazyByteString a
+
+    -- Other datatypes should logically never be used with put.
+    put _ = undefined
 
 -- $(makePrisms ''VoiceUDPPacket)

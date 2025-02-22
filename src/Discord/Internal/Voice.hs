@@ -3,7 +3,7 @@
 {-|
 Module      : Discord.Internal.Voice
 Description : Strictly for internal use only. See Discord.Voice for the public interface.
-Copyright   : (c) Yuto Takano (2021)
+Copyright   : (c) 2021-2022 Yuto Takano
 License     : MIT
 Maintainer  : moa17stock@gmail.com
 
@@ -22,17 +22,14 @@ This module is the internal entry point into @discord-haskell-voice@. Any use of
 this module (or other Internal modules) is discouraged. Please see "Discord.Voice"
 for the public interface.
 -}
-module Discord.Internal.Voice where
+module Discord.Internal.Voice
+    ( module Discord.Internal.Voice
+    ) where
 
 import Codec.Audio.Opus.Encoder
 import Conduit
-import Control.Concurrent.Async ( race )
 import Control.Concurrent
-    ( ThreadId
-    , myThreadId
-    , threadDelay
-    , killThread
-    , forkIO
+    ( forkIO
     , mkWeakThreadId
     , Chan
     , dupChan
@@ -47,26 +44,26 @@ import Control.Concurrent
     , modifyMVar_
     , readMVar
     )
+import Control.Concurrent.STM ( atomically, newEmptyTMVar, putTMVar, tryReadTMVar )
 import Control.Concurrent.BoundedChan qualified as Bounded
-import Control.Exception.Safe ( bracket, throwTo, catch, throwIO )
-import Lens.Micro
-import Lens.Micro.Extras (view)
-import Control.Monad.Reader ( ask, liftIO, runReaderT )
+import Control.Exception.Safe ( catch )
+import Control.Monad.Reader ( ask, runReaderT )
 import Control.Monad.Except ( runExceptT, throwError )
-import Control.Monad.Trans ( lift )
-import Control.Monad ( when, void )
+import Control.Monad ( when, void, forM_ )
 import Data.Aeson
 import Data.Aeson.Types ( parseMaybe )
 import Data.ByteString qualified as B
+import Data.Conduit.Process.Typed
 import Data.Foldable ( traverse_ )
-import Data.List ( partition )
-import Data.Maybe ( fromJust )
+import Data.Function ( on )
+import Data.List ( intercalate, groupBy )
+import Data.List.NonEmpty qualified as NonEmpty
+import Data.Maybe ( isNothing )
 import Data.Text qualified as T
-import GHC.Weak ( deRefWeak, Weak )
-import System.Exit ( ExitCode(..) )
-import System.IO ( hClose, hGetContents, hWaitForInput, hIsOpen )
+import Lens.Micro
+import Lens.Micro.Extras (view)
+import System.IO ( hGetContents, hWaitForInput )
 import System.IO.Error ( isEOFError )
-import System.Process
 import UnliftIO qualified as UnliftIO
 
 import Discord ( DiscordHandler, sendCommand, readCache )
@@ -79,7 +76,6 @@ import Discord.Internal.Gateway.EventLoop
 import Discord.Internal.Types
     ( GuildId
     , ChannelId
-    , UserId
     , User(..)
     , GatewaySendable(..)
     , UpdateStatusVoiceOpts(..)
@@ -91,6 +87,7 @@ import Discord.Internal.Types.VoiceWebsocket
     , SpeakingPayload(..)
     )
 import Discord.Internal.Voice.CommonUtils
+import Discord.Internal.Voice.OggParser
 import Discord.Internal.Voice.WebsocketLoop
 
 -- | @liftDiscord@ lifts a computation in DiscordHandler into a computation in
@@ -238,7 +235,7 @@ join guildId channelId = do
             -- monad using the current Reader state. Not much of a problem
             -- since many of the fields are mutable references.
             wsTid <- liftIO $ forkIO $ launchWebsocket wsOpts $ discordHandleLog h
-            
+
             wsTidWeak <- liftIO $ mkWeakThreadId wsTid
 
             -- TODO: check if readMVar ever blocks if the UDP thread fails to
@@ -271,13 +268,13 @@ join guildId channelId = do
         :: Chan (Either GatewayException EventInternalParse)
         -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
     waitForVoiceStatusServerUpdate = loopForBothEvents Nothing Nothing
-    
+
     loopForBothEvents
         :: Maybe T.Text
         -> Maybe (T.Text, GuildId, Maybe T.Text)
         -> Chan (Either GatewayException EventInternalParse)
         -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
-    loopForBothEvents (Just a) (Just (b, c, d)) events = pure (a, b, c, d)
+    loopForBothEvents (Just a) (Just (b, c, d)) _ = pure (a, b, c, d)
     loopForBothEvents mb1 mb2 events = readChan events >>= \case
         -- Parse UnknownEvent, which are events not handled by discord-haskell.
         Right (InternalUnknownEvent "VOICE_STATE_UPDATE" obj) -> do
@@ -334,48 +331,177 @@ updateStatusVoice
     -> DiscordHandler ()
 updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts a b c d
 
--- | @play source@ plays some sound from the conduit @source@, provided in the
--- form of 16-bit Little Endian PCM. The use of Conduit allows you to perform
--- arbitrary lazy transformations of audio data, using all the advantages that
--- Conduit brings. As the base monad for the Conduit is @ResourceT DiscordHandler@,
--- you can access any DiscordHandler effects (through @lift@) or IO effects
--- (through @liftIO@) in the conduit as well.
+probeCodec :: String -> AudioResource -> IO AudioCodec
+probeCodec = undefined
+
+-- | @getPipeline resource codec@ returns some information about the pipeline
+-- required for the audio before it is sent to Discord. See the 'AudioPipeline'
+-- datatype for the flags set.
 --
--- For a more specific interface that is easier to use, see the 'playPCMFile',
--- 'playFile', and 'playYouTube' functions.
---
--- @
--- import Conduit ( sourceFile )
---
--- runVoice $ do
---   join gid cid
---   play $ sourceFile ".\/audio\/example.pcm"
--- @
-play :: ConduitT () B.ByteString (ResourceT DiscordHandler) () -> Voice ()
-play source = do
+-- The audio resource pipeline can be complex. Even if the source is already
+-- OPUS encoded (and Discord wants OPUS), if there is an FFmpeg filter desired
+-- then discord-haskell-voice will need to launch a FFmpeg subprocess. If there
+-- is also a ByteString conduit filter also desired, then the FFmpeg subprocess
+-- will need to output PCM ByteString, which is then transcoded to OPUS within
+-- Haskell. This complex behaviour is hard to keep track of, so this function
+-- acts as an abstraction layer that basically returns what things are necessary
+-- for a given audio resource.
+getPipeline :: AudioResource -> AudioCodec -> AudioPipeline
+getPipeline (AudioResource (Left _path) _ Nothing) OPUSCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = OPUSFinalOutput
+    }
+getPipeline (AudioResource (Right _bs) _ Nothing) OPUSCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = False
+    , audioPipelineOutputCodec = OPUSFinalOutput
+    }
+getPipeline (AudioResource (Left _path) _ Nothing) PCMCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = PCMFinalOutput
+    }
+getPipeline (AudioResource (Right _bs) _ Nothing) PCMCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = False
+    , audioPipelineOutputCodec = PCMFinalOutput
+    }
+getPipeline (AudioResource _ _ Nothing) UnknownCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = OPUSFinalOutput
+    }
+getPipeline (AudioResource _ _ (Just (FFmpegTransformation _))) _ = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = OPUSFinalOutput
+    }
+getPipeline (AudioResource (Left _path) _ (Just (HaskellTransformation _))) PCMCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = PCMFinalOutput
+    }
+getPipeline (AudioResource (Right _bs) _ (Just (HaskellTransformation _))) PCMCodec = AudioPipeline
+    { audioPipelineNeedsFFmpeg = False
+    , audioPipelineOutputCodec = PCMFinalOutput
+    }
+getPipeline (AudioResource _ _ (Just (HaskellTransformation _))) _ = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = PCMFinalOutput
+    }
+getPipeline (AudioResource _ _ (Just (_ ::.: _))) _ = AudioPipeline
+    { audioPipelineNeedsFFmpeg = True
+    , audioPipelineOutputCodec = PCMFinalOutput
+    }
+getPipeline _ (ProbeCodec _) = error $
+    "Impossible! getPipeline should only be called after codec is probed." -- TODO: encode in type
+
+-- | @play resource codec@ plays the specified @resource@. The codec argument
+-- should be 'OPUSCodec' or 'PCMCodec' if you know that the resource is already
+-- in this format (it can save computational power to transcode). If you do not
+-- know and want to unconditionally use ffmpeg to transcode, then specify the
+-- codec as 'UnknownCodec'. If you do not know but can afford to wait a few
+-- seconds at first to probe the codec (using @ffprobe@) so that we may be able
+-- to skip transcoding if it's either PCM or OPUS, then use 'ProbeCodec'.
+play :: AudioResource -> AudioCodec -> Voice ()
+play resource (ProbeCodec ffprobeExe) = do
+    -- If we are told the audio should be probed for info, do so and rerun play.
+    -- The return value of probeCodec will never be ProbeCodec again, so this
+    -- will safely recurse only once.
+    liftIO (probeCodec ffprobeExe resource) >>= play resource
+play resource codec = do
+    -- If we are given a codec of some sort, check if we need transcoding. Also
+    -- check if we have any transformations that will need FFmpeg.
     h <- ask
-    dh <- liftDiscord ask
     handles <- UnliftIO.readMVar $ h ^. voiceHandles
 
     updateSpeakingStatus True
-    liftDiscord $ UnliftIO.withMVar (h ^. mutEx) $ \_ -> do
-        runConduitRes $ source .| encodeOpusC .| sinkHandles handles
-    updateSpeakingStatus False
-  where
-    sinkHandles
-        :: [DiscordVoiceHandle]
-        -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
-    sinkHandles handles = getZipSink $
-        traverse_ (ZipSink . sinkChan . view (udp . _2 . _2)) handles
+    let pipeline = getPipeline resource codec
 
-    sinkChan
-        :: Bounded.BoundedChan B.ByteString
-        -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
-    sinkChan chan = await >>= \case
-        Nothing -> pure ()
-        Just bs -> do
-            liftIO $ Bounded.writeChan chan bs
-            sinkChan chan
+    -- If the pipeline before it gets to Haskell outputs in OPUS, we can send
+    -- those directly to Discord. For PCM, there is likely a transformation we
+    -- have to apply (or perhaps none, if it was a PCM bytestring with no FFmpeg).
+    -- We then use the Haskell opus library to transcode and send natively.
+    let finalProcessing = case pipeline ^. outputCodec of
+            OPUSFinalOutput -> transPipe liftIO unwrapOggPacketsC .| sinkHandles handles
+            PCMFinalOutput -> case resource ^. transform of
+                Just (HaskellTransformation tsC) -> tsC .| encodeOpusC .| sinkHandles handles
+                Just (_ ::.: tsC) -> tsC .| encodeOpusC .| sinkHandles handles
+                _ -> encodeOpusC .| sinkHandles handles
+
+    if not (pipeline ^. needsFFmpeg) then do
+        -- The resource doesn't need to go through ffmpeg at all. It can be an
+        -- OPUS or PCM filepath that can be read directly as a Conduit source,
+        -- or some lazy bytestring containing either OPUS or PCM.
+        liftDiscord $ runConduitRes $ case resource ^. stream of
+            Left filepath -> sourceFile filepath .| finalProcessing
+            Right lbs -> sourceLazy lbs .| finalProcessing
+
+    else do
+        -- We need the FFmpeg subprocess. Sources may be file input, stream URL,
+        -- or bytestring stdin.
+        let (iFlag, inputStream) = case resource ^. stream of
+                Left filepath -> (filepath, nullStream)
+                Right lbs     -> ("pipe:0", byteStringInput lbs)
+        -- Get all the filter argument pairs
+        let filtArgs = groupFiltArgs $ concatMap filterToArg $ case resource ^. transform of
+                Just (FFmpegTransformation fils) -> NonEmpty.toList fils
+                Just (fils ::.: _)               -> NonEmpty.toList fils
+                _ -> []
+        let outputFlags = case pipeline ^. outputCodec of
+                -- OPUS output from FFmpeg will be in an OGG container.
+                OPUSFinalOutput -> ["-f", "opus", "-map", "0:a", "-c:a", "libopus", "-b:a", "128K", "-ar", "48000", "-ac", "2"]
+                PCMFinalOutput -> ["-f", "s16le", "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2"]
+        let args = [ "-i", iFlag
+                    ] <> concatMap (\(k, v) -> [k, v]) filtArgs <> outputFlags <>
+                    [ "pipe:1"
+                    , "-loglevel", "warning"
+                    , "-xerror"
+                    ]
+
+        let processConfig = proc "ffmpeg" args
+                & setStdin inputStream
+                & setStdout createSource
+                & setStderr createPipe
+        -- run the process, but send SIGTERM and terminate it when our inner
+        -- function exits. Since we use the stdout conduit source, the inner
+        -- func shouldn't exit prematurely. The only possible way we may exit
+        -- prematurely is when we get a signal from stderr, in which case it's
+        -- desired to stop the process rather than wait until safe termination
+        -- (which may never happen).
+        liftDiscord $ withProcessTerm processConfig $ \process -> do
+            errorSignal <- liftIO $ atomically $ newEmptyTMVar
+            void $ liftIO $ forkIO $
+                -- wait indefinitely until end of handle to see if we catch any
+                -- output in stderr.
+                void $ hWaitForInput (getStderr process) (-1) `catch` \e -> do
+                    when (not $ isEOFError e) $ do
+                        -- when there is output in stderr, signal its contents
+                        -- back to main thread
+                        err <- hGetContents (getStderr process)
+                        atomically $ putTMVar errorSignal err
+                    return True
+            runConduitRes
+                $ ( do
+                    -- check if we have received an error signal, if so terminate
+                    errorsExist <- liftIO $ atomically $ tryReadTMVar errorSignal
+                    when (isNothing errorsExist) $ getStdout process
+                ) .| finalProcessing
+
+        updateSpeakingStatus False
+    where
+        -- | @sinkHandles handles@ is a conduit that sinks the source to the
+        -- individual channels within DiscordVoiceHandle.
+        sinkHandles
+            :: [DiscordVoiceHandle]
+            -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
+        sinkHandles handles = getZipSink $
+            traverse_ (ZipSink . sinkChan . view (udp . _2 . _2)) handles
+
+        -- | @sinkChan chan@ is a conduit that sinks the source to a single
+        -- bounded channel.
+        sinkChan
+            :: Bounded.BoundedChan B.ByteString
+            -> ConduitT B.ByteString Void (ResourceT DiscordHandler) ()
+        sinkChan chan = await >>= \case
+            Nothing -> pure ()
+            Just bs -> do
+                liftIO $ Bounded.writeChan chan bs
+                sinkChan chan
 
 -- | @encodeOpusC@ is a conduit that splits the ByteString into chunks of
 -- (frame size * no of channels * 16/8) bytes, and encodes each chunk into
@@ -395,11 +521,8 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
             -- Send at least 5 blank frames (20ms * 5 = 100 ms)
             let frame = B.pack $ concat $ replicate 1280 [0xF8, 0xFF, 0xFE]
             encoded <- liftIO $ opusEncode encoder streamCfg frame
-            yield encoded
-            yield encoded
-            yield encoded
-            yield encoded
-            yield encoded
+            forM_ [0..4] $ \_ -> do
+                yield encoded
         Just frame -> do
             -- encode the audio
             encoded <- liftIO $ opusEncode encoder streamCfg frame
@@ -407,322 +530,36 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
             yield encoded
             loop encoder
 
--- | @playPCMFile file@ plays the sound stored in the file located at @file@,
--- provided it is in the form of 16-bit Little Endian PCM. @playPCMFile@ is
--- defined as a handy alias for the following:
---
--- > playPCMFile ≡ play . sourceFile
---
--- For a variant of this function that allows arbitrary transformations of the
--- audio data through a conduit component, see 'playPCMFile''.
---
--- To play any other format, it will need to be transcoded using FFmpeg. See
--- 'playFile' for such usage.
-playPCMFile
-    :: FilePath
-    -- ^ The path to the PCM file to play
-    -> Voice ()
-playPCMFile = play . sourceFile
+createYoutubeResource :: String -> Maybe AudioTransformation -> Voice (Maybe AudioResource)
+createYoutubeResource query mbTransform = do
+    let processConfig = proc "yt-dlp"
+            [ "-j"
+            , "--default-search", "ytsearch"
+            , "--format", "bestaudio/best"
+            , query
+            ]
+    (_exitCode, stdout, _stderr) <- liftIO $ readProcess processConfig
 
--- | @playPCMFile' file processor@ plays the sound stored in the file located at
--- @file@, provided it is in the form of 16-bit Little Endian PCM. Audio data
--- will be passed through the @processor@ conduit component, allowing arbitrary
--- transformations to audio data before playback. @playPCMFile'@ is defined as
--- the following:
---
--- > playPCMFile' file processor ≡ play $ sourceFile file .| processor
---
--- For a variant of this function with no processing, see 'playPCMFile'.
---
--- To play any other format, it will need to be transcoded using FFmpeg. See
--- 'playFile' for such usage.
-playPCMFile'
-    :: FilePath
-    -- ^ The path to the PCM file to play
-    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
-    -- ^ Any processing that needs to be done on the audio data
-    -> Voice ()
-playPCMFile' fp processor = play $ sourceFile fp .| processor
+    pure $ do
+        -- Chain the Maybe monad
+        result <- decode stdout
+        url <- flip parseMaybe result $ \obj -> obj .: "url"
+        pure $ AudioResource
+            { audioResourceStream = Left url
+            , audioResourceYouTubeDLInfo = Just result
+            , audioResourceTransform = mbTransform
+            }
 
--- | @playFile file@ plays the sound stored in the file located at @file@. It
--- supports any format supported by FFmpeg by transcoding it, which means it can
--- play a wide range of file types. This function expects "@ffmpeg@" to be
--- available in the system PATH.
---
--- For a variant that allows you to specify the executable and/or any arguments,
--- see 'playFileWith'.
---
--- For a variant of this function that allows arbitrary transformations of the
--- audio data through a conduit component, see 'playFile''.
---
--- If the file is already known to be in 16-bit little endian PCM, using
--- 'playPCMFile' is much more efficient as it does not go through FFmpeg.
-playFile
-    :: FilePath
-    -- ^ The path to the audio file to play
-    -> Voice ()
-playFile fp = playFile' fp (awaitForever yield)
-
--- | @playFile' file processor@ plays the sound stored in the file located at
--- @file@. It supports any format supported by FFmpeg by transcoding it, which
--- means it can play a wide range of file types. This function expects
--- "@ffmpeg@" to be available in the system PATH. Audio data will be passed
--- through the @processor@ conduit component, allowing arbitrary transformations
--- to audio data before playback.
---
--- For a variant that allows you to specify the executable and/or any arguments,
--- see 'playFileWith''.
---
--- For a variant of this function with no processing, see 'playFile'.
---
--- If the file is already known to be in 16-bit little endian PCM, using
--- 'playPCMFile'' is much more efficient as it does not go through FFmpeg.
-playFile'
-    :: FilePath
-    -- ^ The path to the audio file to play
-    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
-    -- ^ Any processing that needs to be done on the audio data
-    -> Voice ()
-playFile' fp = playFileWith' "ffmpeg" defaultFFmpegArgs fp
-
--- | @defaultFFmpegArgs@ is a generator function for the default FFmpeg
--- arguments used when streaming audio into 16-bit little endian PCM on stdout.
---
--- This function takes in the input file path as an argument, because FFmpeg
--- arguments are position sensitive in relation to the placement of @-i@.
---
--- It is defined semantically as:
---
--- > defaultFFmpegArgs FILE ≡ "-i FILE -f s16le -ar 48000 -ac 2 -loglevel warning pipe:1"
-defaultFFmpegArgs :: FilePath -> [String]
-defaultFFmpegArgs fp =
-    [ "-i", fp
-    , "-f", "s16le"
-    , "-ar", "48000"
-    , "-ac", "2"
-    , "-loglevel", "warning"
-    , "pipe:1"
+-- |
+-- >>> groupFiltArgs $ map filterToArg $ [Reverb 10, Reverb 20]
+-- [("-af","aecho=1.0:0.7:10:0.5;aecho=1.0:0.7:20:0.5")]
+filterToArg :: FFmpegFilter -> [(String, String)]
+filterToArg (Reverb _i) =
+    [ ("-guess_layout_max", "0")
+    , ("-i", "static/st-patricks-church-patrington.wav")
+    , ("-filter_complex", "[0] [1] afir=dry=10:wet=10 [reverb]; [0] [reverb] amix=inputs=2:weights=10 2")
     ]
 
--- | @playFileWith exe args file@ plays the sound stored in the file located at
--- @file@, using the specified FFmpeg executable @exe@ and an argument generator
--- function @args@ (see @defaultFFmpegArgs@ for the default). It supports any
--- format supported by FFmpeg by transcoding it, which means it can play a wide
--- range of file types.
--- 
--- For a variant of this function that uses the "@ffmpeg@" executable in your
--- PATH automatically, see 'playFile'.
---
--- For a variant of this function that allows arbitrary transformations of the
--- audio data through a conduit component, see 'playFileWith''.
---
--- If the file is known to be in 16-bit little endian PCM, using 'playPCMFile'
--- is more efficient as it does not go through FFmpeg.
-playFileWith
-    :: String
-    -- ^ The name of the FFmpeg executable
-    -> (String -> [String])
-    -- ^ FFmpeg argument generator function, given the filepath
-    -> FilePath
-    -- ^ The path to the audio file to play
-    -> Voice ()
-playFileWith exe args fp = playFileWith' exe args fp (awaitForever yield)
-
--- | @playFileWith' exe args file processor@ plays the sound stored in the file
--- located at @file@, using the specified FFmpeg executable @exe@ and an
--- argument generator function @args@ (see @defaultFFmpegArgs@ for the default).
--- It supports any format supported by FFmpeg by transcoding it, which means it
--- can play a wide range of file types. Audio data will be passed through the
--- @processor@ conduit component, allowing arbitrary transformations to audio
--- data before playback.
--- 
--- For a variant of this function that uses the "@ffmpeg@" executable in your
--- PATH automatically, see 'playFile''.
---
--- For a variant of this function with no processing, see 'playFileWith'.
---
--- If the file is known to be in 16-bit little endian PCM, using 'playPCMFile''
--- is more efficient as it does not go through FFmpeg.
-playFileWith'
-    :: String
-    -- ^ The name of the FFmpeg executable
-    -> (String -> [String])
-    -- ^ FFmpeg argument generator function, given the filepath
-    -> String
-    -- ^ The path to the audio file to play
-    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
-    -- ^ Any processing that needs to be done on the audio data
-    -> Voice ()
-playFileWith' exe argsGen path processor = do
-    let args = argsGen path
-    -- NOTE: We use CreatePipe for the stdout handle of ffmpeg, but a preexisting
-    -- handle for stderr. This is because we want to retain the stderr output
-    -- when ffmpeg has exited with an error code, and capture it before manually
-    -- closing the handle. Otherwise, the stderr of ffmpeg may be lost. Using
-    -- a preexisting handle for stdout is however, avoided, because createProcess_
-    -- does not automatically close UseHandles when done, while conduit's
-    -- sourceHandle will patiently wait and block forever for the handle to close.
-    -- We may use createProcess (notice the lack of underscore) to automatically
-    -- close the UseHandles passed into it, but then we 1. lose the error output
-    -- for stderr, and 2. there have been frequent occasions of ffmpeg trying to
-    -- write to the closed pipe, causing a "broken pipe" fatal error. We want to
-    -- therefore make sure that even if that happens, the error is captured and
-    -- stored. Perhaps this explanation makes no sense, but I have suffered too
-    -- long on this problem (of calling a subprocess, streaming its output,
-    -- storing its errors, and making sure they gracefully kill themselves upon
-    -- the parent thread being killed) and I am hoping that this is something
-    -- I don't have to touch again.
-    (errorReadEnd, errorWriteEnd) <- liftIO $ createPipe
-    (a, Just stdout, c, ph) <- liftIO $ createProcess_ "the ffmpeg process" (proc exe args)
-        { std_out = CreatePipe
-        , std_err = UseHandle errorWriteEnd
-        }
-    -- We maintain a forked thread that constantly monitors the stderr output,
-    -- and if it sees an error, it kills the ffmpeg process so it doesn't block
-    -- (sometimes ffmpeg outputs a fatal error but still tries to continue,
-    -- especially during streams), and then rethrows the error as a
-    -- SubprocessException to the parent (this) thread. The idea is for the
-    -- @bracket@ to handle it, properly clean up any remnants, then rethrow it
-    -- further up so that user code can handle it, or let it propagate to
-    -- the "discord-haskell encountered an exception" handler. However in
-    -- practice, I have not seen this exception appear in the logs even once,
-    -- even when the preceding putStrLn executes.
-    myTid <- liftIO myThreadId
-    bracket (liftIO $ forkIO $ do
-        thereIsAnError <- hWaitForInput errorReadEnd (-1) `catch` \e ->
-            if isEOFError e then return False else throwIO e
-        when thereIsAnError $ do
-            exitCode <- terminateProcess ph >> waitForProcess ph
-            case exitCode of
-                ExitSuccess -> do
-                    putStrLn "ffmpeg exited successfully"
-                    pure ()
-                ExitFailure i -> do
-                    err <- hGetContents errorReadEnd
-                    exitCode <- terminateProcess ph >> waitForProcess ph
-                    putStrLn $ "ffmpeg exited with code " ++ show exitCode ++ ": " ++ err
-                    throwTo myTid $ SubprocessException err
-        ) (\tid -> do
-            liftIO $ cleanupProcess (a, Just stdout, c, ph)
-            liftIO $ killThread tid
-        ) $ const $ play $ sourceHandle stdout .| processor
-    liftIO $ hClose errorReadEnd >> hClose errorWriteEnd
-
--- | @playYouTube query@ plays the first result of searching @query@ on YouTube.
--- If a direct video URL is given, YouTube will always return that as the first
--- result, which means @playYouTube@ also supports playing links. It supports
--- all videos, by automatically transcoding to PCM using FFmpeg. Since it
--- streams the data instead of downloading it first, it can play live videos as
--- well. This function expects "@ffmpeg@" and "@youtube-dl@" to be available in
--- the system PATH.
---
--- For a variant that allows you to specify the executable and/or any arguments,
--- see 'playYouTubeWith'.
---
--- For a variant of this function that allows arbitrary transformations of the
--- audio data through a conduit component, see 'playYouTube''.
-playYouTube
-    :: String
-    -- ^ Search query (or video URL)
-    -> Voice ()
-playYouTube query = playYouTube' query (awaitForever yield)
-
--- | @playYouTube' query processor@ plays the first result of searching @query@
--- on YouTube. If a direct video URL is given, YouTube will always return that
--- as the first result, which means @playYouTube@ also supports playing links.
--- It supports all videos, by automatically transcoding to PCM using FFmpeg.
--- Since it streams the data instead of downloading it first, it can play live
--- videos as well. This function expects "@ffmpeg@" and "@youtube-dl@" to be
--- available in the system PATH. Audio data will be passed through the
--- @processor@ conduit component, allowing arbitrary transformations to audio
--- data before playback.
---
--- For a variant that allows you to specify the executable and/or any arguments,
--- see 'playYouTubeWith''.
---
--- For a variant of this function with no processing, see 'playYouTube'.
-playYouTube'
-    :: String
-    -- ^ Search query (or video URL)
-    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
-    -- ^ Any processing that needs to be done on the audio data
-    -> Voice ()
-playYouTube' query processor =
-  let
-    customArgGen url = 
-        [ "-reconnect", "1"
-        , "-reconnect_streamed", "1"
-        , "-reconnect_delay_max", "2"
-        ] <> defaultFFmpegArgs url
-  in
-    playYouTubeWith' "ffmpeg" customArgGen "youtube-dl" query processor
-
--- | @playYouTubeWith fexe fargs yexe query@ plays the first result of searching
--- @query@ on YouTube, using the specified @youtube-dl@ executable @yexe@,
--- FFmpeg executable @fexe@ and an argument generator function @fargs@ (see
--- @defaultFFmpegArgs@ for the default). If a direct video URL is given, YouTube
--- will always return that as the first result, which means @playYouTube@ also
--- supports playing links. It supports all videos, by automatically transcoding
--- to PCM using FFmpeg. Since it streams the data instead of downloading it
--- first, it can play live videos as well.
---
--- For a variant of this function that uses the "@ffmpeg@" executable and 
--- "@youtube-dl@" executable in your PATH automatically, see 'playYouTube'.
---
--- For a variant of this function that allows arbitrary transformations of the
--- audio data through a conduit component, see 'playYouTubeWith''.
-playYouTubeWith
-    :: String
-    -- ^ The name of the FFmpeg executable
-    -> (String -> [String])
-    -- ^ FFmpeg argument generator function, given the URL
-    -> String
-    -- ^ The name of the youtube-dl executable
-    -> String
-    -- ^ The search query (or video URL)
-    -> Voice ()
-playYouTubeWith fexe fargsGen yexe query = playYouTubeWith' fexe fargsGen yexe query (awaitForever yield)
-
--- | @playYouTubeWith' fexe fargs yexe query processor@ plays the first result
--- of searching @query@ on YouTube, using the specified @youtube-dl@ executable
--- @yexe@, FFmpeg executable @fexe@ and an argument generator function @fargs@
--- (see @defaultFFmpegArgs@ for the default). If a direct video URL is given,
--- YouTube will always return that as the first result, which means
--- @playYouTube@ also supports playing links. It supports all videos, by
--- automatically transcoding to PCM using FFmpeg. Since it streams the data
--- instead of downloading it first, it can play live videos as well. Audio data
--- will be passed through the @processor@ conduit component, allowing arbitrary
--- transformations to audio data before playback.
---
--- For a variant of this function that uses the "@ffmpeg@" executable and 
--- "@youtube-dl@" executable in your PATH automatically, see 'playYouTube''.
---
--- For a variant of this function with no processing, see 'playYouTubeWith'.
-playYouTubeWith'
-    :: String
-    -- ^ The name of the FFmpeg executable
-    -> (String -> [String])
-    -- ^ The arguments to pass to FFmpeg
-    -> String
-    -- ^ The name of the youtube-dl executable
-    -> String
-    -- ^ The search query (or video URL)
-    -> ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
-    -- ^ Any processing that needs to be done on the audio data
-    -> Voice ()
-playYouTubeWith' fexe fargsGen yexe query processor = do
-    extractedInfo <- liftIO $ withCreateProcess (proc yexe
-        [ "-j"
-        , "--default-search", "ytsearch"
-        , "--format", "bestaudio/best"
-        , query
-        ]) { std_out = CreatePipe } $ \stdin (Just stdout) stderr ph ->
-            B.hGetContents stdout
-
-    let perhapsUrl = do
-            result <- decodeStrict extractedInfo
-            flip parseMaybe result $ \obj -> obj .: "url"
-    case perhapsUrl of
-        -- no matching url found
-        Nothing  -> pure ()
-        Just url -> playFileWith' fexe fargsGen url processor
+groupFiltArgs :: [(String, String)] -> [(String, String)]
+groupFiltArgs argPairs = groupBy ((==) `on` fst) argPairs
+    & map (\args -> (fst (head args), intercalate ";" (map snd args)))

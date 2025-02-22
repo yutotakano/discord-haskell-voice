@@ -1,8 +1,9 @@
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-|
 Module      : Discord.Voice.Conduit
 Description : Convenient Conduits for transforming voice data
-Copyright   : (c) Yuto Takano (2021)
+Copyright   : (c) 2021-2022 Yuto Takano
 License     : MIT
 Maintainer  : moa17stock@gmail.com
 

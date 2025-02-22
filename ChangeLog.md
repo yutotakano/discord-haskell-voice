@@ -2,6 +2,11 @@
 
 ## Unreleased changes
 
+- Add a compile flag to use a `cryptonite`-based encryption implementation, which removes the necessity for libsodium.
+- Improve the lisp-ish-ness of the BasicMusicBot example.
+- Relax package bounds for `wuss`, `conduit` and `stm`, and support GHC 9.0.2 and GHC 9.2.4 (CI present).
+- Update `discord-haskell` dependency bounds to `>= 1.12.0 && <= 1.15.3`
+
 ## 2.3.1
 
 - Update `discord-haskell` dependency bounds to `>= 1.12.0 && <= 1.14.0`.

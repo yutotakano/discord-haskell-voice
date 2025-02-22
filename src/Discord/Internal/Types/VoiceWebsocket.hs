@@ -1,9 +1,10 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-|
 Module      : Discord.Internal.Types.VoiceWebsocket
 Description : Strictly for internal use only. See Discord.Voice for the public interface.
-Copyright   : (c) Yuto Takano (2021)
+Copyright   : (c) 2021-2022 Yuto Takano
 License     : MIT
 Maintainer  : moa17stock@gmail.com
 
@@ -24,14 +25,15 @@ the official Discord documentation for v4 of the gateway.
 
 Prisms are defined using TemplateHaskell for VoiceWebsocketReceivable.
 -}
-module Discord.Internal.Types.VoiceWebsocket where
+module Discord.Internal.Types.VoiceWebsocket
+    ( module Discord.Internal.Types.VoiceWebsocket
+    ) where
 
 import Control.Applicative ( (<|>) )
 import Lens.Micro
 import Data.Aeson
 import Data.Aeson.Types
 import Data.Text qualified as T
-import Data.ByteString qualified as B
 import Data.Word ( Word8 )
 
 import Discord.Internal.Types.Prelude
@@ -48,19 +50,19 @@ data VoiceWebsocketReceivable
     | UnknownOPCode Integer Object                  -- Opcode unknown
     | ParseError T.Text                             -- Internal use
     | Reconnect                                     -- Internal use
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 _Ready :: Traversal' VoiceWebsocketReceivable ReadyPayload
 _Ready f (Ready rp) = Ready <$> f rp
-_Ready f rp = pure rp
+_Ready _ rp = pure rp
 
 _SessionDescription :: Traversal' VoiceWebsocketReceivable (T.Text, [Word8])
 _SessionDescription f (SessionDescription t bytes) = uncurry SessionDescription <$> f (t, bytes)
-_SessionDescription f sd = pure sd
+_SessionDescription _ sd = pure sd
 
 _Hello :: Traversal' VoiceWebsocketReceivable Int
 _Hello f (Hello a) = Hello <$> f a
-_Hello f a = pure a
+_Hello _ a = pure a
 
 
 data VoiceWebsocketSendable
@@ -70,7 +72,7 @@ data VoiceWebsocketSendable
       -- ^ Int because threadDelay uses it
     | Speaking SpeakingPayload                      -- Opcode 5
     | Resume GuildId T.Text T.Text                  -- Opcode 7
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 data ReadyPayload = ReadyPayload
     { readyPayloadSSRC  :: Integer -- contains the 32-bit SSRC identifier
@@ -79,7 +81,7 @@ data ReadyPayload = ReadyPayload
     , readyPayloadModes :: [T.Text]
     -- , readyPayloadHeartbeatInterval <- This should not be used, as per Discord documentation
     }
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 data SpeakingPayload = SpeakingPayload
     { speakingPayloadMicrophone :: Bool
@@ -88,7 +90,7 @@ data SpeakingPayload = SpeakingPayload
     , speakingPayloadDelay      :: Integer
     , speakingPayloadSSRC       :: Integer
     }
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 data IdentifyPayload = IdentifyPayload
     { identifyPayloadServerId  :: GuildId
@@ -96,7 +98,7 @@ data IdentifyPayload = IdentifyPayload
     , identifyPayloadSessionId :: T.Text
     , identifyPayloadToken     :: T.Text
     }
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 data SelectProtocolPayload = SelectProtocolPayload
     { selectProtocolPayloadProtocol :: T.Text
@@ -104,7 +106,7 @@ data SelectProtocolPayload = SelectProtocolPayload
     , selectProtocolPayloadPort     :: Integer
     , selectProtocolPayloadMode     :: T.Text
     }
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 instance FromJSON VoiceWebsocketReceivable where
     parseJSON = withObject "payload" $ \o -> do
