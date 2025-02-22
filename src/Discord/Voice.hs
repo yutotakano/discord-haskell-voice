@@ -1,7 +1,7 @@
 {-|
 Module      : Discord.Voice
 Description : Voice support for discord-haskell!
-Copyright   : (c) Yuto Takano (2021)
+Copyright   : (c) 2021-2022 Yuto Takano
 License     : MIT
 Maintainer  : moa17stock@gmail.com
 
@@ -46,19 +46,10 @@ module Discord.Voice
     , join
       -- * Play Some Audio
     , play
-      -- ** More Accessible Variants
-      -- $moreAccessibleVariants
-    , playPCMFile
-    , playPCMFile'
-    , playFile
-    , playFile'
-    , playFileWith
-    , playFileWith'
-    , playYouTube
-    , playYouTube'
-    , playYouTubeWith
-    , playYouTubeWith'
-    , defaultFFmpegArgs
+    , createYoutubeResource
+    , AudioTransformation(..)
+    , AudioCodec(..)
+    , FFmpegFilter(..)
     ) where
 
 import Discord.Internal.Types.VoiceCommon

@@ -1,25 +1,28 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-missing-export-lists #-}
 module Main where
 
-import           Control.Monad              ( forM_
-                                            , forever
-                                            , void
-                                            )
-import           Control.Monad.Trans        ( lift )
 import           Conduit
+import           Control.Concurrent         ( threadDelay
+                                            )
+import           Control.Exception.Safe     ( catch
+                                            , SomeException
+                                            )
+import           Control.Monad              ( forM_
+                                            , void
+                                            -- , forever
+                                            )
 import qualified Data.Text.IO as TIO
 import           Discord
 import           Discord.Voice
 import qualified Discord.Requests as R
 import           Discord.Types
-import           UnliftIO                   ( liftIO
-                                            )
-import Control.Concurrent
 
 main :: IO ()
 main = do
     tok <- TIO.readFile "./examples/production.secret"
 
-    t <- runDiscord $ def
+    void $ runDiscord $ def
         { discordToken = tok
         , discordOnStart = startHandler
         , discordOnEnd = liftIO $ putStrLn "Ended"
@@ -29,7 +32,7 @@ main = do
     putStrLn "Finished!"
 
 eventHandler :: Event -> DiscordHandler ()
-eventHandler event = pure ()
+eventHandler _event = pure ()
 
 startHandler :: DiscordHandler ()
 startHandler = do
@@ -45,7 +48,12 @@ startHandler = do
                 _     -> pure ()
 
         -- play something, then sit around in silence for 30 seconds
-        playYouTube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        -- forever $ do
+        resource <- createYoutubeResource "https://www.youtube.com/watch?v=BZP1rYjoBgI" Nothing
+        case resource of
+            Nothing -> liftIO $ print "whoops"
+            Just re -> catch (play re UnknownCodec) (\(e :: SomeException) -> liftIO $ print e)
+
         liftIO $ threadDelay $ 30 * 1000 * 1000
 
     liftIO $ print result

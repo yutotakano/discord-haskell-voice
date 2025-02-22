@@ -4,10 +4,11 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-|
 Module      : Discord.Internal.Types.VoiceCommon
 Description : Strictly for internal use only. See Discord.Voice for the public interface.
-Copyright   : (c) Yuto Takano (2021)
+Copyright   : (c) 2021-2022 Yuto Takano
 License     : MIT
 Maintainer  : moa17stock@gmail.com
 
@@ -27,15 +28,20 @@ applicable to both the UPD and Websocket components of the Voice API. Many of
 the structures defined in this module have Lenses derived for them using
 Template Haskell.
 -}
-module Discord.Internal.Types.VoiceCommon where
+module Discord.Internal.Types.VoiceCommon
+    ( module Discord.Internal.Types.VoiceCommon
+    ) where
 
+import Conduit
 import Control.Concurrent ( Chan, MVar, ThreadId )
 import Control.Concurrent.BoundedChan qualified as Bounded
-import Control.Exception.Safe ( Exception, MonadMask, MonadCatch, MonadThrow )
+import Control.Exception.Safe ( Exception, MonadMask, MonadCatch )
 import Lens.Micro.TH ( makeFields )
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.ByteString qualified as B
+import Data.ByteString.Lazy qualified as BL
+import Data.List.NonEmpty
 import Data.Text qualified as T
 import Data.Word ( Word8 )
 import GHC.Weak ( Weak )
@@ -44,7 +50,6 @@ import Network.WebSockets ( ConnectionException, Connection )
 
 import Discord
 import Discord.Types
-import Discord.Internal.Gateway.EventLoop ( GatewayException(..) )
 import Discord.Internal.Types.VoiceUDP
 import Discord.Internal.Types.VoiceWebsocket
 
@@ -62,7 +67,7 @@ import Discord.Internal.Types.VoiceWebsocket
 -- computation with an unstable state.
 newtype Voice a = Voice
     { unVoice :: ReaderT DiscordBroadcastHandle (ExceptT VoiceError DiscordHandler) a
-    } deriving
+    } deriving newtype
     ( Functor
     , Applicative
     , Monad
@@ -82,6 +87,66 @@ newtype Voice a = Voice
     , MonadMask
     )
 
+data FFmpegFilter
+    = Reverb Int
+    -- ^ Integer is milliseconds to delay the echo. 0 - 50 is the ideal range.
+
+data AudioCodec
+    = OPUSCodec
+    -- ^ The audio is in OPUS format which can be directly sent to Discord.
+    | PCMCodec
+    -- ^ The audio is in PCM format which can be encoded and sent to Discord.
+    | ProbeCodec String
+    -- ^ The audio is in an unknown format, but we want to probe it using
+    -- `ffprobe` (executable name specified) first to determine the best
+    -- pipeline for the audio. This can sometimes result in more efficient
+    -- audio pipelines with minimal transcoding, at the expense of an initial
+    -- delay probing for the codec.
+    | UnknownCodec
+    -- ^ The audio is in an unknown format, and we want to unconditionally
+    -- run FFmpeg on it to convert it to OPUS which we can send to Discord.
+    deriving stock (Eq)
+
+data AudioCodecNoFurtherFFmpeg
+    = OPUSFinalOutput
+    | PCMFinalOutput
+    deriving stock (Eq)
+
+-- | The pipeline of the audio processing before it is given to the Haskell side.
+data AudioPipeline = AudioPipeline
+    { audioPipelineNeedsFFmpeg :: Bool
+    -- ^ Whether the pipeline needs FFmpeg to do transformations or transcoding.
+    , audioPipelineOutputCodec :: AudioCodecNoFurtherFFmpeg
+    -- ^ What format the pipeline will output its audio. If FFmpeg is required,
+    -- this is the codec that FFmpeg will output. If FFmpeg is not required, this
+    -- is the original codec of the file/input.
+    }
+
+data AudioTransformation
+    = FFmpegTransformation (NonEmpty FFmpegFilter)
+    | HaskellTransformation (ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ())
+    | (NonEmpty FFmpegFilter) ::.: (ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ())
+
+instance Show AudioTransformation where
+    show (FFmpegTransformation _filters) = "<FFmpeg Transformations>"
+    show (HaskellTransformation _conduit) = "<Haskell Transformations>"
+    show (_a ::.: _b) = "<FFmpeg Transformations> ::.: <Haskell Transformations>"
+
+-- | Datatype to use for playing stuff
+data AudioResource = AudioResource
+    { audioResourceStream :: Either String BL.ByteString
+    -- ^ The stream source. If it's Left, the value is a URL or filepath that
+    -- can be passed to ffmpeg. If it is Right, it contains the lazy ByteString
+    -- for the entire audio.
+    , audioResourceYouTubeDLInfo :: Maybe Object
+    -- ^ If this audio resource was created through youtube-dl, then other
+    -- metadata listed by youtube-dl.
+    , audioResourceTransform :: Maybe AudioTransformation
+    -- ^ Any transformations to perform on the audio resource, both via ffmpeg
+    -- filters and via ByteString Conduits.
+    }
+    deriving stock Show
+
 -- | @VoiceError@ represents the potential errors when initialising a voice
 -- connection. It does /not/ account for errors that occur after the initial
 -- handshake (technically, because they are in IO and not ExceptT).
@@ -89,13 +154,13 @@ data VoiceError
     = VoiceNotAvailable
     | NoServerAvailable
     | InvalidPayloadOrder
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 -- | @SubprocessException@ is an Exception that may be thrown when a subprocess
 -- such as FFmpeg encounters an error.
 --
 -- TODO: This has never actually been seen, so it's untested whether it works.
-data SubprocessException = SubprocessException String deriving (Eq, Show)
+data SubprocessException = SubprocessException String deriving stock (Eq, Show)
 instance Exception SubprocessException
 
 -- | @DiscordVoiceHandle@ represents the handles for a single voice connection
@@ -135,7 +200,7 @@ data VoiceWebsocketException
     | VoiceWebsocketEventParseError T.Text
     | VoiceWebsocketUnexpected VoiceWebsocketReceivable T.Text
     | VoiceWebsocketConnection ConnectionException T.Text
-    deriving (Show)
+    deriving stock (Show)
 
 type VoiceWebsocketReceiveChan =
     Chan (Either VoiceWebsocketException VoiceWebsocketReceivable)
@@ -197,6 +262,8 @@ data UDPConn = UDPConn
     , uDPConnSocket     :: Socket
     }
 
+$(makeFields ''AudioPipeline)
+$(makeFields ''AudioResource)
 $(makeFields ''DiscordVoiceHandle)
 $(makeFields ''DiscordBroadcastHandle)
 $(makeFields ''WebsocketLaunchOpts)
