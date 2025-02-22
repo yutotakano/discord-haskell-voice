@@ -33,6 +33,17 @@ jobs:
       - name: checkout
         uses: actions/checkout@v3
 
+      - name: Install LLVM 12 for 8.10.7 and 9.0.2 on macOS
+        if: ${{ matrix.os == 'macOS-latest' && (matrix.ghc == '8.10.7' || matrix.ghc == '9.0.2') }}
+        run: |
+          brew install llvm@12
+          echo "OPT=$(brew --prefix llvm@12)/bin/opt" >> "${GITHUB_ENV}"
+          echo "LLC=$(brew --prefix llvm@12)/bin/llc" >> "${GITHUB_ENV}"
+
+      - name: Workaround for a problem with GHC 9.0.2 on Arm Mac
+        run: echo "C_INCLUDE_PATH=`xcrun --show-sdk-path`/usr/include/ffi" >> "${GITHUB_ENV}"
+        if: ${{ matrix.os == 'macOS-latest' && matrix.ghc == '9.0.2' }}
+
       - uses: haskell-actions/setup@v2
         id: setup-haskell
         with:
