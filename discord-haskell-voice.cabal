@@ -94,7 +94,7 @@ executable basic-music-bot
     , discord-haskell >=1.12.0 && <=1.15.3
     , discord-haskell-voice
     , optparse-applicative >=0.15.1.0 && <0.18
-    , stm >=2.5.0.0 && <2.5.1
+    , stm >=2.5.0.0 && <2.6
     , stm-containers ==1.2
     , text >=1.2.4.1 && <2
     , unliftio >=0.2.18 && <0.3
