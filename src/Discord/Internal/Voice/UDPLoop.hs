@@ -252,7 +252,7 @@ sendableLoop conn log sequence timestamp startTime = do
 decodeOpusData :: B.ByteString -> IO B.ByteString
 decodeOpusData bytes = do
     let deCfg = mkDecoderConfig opusSR48k True
-    let deStreamCfg = mkDecoderStreamConfig deCfg (48*20) 0
+    let deStreamCfg = mkDecoderStreamConfig deCfg (48*20*2) 0
     decoder <- opusDecoderCreate deCfg
     decoded <- opusDecode decoder deStreamCfg bytes
     pure decoded
