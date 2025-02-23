@@ -3,7 +3,7 @@ name: Build (Cabal)
 on:
   push:
     branches:
-      - master
+      - main
   pull_request: {}
 
 defaults:
