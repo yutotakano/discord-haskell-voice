@@ -50,6 +50,7 @@ import Control.Exception.Safe ( catch )
 import Control.Monad.Reader ( ask, runReaderT )
 import Control.Monad.Except ( runExceptT, throwError )
 import Control.Monad ( when, void, forM_ )
+import Control.Exception ( BlockedIndefinitelyOnMVar(..) )
 import Data.Aeson
 import Data.Aeson.Types ( parseMaybe )
 import Data.ByteString qualified as B
@@ -500,8 +501,14 @@ play resource codec = do
         sinkChan chan = await >>= \case
             Nothing -> pure ()
             Just bs -> do
-                liftIO $ Bounded.writeChan chan bs
-                sinkChan chan
+                -- Try to write to the channel. It can fail if it's full, in
+                -- which case we just want to wait and keep writing. But if the
+                -- consuming thread has been killed (by e.g. leaving VC), then
+                -- writeChan'll throw an async MVar deadlock exception, which
+                -- we'll check for to avoid looping any more.
+                tryC (liftIO $ Bounded.writeChan chan bs) >>= \case
+                    Left BlockedIndefinitelyOnMVar -> pure ()
+                    _ -> sinkChan chan
 
 -- | @encodeOpusC@ is a conduit that splits the ByteString into chunks of
 -- (frame size * no of channels * 16/8) bytes, and encodes each chunk into
