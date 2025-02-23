@@ -51,7 +51,7 @@ import Control.Concurrent
 import Control.Exception.Safe ( try, SomeException, finally )
 import Lens.Micro
 import Control.Monad ( forever, guard )
-import Control.Monad.Except ( runExceptT, ExceptT (ExceptT), lift )
+import Control.Monad.Except ( runExceptT, ExceptT (ExceptT) )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Aeson ( encode, eitherDecode )
 import Data.ByteString.Lazy qualified as BL
@@ -136,9 +136,9 @@ launchWebsocket opts log = do
 
                 -- Create a thread to add heartbeating packets to the
                 -- libSends Chan.
-                heartGenTid <- lift $ forkIO $ heartbeatLoop libSends interval log
+                heartGenTid <- liftIO $ forkIO $ heartbeatLoop libSends interval log
 
-                flip finally (lift $ killThread heartGenTid) $ do
+                flip finally (liftIO $ killThread heartGenTid) $ do
                     -- Perform the Identify/Ready handshake
                     readyPacket <- ExceptT $
                         over _Left ((<> "Failed to get Opcode 2 Ready: ") . tshow) <$>
@@ -148,7 +148,7 @@ launchWebsocket opts log = do
                         maybeToRight ("First packet after Identify not " <> "Opcode 2 Ready " <> tshow readyPacket) $
                             readyPacket ^? _Ready
 
-                    secretKey <- lift $ newEmptyMVar
+                    secretKey <- liftIO $ newEmptyMVar
                     let udpLaunchOpts = UDPLaunchOpts
                             { uDPLaunchOptsSsrc      = readyPayloadSSRC p
                             , uDPLaunchOptsIp        = readyPayloadIP p
@@ -161,25 +161,25 @@ launchWebsocket opts log = do
                     -- We should be putting SSRC into the MVar to report back to
                     -- the websocket (TODO: why was this again), but we hold it off
                     -- until the ssrcCheck guard a few lines below.
-                    lift $ modifyMVar_ udpInfo (pure . const udpLaunchOpts)
+                    liftIO $ modifyMVar_ udpInfo (pure . const udpLaunchOpts)
 
                     -- Launch the UDP thread, automatically perform 
                     -- IP discovery, which will write the result
                     -- to the receiving Chan. We will pass not the MVar but
                     -- the raw options, since there's no writing to be done.
 
-                    forkedId <- lift $ forkIO $ launchUdp udpLaunchOpts log
-                    flip finally (lift $ killThread forkedId) $ do
+                    forkedId <- liftIO $ forkIO $ launchUdp udpLaunchOpts log
+                    flip finally (liftIO $ killThread forkedId) $ do
                         udpTidWeak <- liftIO $ mkWeakThreadId forkedId
-                        lift $ putMVar (opts ^. udpTid) udpTidWeak
+                        liftIO $ putMVar (opts ^. udpTid) udpTidWeak
 
-                        ipDiscovery <- lift $ readChan $ opts ^. udpHandle . _1
+                        ipDiscovery <- liftIO $ readChan $ opts ^. udpHandle . _1
                         (ssrcCheck, ip, port) <- ExceptT $ pure $
                             maybeToRight ("First UDP Packet not IP Discovery " <> tshow ipDiscovery) $
                                 ipDiscovery ^? _IPDiscovery
 
                         guard (ssrcCheck == udpLaunchOpts ^. ssrc)
-                        lift $ putMVar (opts ^. ssrc) ssrcCheck
+                        liftIO $ putMVar (opts ^. ssrc) ssrcCheck
 
                         -- TODO: currently, we await the Opcode 4 SD right after
                         -- Select Protocol, blocking the start of heartbeats until
@@ -198,11 +198,11 @@ launchWebsocket opts log = do
 
                         guard (modeCheck == udpLaunchOpts ^. mode)
 
-                        lift $ putMVar secretKey key
+                        liftIO $ putMVar secretKey key
 
                         -- Move to eternal websocket event loop, mainly for the
                         -- heartbeats, but also for any user-generated packets.
-                        lift $ eventStream conn opts interval udpLaunchOpts libSends log
+                        liftIO $ eventStream conn opts interval udpLaunchOpts libSends log
 
             case result of
                 Left reason -> log ✍! reason >> pure WSClosed
