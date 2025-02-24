@@ -46,9 +46,9 @@ import Control.Concurrent
     )
 import Control.Concurrent.STM ( atomically, newEmptyTMVar, putTMVar, tryReadTMVar )
 import Control.Concurrent.BoundedChan qualified as Bounded
-import Control.Exception.Safe ( catch )
+import Control.Exception.Safe ( catch, throwIO )
 import Control.Monad.Reader ( ask, runReaderT )
-import Control.Monad.Except ( runExceptT, throwError )
+import Control.Monad.Except ( runExceptT )
 import Control.Monad ( when, void, forM_ )
 import Control.Exception ( BlockedIndefinitelyOnMVar(..) )
 import Data.Aeson
@@ -108,7 +108,7 @@ import Discord.Internal.Voice.WebsocketLoop
 -- @
 --
 liftDiscord :: DiscordHandler a -> Voice a
-liftDiscord = Voice . lift . lift
+liftDiscord = Voice . lift
 
 -- | Execute the voice actions stored in the Voice monad.
 --
@@ -131,14 +131,14 @@ liftDiscord = Voice . lift . lift
 --
 -- This function may propagate and throw an 'IOException' if 'createProcess' 
 -- fails for e.g. ffmpeg or youtube-dl.
-runVoice :: Voice () -> DiscordHandler (Either VoiceError ())
+runVoice :: Voice () -> DiscordHandler ()
 runVoice action = do
     voiceHandles <- UnliftIO.newMVar []
     mutEx <- UnliftIO.newMVar ()
 
     let initialState = DiscordBroadcastHandle voiceHandles mutEx
 
-    result <- runExceptT $ flip runReaderT initialState $ unVoice $ action
+    result <- flip runReaderT initialState $ unVoice $ action
 
     -- Wrap cleanup action in @finally@ to ensure we always close the
     -- threads even if an exception occurred.
@@ -210,10 +210,10 @@ join guildId channelId = do
     (liftIO . timeoutMs 5000) (waitForVoiceStatusServerUpdate events) >>= \case
         Nothing -> do
             -- did not respond in time: no permission? or discord offline?
-            throwError VoiceNotAvailable
+            liftIO $ throwIO VoiceNotAvailable
         Just (_, _, _, Nothing) -> do
             -- If endpoint is null, according to Docs, no servers are available.
-            throwError NoServerAvailable
+            liftIO $ throwIO NoServerAvailable
         Just (sessionId, token, guildId, Just endpoint) -> do
             -- create the sending and receiving channels for Websocket
             wsChans <- liftIO $ (,) <$> newChan <*> newChan
