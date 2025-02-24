@@ -54,6 +54,7 @@ import Control.Exception ( BlockedIndefinitelyOnMVar(..) )
 import Data.Aeson
 import Data.Aeson.Types ( parseMaybe )
 import Data.ByteString qualified as B
+import Data.ByteString.Lazy qualified as BL
 import Data.Conduit.Process.Typed
 import Data.Foldable ( traverse_ )
 import Data.Function ( on )
@@ -567,6 +568,12 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
             yield encoded
             loop encoder
 
+-- | @createYoutubeResource query mbTransform@ creates an audio resource from a
+-- YouTube query. The query is passed to @yt-dlp@, which returns the best audio
+-- stream available. If you specify a URL as the query, naturally it will
+-- choose the search result for that, which is (likely) guaranteed to be the
+-- video itself. The optional 'AudioTransformation' is applied to the audio
+-- stream before it is sent to Discord.
 createYoutubeResource :: String -> Maybe AudioTransformation -> Voice (Maybe AudioResource)
 createYoutubeResource query mbTransform = do
     let processConfig = proc "yt-dlp"
@@ -586,6 +593,26 @@ createYoutubeResource query mbTransform = do
             , audioResourceYouTubeDLInfo = Just result
             , audioResourceTransform = mbTransform
             }
+
+-- | @createFileResource path mbTransform@ creates an audio resource from a file
+-- path. The optional 'AudioTransformation' is applied to the audio stream before
+-- it is sent to Discord.
+createFileResource :: String -> Maybe AudioTransformation -> AudioResource
+createFileResource path mbTransform = AudioResource
+    { audioResourceStream = Left path
+    , audioResourceYouTubeDLInfo = Nothing
+    , audioResourceTransform = mbTransform
+    }
+
+-- | @createByteStringResource bs mbTransform@ creates an audio resource from a
+-- lazy ByteString. The optional 'AudioTransformation' is applied to the audio
+-- stream before it is sent to Discord.
+createByteStringResource :: BL.ByteString -> Maybe AudioTransformation -> AudioResource
+createByteStringResource bs mbTransform = AudioResource
+    { audioResourceStream = Right bs
+    , audioResourceYouTubeDLInfo = Nothing
+    , audioResourceTransform = mbTransform
+    }
 
 -- |
 -- >>> groupFiltArgs $ map filterToArg $ [Reverb 10, Reverb 20]
