@@ -66,7 +66,7 @@ import Discord.Internal.Types.VoiceWebsocket
 -- propagates below ReaderT, and the monad would not halt there, continuing
 -- computation with an unstable state.
 newtype Voice a = Voice
-    { unVoice :: ReaderT DiscordBroadcastHandle (ExceptT VoiceError DiscordHandler) a
+    { unVoice :: ReaderT DiscordBroadcastHandle DiscordHandler a
     } deriving newtype
     ( Functor
     , Applicative
@@ -75,8 +75,6 @@ newtype Voice a = Voice
     -- ^ MonadIO gives the ability to perform 'liftIO'.
     , MonadReader DiscordBroadcastHandle
     -- ^ MonadReader is for internal use, to read the held broadcast handle.
-    , MonadError VoiceError
-    -- ^ MonadError is for internal use, to propagate errors.
     , MonadFail
     -- ^ MonadFail is for internal use, identical in function to the MonadFail
     -- instance of ReaderT.
@@ -155,6 +153,8 @@ data VoiceError
     | NoServerAvailable
     | InvalidPayloadOrder
     deriving stock (Show, Eq)
+
+instance Exception VoiceError
 
 -- | @SubprocessException@ is an Exception that may be thrown when a subprocess
 -- such as FFmpeg encounters an error.
