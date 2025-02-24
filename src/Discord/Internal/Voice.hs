@@ -604,11 +604,11 @@ createFileResource path mbTransform = AudioResource
     , audioResourceTransform = mbTransform
     }
 
--- | @createByteStringResource bs mbTransform@ creates an audio resource from a
+-- | @createPCMResource bs mbTransform@ creates an audio resource from a
 -- lazy ByteString. The optional 'AudioTransformation' is applied to the audio
 -- stream before it is sent to Discord.
-createByteStringResource :: BL.ByteString -> Maybe AudioTransformation -> AudioResource
-createByteStringResource bs mbTransform = AudioResource
+createPCMResource :: BL.ByteString -> Maybe AudioTransformation -> AudioResource
+createPCMResource bs mbTransform = AudioResource
     { audioResourceStream = Right bs
     , audioResourceYouTubeDLInfo = Nothing
     , audioResourceTransform = mbTransform
