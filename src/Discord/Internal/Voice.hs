@@ -414,7 +414,7 @@ getPipeline (AudioResource _ _ (Just (HaskellTransformation _))) _ = AudioPipeli
     { audioPipelineNeedsFFmpeg = True
     , audioPipelineOutputCodec = PCMFinalOutput
     }
-getPipeline (AudioResource _ _ (Just (_ ::.: _))) _ = AudioPipeline
+getPipeline (AudioResource _ _ (Just (_ :.->: _))) _ = AudioPipeline
     { audioPipelineNeedsFFmpeg = True
     , audioPipelineOutputCodec = PCMFinalOutput
     }
@@ -452,7 +452,7 @@ play resource codec = do
             OPUSFinalOutput -> transPipe liftIO unwrapOggPacketsC .| sinkHandles handles
             PCMFinalOutput -> case resource ^. transform of
                 Just (HaskellTransformation tsC) -> tsC .| encodeOpusC .| sinkHandles handles
-                Just (_ ::.: tsC) -> tsC .| encodeOpusC .| sinkHandles handles
+                Just (_ :.->: tsC) -> tsC .| encodeOpusC .| sinkHandles handles
                 _ -> encodeOpusC .| sinkHandles handles
 
     if not (pipeline ^. needsFFmpeg) then do
@@ -469,17 +469,17 @@ play resource codec = do
         let (iFlag, inputStream) = case resource ^. stream of
                 Left filepath -> (filepath, nullStream)
                 Right lbs     -> ("pipe:0", byteStringInput lbs)
-        -- Get all the filter argument pairs
-        let filtArgs = groupFiltArgs $ concatMap filterToArg $ case resource ^. transform of
-                Just (FFmpegTransformation fils) -> NonEmpty.toList fils
-                Just (fils ::.: _)               -> NonEmpty.toList fils
-                _ -> []
+        -- Get all the arguments for FFmpeg using the generator function, either
+        -- provided or a default one that only consists of -i.
+        let inputArgs = case resource ^. transform of
+                Just (FFmpegTransformation argsFunc) -> argsFunc iFlag
+                Just (argsFunc :.->: _) -> argsFunc iFlag
+                _ -> defaultFfmpegArgs iFlag
         let outputFlags = case pipeline ^. outputCodec of
                 -- OPUS output from FFmpeg will be in an OGG container.
-                OPUSFinalOutput -> ["-f", "opus", "-map", "0:a", "-c:a", "libopus", "-b:a", "128K", "-ar", "48000", "-ac", "2"]
+                OPUSFinalOutput -> ["-f", "opus", "-c:a", "libopus", "-b:a", "128K", "-ar", "48000", "-ac", "2"]
                 PCMFinalOutput -> ["-f", "s16le", "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2"]
-        let args = [ "-i", iFlag
-                    ] <> concatMap (\(k, v) -> [k, v]) filtArgs <> outputFlags <>
+        let args = inputArgs <> outputFlags <>
                     [ "pipe:1"
                     , "-loglevel", "warning"
                     , "-xerror"
@@ -614,16 +614,10 @@ createPCMResource bs mbTransform = AudioResource
     , audioResourceTransform = mbTransform
     }
 
--- |
--- >>> groupFiltArgs $ map filterToArg $ [Reverb 10, Reverb 20]
--- [("-af","aecho=1.0:0.7:10:0.5;aecho=1.0:0.7:20:0.5")]
-filterToArg :: FFmpegFilter -> [(String, String)]
-filterToArg (Reverb _i) =
-    [ ("-guess_layout_max", "0")
-    , ("-i", "static/st-patricks-church-patrington.wav")
-    , ("-filter_complex", "[0] [1] afir=dry=10:wet=10 [reverb]; [0] [reverb] amix=inputs=2:weights=10 2")
-    ]
-
-groupFiltArgs :: [(String, String)] -> [(String, String)]
-groupFiltArgs argPairs = groupBy ((==) `on` fst) argPairs
-    & map (\args -> (fst (head args), intercalate ";" (map snd args)))
+-- | @defaultFfmpegArgs file@ is a generator function that returns the default
+-- arguments for FFmpeg (excluding error handling and output file specification).
+-- Specifically, it is only §-i file@.
+-- You may write a replacement argument generator function if you need to
+-- specify custom complex_filters or other FFmpeg arguments.
+defaultFfmpegArgs :: FilePath -> [String]
+defaultFfmpegArgs file = [ "-i", file ]

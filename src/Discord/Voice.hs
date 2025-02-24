@@ -51,7 +51,7 @@ module Discord.Voice
     , createPCMResource
     , AudioTransformation(..)
     , AudioCodec(..)
-    , FFmpegFilter(..)
+    , defaultFfmpegArgs
     ) where
 
 import Discord.Internal.Types.VoiceCommon
