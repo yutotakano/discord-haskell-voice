@@ -47,6 +47,8 @@ module Discord.Voice
       -- * Play Some Audio
     , play
     , createYoutubeResource
+    , createFileResource
+    , createPCMResource
     , AudioTransformation(..)
     , AudioCodec(..)
     , FFmpegFilter(..)
