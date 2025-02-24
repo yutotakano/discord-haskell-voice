@@ -332,8 +332,37 @@ updateStatusVoice
     -> DiscordHandler ()
 updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts a b c d
 
+-- | @probeCodec resource@ tries to use @ffprobe@ to probe the codec of the
+-- audio resource for files/URLs. If the probed format was OPUS or 16-bit PCM,
+-- then the function will return the appropriate 'AudioCodec', so that it can be
+-- used to tell we won't need FFmpeg is needed as a transcoder. For any other
+-- codec or if the resource is raw bytes, the function will return 'UnknownCodec'.
 probeCodec :: String -> AudioResource -> IO AudioCodec
-probeCodec = undefined
+probeCodec ffprobeBinary resource = do
+    case resource ^. stream of
+        Right lbs -> pure UnknownCodec
+        Left source -> do
+            let processConfig = proc ffprobeBinary
+                    [ source
+                    , "-print_format", "json"
+                    , "-v", "quiet"
+                    , "-show_entries", "stream=codec_name"
+                    , "-select_streams", "0"
+                    ]
+            (_exitCode, stdout, _stderr) <- liftIO $ readProcess processConfig
+
+            let codec = do
+                    -- Chain the Maybe monad
+                    result <- decode stdout
+                    flip parseMaybe result $ \obj -> do
+                        streams <- obj .: "streams"
+                        head streams .: "codec_name"
+
+            case codec :: Maybe String of
+                Just "opus" -> pure OPUSCodec
+                Just "pcm_s16le" -> pure PCMCodec
+                _ -> pure UnknownCodec
+
 
 -- | @getPipeline resource codec@ returns some information about the pipeline
 -- required for the audio before it is sent to Discord. See the 'AudioPipeline'
@@ -397,7 +426,8 @@ getPipeline _ (ProbeCodec _) = error $
 -- know and want to unconditionally use ffmpeg to transcode, then specify the
 -- codec as 'UnknownCodec'. If you do not know but can afford to wait a few
 -- seconds at first to probe the codec (using @ffprobe@) so that we may be able
--- to skip transcoding if it's either PCM or OPUS, then use 'ProbeCodec'.
+-- to skip transcoding if it's either PCM or OPUS, then use 'ProbeCodec' and
+-- specify the name/location of the @ffprobe@ binary.
 play :: AudioResource -> AudioCodec -> Voice ()
 play resource (ProbeCodec ffprobeExe) = do
     -- If we are told the audio should be probed for info, do so and rerun play.
