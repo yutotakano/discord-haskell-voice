@@ -38,8 +38,9 @@ startHandler :: DiscordHandler ()
 startHandler = do
     Right partialGuilds <- restCall R.GetCurrentUserGuilds
 
-    result <- runVoice $ do
+    runVoice $ do
         forM_ partialGuilds $ \pg -> do
+            liftIO $ putStrLn $ "Joining guild: " <> show (partialGuildName pg)
             Right guild <- liftDiscord $ restCall $ R.GetGuild (partialGuildId pg)
             Right chans <- liftDiscord $ restCall $ R.GetGuildChannels (guildId guild)
 
@@ -55,9 +56,6 @@ startHandler = do
             Just re -> catch (play re UnknownCodec) (\(e :: SomeException) -> liftIO $ print e)
 
         liftIO $ threadDelay $ 30 * 1000 * 1000
-
-    liftIO $ print result
-    pure ()
 
 isTextChannel :: Channel -> Bool
 isTextChannel (ChannelText {}) = True

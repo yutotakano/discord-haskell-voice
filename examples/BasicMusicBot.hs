@@ -93,8 +93,8 @@ eventHandler contexts (MessageCreate msg) = case messageGuildId msg of
 eventHandler _ _ = pure ()
 
 handleCommand :: M.Map String GuildContext -> Message -> GuildId -> BotAction -> DiscordHandler ()
-handleCommand contexts _msg gid (JoinVoice cid) = do
-    result <- runVoice $ do
+handleCommand contexts _msg gid (JoinVoice cid) =
+    runVoice $ do
         leave <- join gid cid
         volume <- liftIO $ newTVarIO 100
         liftDiscord $ atomically $ M.insert (GuildContext [] volume leave) (show gid) contexts
@@ -114,10 +114,6 @@ handleCommand contexts _msg gid (JoinVoice cid) = do
                     case resource of
                         Nothing -> liftIO $ print "whoops"
                         Just re -> play re UnknownCodec
-
-    case result of
-        Left e -> liftIO $ print e >> pure ()
-        Right _ -> pure ()
 
 handleCommand contexts _msg gid (LeaveVoice _cid) = do
     context <- atomically $ M.lookup (show gid) contexts
