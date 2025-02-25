@@ -11,9 +11,9 @@ description:    Supplementary library to discord-haskell. See the project README
 category:       Network
 homepage:       https://github.com/yutotakano/discord-haskell-voice#readme
 bug-reports:    https://github.com/yutotakano/discord-haskell-voice/issues
-author:         Yuto Takano
-maintainer:     moa17stock@gmail.com
-copyright:      2021-2022 Yuto Takano
+author:         Yuto Takano <moa17stock@gmail.com>
+maintainer:     Yuto Takano <moa17stock@gmail.com>
+copyright:      Yuto Takano <moa17stock@gmail.com>, discord-haskell-voice Contributors
 license:        MIT
 license-file:   LICENSE
 build-type:     Simple

@@ -4,8 +4,9 @@
 Module      : Discord.Voice.Conduit
 Description : Convenient Conduits for transforming voice data
 Copyright   : (c) 2021-2022 Yuto Takano
+              (c) 2025-PRESENT discord-haskell-voice Contributors
 License     : MIT
-Maintainer  : moa17stock@gmail.com
+Maintainer  : Yuto Takano <moa17stock@gmail.com>
 
 This module provides convenient Conduits (see the @conduit@ package for an
 introduction to conduits, but essentially streaming pipes) for transforming
