@@ -85,10 +85,6 @@ newtype Voice a = Voice
     , MonadMask
     )
 
-data FFmpegFilter
-    = Reverb Int
-    -- ^ Integer is milliseconds to delay the echo. 0 - 50 is the ideal range.
-
 data AudioCodec
     = OPUSCodec
     -- ^ The audio is in OPUS format which can be directly sent to Discord.
@@ -121,14 +117,14 @@ data AudioPipeline = AudioPipeline
     }
 
 data AudioTransformation
-    = FFmpegTransformation (NonEmpty FFmpegFilter)
+    = FFmpegTransformation (FilePath -> [String])
     | HaskellTransformation (ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ())
-    | (NonEmpty FFmpegFilter) ::.: (ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ())
+    | (FilePath -> [String]) :.->: (ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ())
 
 instance Show AudioTransformation where
-    show (FFmpegTransformation _filters) = "<FFmpeg Transformations>"
-    show (HaskellTransformation _conduit) = "<Haskell Transformations>"
-    show (_a ::.: _b) = "<FFmpeg Transformations> ::.: <Haskell Transformations>"
+    show (FFmpegTransformation func) = "<FFmpeg Flags Transformation>"
+    show (HaskellTransformation _conduit) = "<Haskell Conduit Byte Transformations>"
+    show (_a :.->: _b) = "<FFmpeg Flags> :FlagsFollowedByConduit: <Haskell Transformations>"
 
 -- | Datatype to use for playing stuff
 data AudioResource = AudioResource
