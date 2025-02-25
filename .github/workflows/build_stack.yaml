@@ -31,7 +31,7 @@ jobs:
       fail-fast: false
     steps:
       - name: checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install LLVM 12 for 8.10.7 and 9.0.2 on macOS
         if: ${{ matrix.os == 'macOS-latest' && (matrix.ghc == '8.10.7' || matrix.ghc == '9.0.2') }}
@@ -82,7 +82,7 @@ jobs:
 
       - name: Cache Stack Dependencies
         id: cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           key: stack-${{ matrix.os }}-${{ env.GHC_VER }}-${{ env.STACK_VER }}-${{ hashFiles(format('stack-{0}.yaml', env.GHC_VER)) }}
           path: |
