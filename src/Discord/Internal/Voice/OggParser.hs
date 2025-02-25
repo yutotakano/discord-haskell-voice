@@ -1,6 +1,29 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-|
+Module      : Discord.Internal.Voice.OggParser
+Description : Strictly for internal use only. See Discord.Voice for the public interface.
+Copyright   : (c) 2021-2022 Yuto Takano
+              (c) 2025-PRESENT discord-haskell-voice Contributors
+License     : MIT
+Maintainer  : Yuto Takano <moa17stock@gmail.com>
+
+= WARNING
+
+This module is considered __internal__.
+
+The Package Versioning Policy __does not apply__.
+
+The contents of this module may change __in any way whatsoever__ and __without__
+__any warning__ between minor versions of this package.
+
+= Description
+
+This module provides @unwrapOggPacketsC@, a conduit that unwraps Ogg packets
+from a stream of bytes, and extracts the Opus packets from them. This is used
+to parse FFmpeg's Ogg output into Opus packets that can be sent to Discord.
+-}
 module Discord.Internal.Voice.OggParser
     ( unwrapOggPacketsC
     ) where

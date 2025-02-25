@@ -6,9 +6,9 @@ description:         Supplementary library to discord-haskell.
 synopsis:            Voice support for discord-haskell.
 github:              "yutotakano/discord-haskell-voice"
 license:             MIT
-author:              Yuto Takano
-maintainer:          "moa17stock@gmail.com"
-copyright:           "2021-2022 Yuto Takano"
+author:              Yuto Takano <moa17stock@gmail.com>
+maintainer:          Yuto Takano <moa17stock@gmail.com>
+copyright:           Yuto Takano <moa17stock@gmail.com>, discord-haskell-voice Contributors
 category:            Network
 extra-source-files:
 - README.md
