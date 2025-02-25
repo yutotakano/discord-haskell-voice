@@ -111,6 +111,17 @@ handleCommand contexts _msg gid (JoinVoice cid) =
                             yield $ round $ fromIntegral current * (fromIntegral v' / 100)
 
                     resource <- createYoutubeResource x $ Just $ HaskellTransformation $ packInt16C .| adjustVolume .| unpackInt16C
+
+                    -- Try for a reverb effect.
+                    -- Use the impulse response file from https://medium.com/@glynn_bird/applying-reverb-to-audio-with-ffmpeg-and-impulse-responses-81b4480cf5aa
+                    -- resource <- createYoutubeResource x $ Just $ FFmpegTransformation $ \file ->
+                    --     [ "-i", file
+                    --     , "-guess_layout_max", "0"
+                    --     , "-i", "static/st-patricks-church-patrington.wav"
+                    --     , "-filter_complex", "[0] [1] afir=dry=10:wet=10 [reverb]; [0] [reverb] amix=inputs=2:weights=10 100 [result]"
+                    --     , "-map", "[result]"
+                    --     ]
+
                     case resource of
                         Nothing -> liftIO $ print "whoops"
                         Just re -> play re UnknownCodec
