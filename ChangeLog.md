@@ -19,7 +19,7 @@
   - Fix `leave` causing MVar thread deadlock due to the BoundedChan consumer thread being killed
 
 - Miscellaneous
-  - Support GHC 8.10.7, 9.0.2, 9.2.4, and 9.6.8
+  - Support GHC 8.10.7, 9.0.2, 9.2.4, and 9.6.6
   - Improve BasicMusicBot example to be less lisp-y in terms of brackets, and fix all warnings
   - Use `DerivingStrategies` in the library code to make explicit where deriving typeclasses are from
   - Add a compile flag to use a `crypton`-based encryption backend, which removes the necessity for libsodium
@@ -35,7 +35,7 @@
     - `websockets` from <0.12.8 to <0.14
     - `wuss` from <=1.2 to <2.1
     - `discord-haskell` from <= 1.14.0 to <= 1.17.1
-  - Add build CI for Cabal & Stack for all supported GHC versions
+  - Add build CI for Cabal & Stack for all supported GHC versions except 9.6.6
   - Renamed `master` branch to `main`
   - Updated copyright to current year and include contributors where applicable
   - Added link to GitHub Sponsors
