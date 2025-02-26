@@ -2,10 +2,43 @@
 
 ## Unreleased changes
 
-- Add a compile flag to use a `cryptonite`-based encryption implementation, which removes the necessity for libsodium.
-- Improve the lisp-ish-ness of the BasicMusicBot example.
-- Relax package bounds for `wuss`, `conduit` and `stm`, and support GHC 9.0.2 and GHC 9.2.4 (CI present).
-- Update `discord-haskell` dependency bounds to `>= 1.12.0 && <= 1.15.3`
+- **Breaking API changes**
+  - Replaced previously separate playing functions with a single `play` function
+  - New `AudioResource` type represents a resource to be played, made with e.g. `createYoutubeResource`
+  - New audio transformation abilities via FFmpeg flags and Haskell conduits
+  - Use FFmpeg's direct Ogg/Opus output to skip the FFmpeg->PCM->Opus translation if there are no Haskell conduits that operate on PCM
+  - Can now specify a codec in `play` to skip on using FFmpeg at all if input is already PCM or Opus
+  - Can now use `ffprobe` to automatically detect if the input resource is already PCM or Opus and intelligently skip FFmpeg
+  - New dependency on `typed-process` for safer external process
+  - New dependency on `opus` from Hackage instead of direct git source
+  - Remove ExceptT from the Voice monad stack
+
+- Bug Fixes
+  - Fix `OpusBufferTooSmall` when receiving Opus data due to buffer being half the size it should be
+  - Fix the library crashing when joining a call with another user already in it, which triggers Opcodes 11/18/20 before Opcode 4
+  - Fix `leave` causing MVar thread deadlock due to the BoundedChan consumer thread being killed
+
+- Miscellaneous
+  - Support GHC 8.10.7, 9.0.2, 9.2.4, and 9.6.8
+  - Improve BasicMusicBot example to be less lisp-y in terms of brackets, and fix all warnings
+  - Use `DerivingStrategies` in the library code to make explicit where deriving typeclasses are from
+  - Add a compile flag to use a `crypton`-based encryption backend, which removes the necessity for libsodium
+  - Remove `containers` dependency
+  - Relax package bounds:
+    - `aeson` from ==1.5.6.0 to <2.3
+    - `bytestring` from <0.11 to <0.13
+    - `conduit` from <=1.3.4.2 to <=1.4.0.0
+    - `mtl` from ==2.2.2 to <2.4
+    - `saltine` from <0.2 to <0.4
+    - `stm` from <2.5.1 to <2.6
+    - `text` from <2 to <3
+    - `websockets` from <0.12.8 to <0.14
+    - `wuss` from <=1.2 to <2.1
+    - `discord-haskell` from <= 1.14.0 to <= 1.17.1
+  - Add build CI for Cabal & Stack for all supported GHC versions
+  - Renamed `master` branch to `main`
+  - Updated copyright to current year and include contributors where applicable
+  - Added link to GitHub Sponsors
 
 ## 2.3.1
 
