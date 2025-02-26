@@ -40,38 +40,38 @@
   - Updated copyright to current year and include contributors where applicable
   - Added link to GitHub Sponsors
 
-## 2.3.1
+## 2.3.1 — 2022 July
 
 - Update `discord-haskell` dependency bounds to `>= 1.12.0 && <= 1.14.0`.
 - Use `UnliftIO.MVar` functions internally for MVar operations in `DiscordHandler`
 - `IOException`s thrown by e.g. createProcess during `runVoice` are no longer caught and subdued - they are propagated to the user.
 
-## 2.3.0
+## 2.3.0 — 2022 May
 
 - Export `playYouTubeWith` and `playYouTubeWith'` from `Discord.Voice`.
 - Update `discord-haskell` dependency bounds to `>= 1.12.0 && <= 1.13.0`.
 - Migrate from `lens` to `microlens`, following the `opus` package doing the same.
 
-## 2.2.2
+## 2.2.2 — 2022 February
 
 - Update `discord-haskell` dependency to 1.12.0
 - Bump copyright to 2022
 - Fix incomplete pattern match crash in the example bot when using `bot --bash-completion-script`
 
-## 2.2.1
+## 2.2.1 — 2022 January
 
 - Patch README having incorrect non-published details after Hackage publication.
 
-## 2.2.0
+## 2.2.0 — 2022 January
 
 - Change the definition of `Voice` from a type alias exposing dangerous internal handles, to a newtype wrapper. This also changes the definition of `liftDiscord` to maintain identical behaviour.
 - Update `discord-haskell` dependency to 1.11.0
 
-## 2.1.0
+## 2.1.0 — 2022 January
 
 - Removed `updateSpeakingStatus` from the publicly exported function list for `Discord.Voice`.
 
-## 2.0.0
+## 2.0.0 — 2021 December
 
 - Rewrite the entire library (see #1).
 - Introduce the `Voice` monad, and all functions in it: `join`, `play`, and all other variants of `play`.
@@ -81,7 +81,7 @@
 - Add package documentation to public modules, and make sure the abstraction layer is solid (don't export useless internals).
 - Rename the JoinSpecificVC example to BasicMusicBot and add a `bot volume` command to change the volume.
 
-## 0.0.1
+## 0.0.1 — 2021 June
 
 - Initial release.
 - Implement `joinVoice`, `leaveVoice`, etc and use `DiscordVoiceHandle` to maintain a reference to the voice handle.
