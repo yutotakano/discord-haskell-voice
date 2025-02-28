@@ -17,6 +17,8 @@
   - Fix `OpusBufferTooSmall` when receiving Opus data due to buffer being half the size it should be
   - Fix the library crashing when joining a call with another user already in it, which triggers Opcodes 11/18/20 before Opcode 4
   - Fix `leave` causing MVar thread deadlock due to the BoundedChan consumer thread being killed
+  - Fix possibility of audio artifacts when sending multiple audio resources back-to-back due to incorrect silence frames [#45](https://github.com/yutotakano/discord-haskell-voice/pull/45)
+  - Fix posibility of the last few bytes of Opus frames being cut off during transmission due to a buffer too small [#45](https://github.com/yutotakano/discord-haskell-voice/pull/45)
 
 - Miscellaneous
   - Support GHC 8.10.7, 9.0.2, 9.2.4, and 9.6.6
