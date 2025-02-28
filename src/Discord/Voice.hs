@@ -52,6 +52,7 @@ module Discord.Voice
     , createPCMResource
     , AudioTransformation(..)
     , AudioCodec(..)
+    , AudioResource(..)
     , defaultFfmpegArgs
     ) where
 
