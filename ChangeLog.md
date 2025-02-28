@@ -12,6 +12,7 @@
   - New dependency on `typed-process` for safer external process
   - New dependency on `opus` from Hackage instead of direct git source
   - Remove ExceptT from the Voice monad stack
+  - Remove `VoiceError` and `SubprocessException types from the library as they became unused
 
 - Bug Fixes
   - Fix `OpusBufferTooSmall` when receiving Opus data due to buffer being half the size it should be
@@ -23,6 +24,7 @@
 - Miscellaneous
   - Support GHC 8.10.7, 9.0.2, 9.2.4, and 9.6.6
   - Improve BasicMusicBot example to be less lisp-y in terms of brackets, and fix all warnings
+  - Improve error messages when parsing Ogg containers fail
   - Use `DerivingStrategies` in the library code to make explicit where deriving typeclasses are from
   - Add a compile flag to use a `crypton`-based encryption backend, which removes the necessity for libsodium
   - Remove `containers` dependency
