@@ -567,9 +567,12 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
     streamCfg = mkStreamConfig enCfg (48 * 20) (1275 + 7)
     loop encoder = await >>= \case
         Nothing -> do
-            -- Send at least 5 blank frames (20ms * 5 = 100 ms)
-            let frame = B.pack $ concat $ replicate 1280 [0xF8, 0xFF, 0xFE]
-            encoded <- liftIO $ opusEncode encoder streamCfg frame
+            -- Send at least 5 blank frames before stopping.
+            -- Per Discord docs: "When there's a break in the sent data, the
+            -- packet transmission shouldn't simply stop. Instead, send five
+            -- frames of silence (0xF8, 0xFF, 0xFE) before stopping to avoid
+            -- unintended Opus interpolation with subsequent transmissions."
+            let encoded = B.pack [0xF8, 0xFF, 0xFE]
             forM_ [0..4] $ \_ -> do
                 yield encoded
         Just frame -> do
