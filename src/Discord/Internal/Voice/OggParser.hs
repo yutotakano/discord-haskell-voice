@@ -289,4 +289,4 @@ splitOggPackets sl bytes ps = loop sl bytes ps
         -- happens if the network packet was lost somewhere, or if the Ogg packet
         -- is simply corrupt.
         | otherwise
-        = error "TODO think of a better (non-crashing) way to handle this here"
+        = error "Ogg packet is corrupt and couldn't be parsed."
