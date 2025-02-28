@@ -553,13 +553,26 @@ encodeOpusC = chunksOfCE (48*20*2*2) .| do
     loop encoder
   where
     enCfg = mkEncoderConfig opusSR48k True app_audio
-    -- 1275 is the max bytes an opus 20ms frame can have
-    streamCfg = mkStreamConfig enCfg (48*20) 1276
+
+    -- 48kHz means that 1s has 48,000 samples (or 96,000 for stereo). Therefore,
+    -- 1ms has 48 samples. An opus frame is 20ms (by default), so it has
+    -- 48 * 20 samples (or 48 * 20 * 2 for stereo).
+    -- Each sample has 2 bytes of precision (16 bits), so the size of a frame
+    -- is 48 * 20 * 2 (or double for stereo). libopus, per its docs, wants a
+    -- per-channel frame size in the unit of "number of samples", so we use
+    -- 48 * 20 as the input.
+    --
+    -- For the output buffer size, 1275 is the max bytes an opus 20ms frame can
+    -- have, + the largest possible Opus packet header size is 7 bytes.
+    streamCfg = mkStreamConfig enCfg (48 * 20) (1275 + 7)
     loop encoder = await >>= \case
         Nothing -> do
-            -- Send at least 5 blank frames (20ms * 5 = 100 ms)
-            let frame = B.pack $ concat $ replicate 1280 [0xF8, 0xFF, 0xFE]
-            encoded <- liftIO $ opusEncode encoder streamCfg frame
+            -- Send at least 5 blank frames before stopping.
+            -- Per Discord docs: "When there's a break in the sent data, the
+            -- packet transmission shouldn't simply stop. Instead, send five
+            -- frames of silence (0xF8, 0xFF, 0xFE) before stopping to avoid
+            -- unintended Opus interpolation with subsequent transmissions."
+            let encoded = B.pack [0xF8, 0xFF, 0xFE]
             forM_ [0..4] $ \_ -> do
                 yield encoded
         Just frame -> do
