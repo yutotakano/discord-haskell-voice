@@ -142,24 +142,6 @@ data AudioResource = AudioResource
     }
     deriving stock Show
 
--- | @VoiceError@ represents the potential errors when initialising a voice
--- connection. It does /not/ account for errors that occur after the initial
--- handshake (technically, because they are in IO and not ExceptT).
-data VoiceError
-    = VoiceNotAvailable
-    | NoServerAvailable
-    | InvalidPayloadOrder
-    deriving stock (Show, Eq)
-
-instance Exception VoiceError
-
--- | @SubprocessException@ is an Exception that may be thrown when a subprocess
--- such as FFmpeg encounters an error.
---
--- TODO: This has never actually been seen, so it's untested whether it works.
-data SubprocessException = SubprocessException String deriving stock (Eq, Show)
-instance Exception SubprocessException
-
 -- | @DiscordVoiceHandle@ represents the handles for a single voice connection
 -- (to a specific voice channel).
 --
