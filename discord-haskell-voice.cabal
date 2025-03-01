@@ -52,7 +52,7 @@ library
     , Strict
   build-depends:
       BoundedChan ==1.0.3.0
-    , aeson >=1.5 && <1.6 || >=2.0 && <2.3
+    , aeson >=1.5 && <2.3
     , async >=2.2.3 && <2.4
     , base >=4.7 && <5
     , binary ==0.8.*
