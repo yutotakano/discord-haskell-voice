@@ -32,6 +32,15 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v4
+        with:
+          # Default is 1 (only one commit) but in order to do git log on PRs and
+          # get the PR head commit, we need more history -- so we set it to 0
+          # (unlimited).
+          #
+          # The PR head commit on a pull_request event is not the most recent
+          # commit, since GitHub Actions performs a merge onto the base branch
+          # and runs CI on the result.
+          fetch-depth: 0
 
       - name: Install LLVM 12 for 8.10.7 and 9.0.2 on macOS
         if: ${{ matrix.os == 'macOS-latest' && (matrix.ghc == '8.10.7' || matrix.ghc == '9.0.2') }}
