@@ -101,6 +101,21 @@ jobs:
           # whichever is earlier
           brew update && brew reinstall highway
 
+      # Renovate is configured in renovate.json to tell the CI about the specific
+      # version bump using a Git message trailer. So we parse from this and
+      # make it so CI for Renovate is forced to use that constraints -- otherwise
+      # cabal might solve using older package versions.
+      # See https://github.com/haskell-actions/setup/commit/e09ab5080aed999b46591720b1be129e00e0eef5
+      - name: (Only for Renovate PRs) Apply bumped dependency version constraint
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          if [ ! -f cabal.project ]
+            then echo "packages: ." > cabal.project
+          fi
+          for constraint in $(git log "--format=%(trailers:key=New-Versions,valueonly=true)" ${{ github.event.pull_request.head.sha }} -1)
+            do echo "constraints: $constraint" >> cabal.project
+          done
+
       - name: Update cabal database and set up build plan
         run: |
           cabal update
