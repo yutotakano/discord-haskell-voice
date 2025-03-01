@@ -1,6 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Configuration for the Renovate bot for bumping dependencies. We make it add a Git message trailer to bumps to communicate to the CI action for the PR about what constraints we should test with -- otherwise, the CI might not resolve with the bumped version. See https://github.com/haskell-actions/setup/commit/e09ab5080aed999b46591720b1be129e00e0eef5",
   "extends": [
     "config:recommended"
-  ]
+  ],
+  "commitBody": "New-Versions:\n{{#each upgrades}}  {{{depName}}}=={{{newVersion}}}\n{{/each}}",
+  "commitBodyTable": true,
+  "branchPrefix": "renovate/",
+  "ignoreDeps": ["base"]
 }
