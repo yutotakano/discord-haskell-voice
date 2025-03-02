@@ -98,7 +98,7 @@ import Discord.Internal.Voice.WebsocketLoop
 -- 'Voice'. This is useful for performing DiscordHandler actions inside the
 -- Voice monad. To perform IO actions inside the Voice monad, use 'liftIO'.
 --
--- ## Examples
+-- == Examples
 --
 -- @
 -- func :: DiscordHandler ()
@@ -122,15 +122,15 @@ liftDiscord = Voice . lift
 
 -- | Executes the voice actions stored in the form of the Voice monad.
 --
--- ## Basic Usage
+-- == Basic Usage
 --
 -- The following demonstrates joining a voice call and instantly leaving it.
 --
 -- @
--- runVoice $ join (read "<guildID>") (read "<vcID>")
+-- runVoice $ join (read "\<guildID\>") (read "\<vcID\>")
 -- @
 --
--- ## Control Flow
+-- == Control Flow
 --
 -- The voice monad cleans up after execution and thus you cannot linger in the
 -- voice chat unless you explicitly prevent exiting from the computation. The
@@ -138,7 +138,7 @@ liftDiscord = Voice . lift
 --
 -- @
 -- runVoice $ do
---     join (read "<guildID>") (read "<vcID>")
+--     join (read "\<guildID\>") (read "\<vcID\>")
 --     forever $ pure ()
 -- @
 --
@@ -150,9 +150,10 @@ liftDiscord = Voice . lift
 -- voice calls is not to return control flow, but to use multiple threads and
 -- communicate. Threads are cheap in Haskell, and Discord-Haskell already spawns
 -- a new thread for each event. You can let one thread forever stay in
--- 'runVoice', while other threads communicate with it using 'MVar', for example.
--- To leave a voice call from another thread, use the return value of 'join',
--- which you might choose to communicate using 'MVar' too.
+-- 'runVoice', while other threads communicate with it using
+-- 'Control.Concurrent.MVar', for example. To leave a voice call from another
+-- thread, use the return value of 'join', which you might choose to communicate
+-- using 'Control.Concurrent.MVar' too.
 --
 -- The following demonstrates joining a voice call and never leaving it, but
 -- making the leave action available in an STM Map container, which can be
@@ -171,7 +172,7 @@ liftDiscord = Voice . lift
 -- (or on the GitHub repository for this library) for a music bot that does
 -- exactly the approach described above.
 --
--- ## Broadcasting
+-- == Broadcasting
 --
 -- Within a single use of 'runVoice', the same packets are sent to all
 -- connections that have been joined. This enables multi-channel broadcasting.
@@ -186,11 +187,11 @@ liftDiscord = Voice . lift
 --     play res UnknownCodec
 -- @
 --
--- ## Possible Exceptions
+-- == Possible Exceptions
 --
--- This function may propagate and throw an 'IOException' if 'createProcess'
--- fails for e.g. ffmpeg or yt-dlp, or if any file- or network-related
--- errors occur.
+-- This function may propagate and throw an 'Control.Exception.IOException' if
+-- 'System.Process.Typed.proc' fails for any subprocesses, or if any file- or
+-- network-related errors occur.
 runVoice :: Voice () -> DiscordHandler ()
 runVoice action = do
     voiceHandles <- UnliftIO.newMVar []
@@ -222,7 +223,7 @@ runVoice action = do
 -- discord-haskell fully caches the mappings internally and is able to look up
 -- the Guild for any Channel ID.
 --
--- ## Basic Usage
+-- == Basic Usage
 --
 -- @
 -- runVoice $ do
@@ -232,7 +233,7 @@ runVoice action = do
 -- Note that the above on its own is not useful in practice, since the runVoice
 -- cleanup will make the bot leave the voice call immediately after joining.
 --
--- ## Leaving the channel
+-- == Leaving the channel
 --
 -- This function returns a Voice action that, when executed, will leave the
 -- joined voice channel. For example:
@@ -269,6 +270,11 @@ runVoice action = do
 -- leave <- liftIO $ takeMVar futureLeaveFunc
 -- runVoice leave
 -- @
+--
+-- == Possible Exceptions
+--
+-- This function may throw a 'VoiceError' synchronous exception if we were
+-- unable to retrieve connection information about the voice gateway.
 join :: GuildId -> ChannelId -> Voice (Voice ())
 join guildId channelId = do
     h <- liftDiscord ask
@@ -503,10 +509,10 @@ getPipeline _ (ProbeCodec _) = error $
 -- know and want to unconditionally use ffmpeg to transcode, then specify the
 -- codec as 'UnknownCodec'. If you do not know but can afford to wait a few
 -- seconds at first to probe the codec (using @ffprobe@) so that we may be able
--- to skip transcoding if it's either PCM or OPUS, then use 'ProbeCodec' and
+-- to skip transcoding if it's either PCM or Opus, then use 'ProbeCodec' and
 -- specify the name/location of the @ffprobe@ binary.
 --
--- ## Basic Usage
+-- == Basic Usage
 --
 -- The following unconditionally calls out to ffmpeg to transcode to Opus:
 --
@@ -732,8 +738,22 @@ createPCMResource bs mbTransform = AudioResource
 
 -- | @defaultFfmpegArgs file@ is a generator function that returns the default
 -- arguments for FFmpeg (excluding error handling and output file specification).
--- Specifically, it is only §-i file@.
+-- Specifically, it is defined as:
+--
+-- @
+-- defaultFfmpegArgs file = [ "-i", file ]
+-- @
+--
 -- You may write a replacement argument generator function if you need to
--- specify custom complex_filters or other FFmpeg arguments.
+-- specify custom ffmpeg arguments, that migth use complex_filters etc.
+--
+-- == Basic Usage
+--
+-- The following is the same as not passing in a transformation.
+--
+-- @
+-- res \<- createYoutubeResource "cars" $ FFmpegTransformation $ \\f -> ["-i", f]
+-- play res UnknownCodec
+-- @
 defaultFfmpegArgs :: FilePath -> [String]
 defaultFfmpegArgs file = [ "-i", file ]

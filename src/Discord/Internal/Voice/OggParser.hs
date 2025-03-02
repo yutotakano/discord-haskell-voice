@@ -117,7 +117,7 @@ data OggPage = OggPage
 -- The function is meant to be used as a replacement for Opus encoding when the
 -- audio source is already in Ogg format. Thus, the function will also insert
 -- five frames of silence to avoid audio interpolation, just like in
--- 'encodeOpusC'.
+-- 'Discord.Internal.Voice.encodeOpusC'.
 unwrapOggPacketsC :: ConduitT BS.ByteString BS.ByteString IO ()
 unwrapOggPacketsC = oggPageExtractC .| opusPacketExtractC .| filterOpusNonMetaC
 
@@ -167,11 +167,12 @@ oggPageExtractC = loop BL.empty
                     loop rest
 
 -- | Conduit to extract the Opus bytes from an Ogg Page. This also handles the
--- addition of empty frames when there is no audio, like in 'encodeOpusC'. The
--- output of this conduit is a strict bytestring since there is no longer any
--- need for laziness, and it's better to make it strict when we can guarantee
--- properties of it (like that each packet will only be made strict once) than
--- later down. We need a strict bytestring at the end anyway to send to Discord.
+-- addition of empty frames when there is no audio, like in
+-- 'Discord.Internal.Voice.encodeOpusC'. The output of this conduit is a strict
+-- bytestring since there is no longer any need for laziness, and it's better to
+-- make it strict when we can guarantee properties of it (like that each packet
+-- will only be made strict once) than later down. We need a strict bytestring
+-- at the end anyway to send to Discord.
 opusPacketExtractC :: ConduitT OggPage BS.ByteString IO ()
 opusPacketExtractC = loop BL.empty
   where

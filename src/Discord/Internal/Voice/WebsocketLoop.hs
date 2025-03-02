@@ -26,7 +26,7 @@ connection to the Discord voice gateway (i.e. the voice control-plane), and
 perform necessary setup including launching a heartbeat thread, selecting
 encryption modes, and initiating IP Discovery. The function will also set up
 the UDP socket (i.e. the voice data-plane) for voice data transmission by
-calling 'launchUDP'.
+calling 'launchUdp'.
 -}
 module Discord.Internal.Voice.WebsocketLoop
     ( launchWebsocket
@@ -265,9 +265,8 @@ launchWebsocket opts log = do
             Right n -> websocketFsm n retries udpInfo
 
 -- | @setupSendLoop@ takes a 'Chan' of user-generated packets to send in the
--- websocket (such as for 'updateSpeakingStatus'). It forks a thread that runs
--- 'sendableLoop' using the provided Chan, together with a new internal-use-only
--- Chan for e.g. heartbeat packets.
+-- websocket. It forks a thread that runs 'sendableLoop' using the provided
+-- Chan, together with a new internal-use-only Chan for e.g. heartbeat packets.
 setupSendLoop
     :: Connection
     -- ^ The websocket connection
@@ -367,7 +366,7 @@ getPayload conn = try $ do
         Left err  -> pure $ ParseError $ T.pack err
             <> " while decoding " <> TE.decodeUtf8 (BL.toStrict msg')
 
--- | @sendableLoop@ eternally send data from 'libSends' and 'usrSends' channels,
+-- | @sendableLoop@ eternally send data from @libSends@ and @usrSends@ channels,
 -- whenever either of them have data to send.
 sendableLoop
     :: Connection

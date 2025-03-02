@@ -15,7 +15,7 @@ For a quick intuitive introduction to what this library enables you to do, see
 the following snippet of code:
 
 @
-rickroll :: 'Channel' -> 'DiscordHandler' ()
+rickroll :: 'Discord.Types.Channel' -> 'Discord.DiscordHandler' ()
 rickroll c@(ChannelVoice {}) = runVoice $ do
     join (channelGuild c) (channelId c)
     res <- createYoutubeResource \"https:\/\/www.youtube.com\/watch?v=dQw4w9WgXcQ\" Nothing
@@ -36,27 +36,30 @@ interface. This is quite a powerful feature!
 
 Let's dive in :)
 
-** Dependencies / Requirements
+== Dependencies / Requirements
 
 Our README contains the requirements for this library to operate as expected,
 but we repeat it here as well for readers who are too lazy.
 
-- [@libsodium@]: We depend on [saltine](https://github.com/tel/saltine) for
+  [@libsodium@]: We depend on [saltine](https://github.com/tel/saltine) for
   encryption and decryption of audio packets. This binds to libsodium, a system
   package.
-
   An alternative to saltine is provided via a compile flag. That is to use
   @crypton@ as the encryption backend instead, which needs no system
   dependencies. The security of this library has not been vetted so be cautious.
-- [@libopus@]: We require Opus libraries to be installed on your system. Please
+
+  [@libopus@]: We require Opus libraries to be installed on your system. Please
   follow the README of the [Haskell Opus package](https://github.com/yutotakano/opus).
-- [@ffmpeg@]: It is heavily recommended to have FFmpeg installed and available in
+
+  [@ffmpeg@]: It is heavily recommended to have FFmpeg installed and available in
   PATH. Without FFmpeg, you will not be able to transcode any non-PCM non-Opus
   files, bytestrings, or YouTube media.
-- [@yt-dlp@]: It is equally heavily recommended to have yt-dlp installed and
+
+  [@yt-dlp@]: It is equally heavily recommended to have yt-dlp installed and
   available in PATH. Without yt-dlp, you will not be able to use
   'createYoutubeResource'.
-- [@ffprobe@]: It is optional to have FFprobe installed and available in PATH.
+
+  [@ffprobe@]: It is optional to have FFprobe installed and available in PATH.
   Without FFprobe, you will not be able to use 'ProbeCodec' to check if a given
   file, bytestream, or YouTube video can avoid transcoding via FFmpeg if it's
   already PCM or Opus-encoded.
@@ -65,45 +68,39 @@ In general, all three largest OSes (Windows, macOS, Ubuntu) are supported, but
 each one has a different way of installing system dependencies for encryption
 and encoding, so please be careful.
 
-*** I want to hurry up and just test around
+=== I want to hurry up and just test around
 
 The following commands install all system dependencies for the three most major
 OSes.
 
-- [Windows]: For ffmpeg, ffprobe, and yt-dlp:
-  @
-  winget install --id=Gyan.FFmpeg -e
-  winget install --id=yt-dlp.yt-dlp -e
-  @
+==== __Windows__
 
-  For libopus and libsodium, if you know where the MSYS2 environment uesd by
-  your Haskell toolchain is and you are comfortable modifying it, run:
+For ffmpeg, ffprobe, and yt-dlp:
 
-  @
-  pacman -S mingw64/mingw-w64-x86_64-pkg-config mingw64/mingw-w64-x86_64-opus mingw64/mingw-w64-x86_64-libsodium
-  @
+> winget install --id=Gyan.FFmpeg -e
+> winget install --id=yt-dlp.yt-dlp -e
 
-  Otherwise, assuming you installed your Haskell toolchain using GHCup, run:
+For libopus and libsodium, if you know where the MSYS2 environment uesd by
+your Haskell toolchain is and you are comfortable modifying it, run:
 
-  @
-  ghcup run -m -- pacman -S mingw64/mingw-w64-x86_64-pkg-config mingw64/mingw-w64-x86_64-opus mingw64/mingw-w64-x86_64-libsodium
-  @
+> pacman -S mingw64/mingw-w64-x86_64-pkg-config mingw64/mingw-w64-x86_64-opus mingw64/mingw-w64-x86_64-libsodium
 
-  All other scenarios are unsupported but there should be equivalences.
+Otherwise, assuming you installed your Haskell toolchain using GHCup, run:
 
-- [macOS]:
-  @
-  brew install ffmpeg yt-dlp opus libsodium
-  @
+> ghcup run -m -- pacman -S mingw64/mingw-w64-x86_64-pkg-config mingw64/mingw-w64-x86_64-opus mingw64/mingw-w64-x86_64-libsodium
 
-- [Ubuntu]:
-  @
-  sudo add-apt-repository ppa:tomtomtom/yt-dlp
-  sudo apt update
-  sudo apt-get install ffmpeg yt-dlp pkg-config libopus-dev
-  @
+All other scenarios are unsupported but there should be equivalences.
 
-** Getting Started
+==== __macOS__
+> brew install ffmpeg yt-dlp opus libsodium
+
+==== __Ubuntu__
+
+> sudo add-apt-repository ppa:tomtomtom/yt-dlp
+> sudo apt update
+> sudo apt-get install ffmpeg yt-dlp pkg-config libopus-dev
+
+== Getting Started
 
 We assume you've added this library to your Cabal file dependencies list, and
 already have a basic skeleton of a Discord bot. Specifically, our 'Voice' monad
@@ -111,7 +108,7 @@ can only be run from within code in the 'Discord.DiscordHandler' monad. Whether
 it be within an event handler or on join or some scheduled action, make sure you
 find where you want the bot to join a voice call.
 
-The first two functions to learn are 'runVoice' and 'join. Scroll down!
+The first two functions to learn are 'runVoice' and 'join'. Scroll down!
 -}
 module Discord.Voice
     (
