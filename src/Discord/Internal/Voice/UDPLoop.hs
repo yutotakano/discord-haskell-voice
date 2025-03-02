@@ -18,10 +18,12 @@ __any warning__ between minor versions of this package.
 
 = Description
 
-This module provides @launchUdp@, a function used to start a UDP socket and
+This module provides 'launchUdp', a function used to start a UDP socket and
 perform initial handshaking with the Discord Voice UDP Endpoint. It will
-continuously encrypt and send the OPUS voice packets as received through the
-specified Chan. This function is called automatically by @launchWebsocket@.
+continuously encrypt and send the Opus voice packets as received through the
+specified Chan. The UDP (data-plane) thread is launched by the websocket
+(control-plane) thread, however references to both are held by the main thread
+which may terminate the threads using asynchronous exceptions (e.g. on 'leave').
 -}
 module Discord.Internal.Voice.UDPLoop
     ( launchUdp
@@ -55,6 +57,7 @@ import Discord.Internal.Types.VoiceUDP
 import Discord.Internal.Voice.CommonUtils
 import Discord.Internal.Voice.Encryption
 
+-- | States of the UDP thread state machine.
 data UDPState
     = UDPClosed
     | UDPStart
@@ -71,7 +74,12 @@ logChan ✍ log = do
 (✍!) :: Chan T.Text -> T.Text -> IO ()
 logChan ✍! log = logChan ✍ ("!!! Voice UDP Error - " <> log)
 
--- Alias for opening a UDP socket connection using the Discord endpoint.
+-- | @runUDPClient@ is a helper for opening a UDP socket connection using the
+-- Discord endpoint and performing an action using that connection. The socket
+-- is closed afterwards.
+--
+-- The connection is wrapped in 'bracket', which allows cleanup after
+-- synchronous exceptions.
 runUDPClient :: AddrInfo -> (Socket -> IO a) -> IO a
 runUDPClient addr things = bracket
     (S.socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
@@ -79,9 +87,9 @@ runUDPClient addr things = bracket
         Network.Socket.connect sock $ addrAddress addr
         things sock
 
--- | Starts the UDP connection, performs IP discovery, writes the result to the
--- receivables channel, and then starts an eternal loop of sending and receiving
--- packets.
+-- | @launchUdp@ starts the UDP connection, performs IP discovery, writes the
+-- result to the receivables channel, and then starts an eternal loop of sending
+-- and receiving packets.
 launchUdp :: UDPLaunchOpts -> Chan T.Text -> IO ()
 launchUdp opts log = loop UDPStart 0
   where
@@ -142,9 +150,9 @@ launchUdp opts log = loop UDPStart 0
                 loop UDPReconnect (retries + 1)
             Right n -> loop n 1
 
--- | Starts the sendable loop in another thread, and starts the receivable
--- loop in the current thread. Once receivable is closed, closes sendable and
--- exits. Reconnects if a temporary IO exception occured.
+-- | @startForks@ starts the sendable loop in another thread, and starts the
+-- receivable loop in the current thread. Once receivable is closed, closes
+-- sendable and exits.
 startForks
     :: UDPConn
     -> Chan T.Text
@@ -161,9 +169,9 @@ startForks conn log = do
     finally (receivableLoop conn log >> pure UDPClosed)
         (killThread sendLoopId)
 
--- | Eternally receive a packet from the socket (max length 999, so practically
--- never fails). Decrypts audio data as necessary, and writes it to the
--- receivables channel.
+-- | @receivableLoop@ eternally receives a packet from the socket (with a buffer
+-- size of 999, so that it practically never fails). The function decrypts audio
+-- data if it is encrypted, and relays it to the receivables channel.
 receivableLoop
     :: UDPConn
     -> Chan T.Text
@@ -203,14 +211,17 @@ receivableLoop conn log = do
     writeChan (conn ^. launchOpts . udpHandle . _1) msg
     receivableLoop conn log
 
--- | Appends 12 empty bytes to form the 24-byte nonce for the secret box.
+-- | Appends 12 empty bytes to a 12-byte nonce to form the 24-byte nonce for the
+-- secret box.
 createNonceFromHeader :: B.ByteString -> B.ByteString
 createNonceFromHeader h = B.append h $ B.concat $ replicate 12 $ B.singleton 0
 
--- | Eternally send the top packet in the sendable packet Chan. It assumes that
--- it is already OPUS-encoded. The function will encrypt it using the syncKey.
+-- | @sendableLoop@ eternally sends the top packet in the sendable packet Chan.
+-- It assumes that any audio is already Opus-encoded. The function will encrypt
+-- it using the provided syncKey.
 sendableLoop
     :: UDPConn
+    -- ^ Connection details
     -> Chan T.Text
     -- ^ Logs
     -> Integer
@@ -218,6 +229,10 @@ sendableLoop
     -> Integer
     -- ^ Timestamp number, modulo 4294967295
     -> POSIXTime
+    -- ^ The current time, which is used to dynamically calculate the delay so
+    -- that audio packets are sent at just a little faster than 20ms intervals
+    -- regardless of the speed at which they arrive in the sendables channel.
+    -- This maximises the seamlessness of audio for other clients.
     -> IO ()
 sendableLoop conn log sequence timestamp startTime = do
     -- Immediately send the first packet available
@@ -249,7 +264,8 @@ sendableLoop conn log sequence timestamp startTime = do
             sendableLoop conn log
                 (sequence + 1 `mod` 0xFFFF) (timestamp + 48*20 `mod` 0xFFFFFFFF) theoreticalNextTime
 
-
+-- | @decodeOpusData@ decodes Opus data into dual-channel 16-bit little-endian
+-- PCM bytes.
 decodeOpusData :: B.ByteString -> IO B.ByteString
 decodeOpusData bytes = do
     let deCfg = mkDecoderConfig opusSR48k True
