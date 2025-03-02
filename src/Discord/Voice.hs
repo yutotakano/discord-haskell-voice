@@ -118,11 +118,48 @@ module Discord.Voice
     , liftDiscord
       -- * Joining a Voice Channel
     , join
-      -- * Play Some Audio
+      -- * Play an Audio Resource
     , play
+      -- * Create an Audio Resource
     , createYoutubeResource
     , createFileResource
     , createPCMResource
+      -- * Transformations
+      --
+      -- | You can apply transformations to your audio stream, in the form of
+      -- extra @ffmpeg@ arguments, or in the form of a Haskell conduit that
+      -- operates on PCM bytestreams.
+      --
+      -- == Examples
+      --
+      -- The following transforms the audio to mono by averaging the left and
+      -- right channels:
+      --
+      -- @
+      -- res \<- createFileResource "space.m4a" $ HaskellTransformation $ packTo16CT .| toMono .| packFrom16CT
+      -- @
+      --
+      -- The following transforms the audio's volume by multiplying every value:
+      --
+      -- @
+      -- let adjust = awaitForever $ \current -> yield (urrent * 2)
+      -- res \<- createFileResource "space.m4a" $ HaskellTransformation $ packTo16C .| adjust .| packFrom16C
+      -- @
+      --
+      -- The following selects the second audio track from a video file with multiple audio tracks:
+      --
+      -- @
+      -- res \<- createFileResource "movie.mkv" $ FFmpegTransformation $ \\file -> ["-i", file, "-map", "0:a:1"]
+      -- @
+      --
+      -- == Cost of Transformations
+      --
+      -- Unfortunately, for most cases, transformations are not zero-cost. If
+      -- the source audio is not PCM already, it will need to be transcoded via
+      -- FFmpeg to PCM in order to apply 'HaskellTransformation's. If the source
+      -- audio was Opus already and ready-to-send to Discord, but you request
+      -- any sort of transformation, it will have to go through FFmpeg, and
+      -- potentially also be transcoded to PCM.
     , AudioTransformation(..)
     , AudioCodec(..)
     , AudioResource(..)
