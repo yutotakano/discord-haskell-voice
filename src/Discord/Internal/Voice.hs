@@ -93,29 +93,87 @@ import Discord.Internal.Voice.CommonUtils
 import Discord.Internal.Voice.OggParser
 import Discord.Internal.Voice.WebsocketLoop
 
--- | @liftDiscord@ lifts a computation in DiscordHandler into a computation in
--- Voice. This is useful for performing DiscordHandler actions inside the
--- Voice monad.
+-- | @liftDiscord@ lifts a computation in 'DiscordHandler' into a computation in
+-- 'Voice'. This is useful for performing DiscordHandler actions inside the
+-- Voice monad. To perform IO actions inside the Voice monad, use 'liftIO'.
 --
--- Usage:
--- 
+-- ## Examples
+--
 -- @
--- runVoice $ do
---     join (read "123456789012345") (read "67890123456789012")
---     liftDiscord $ void $ restCall $ R.CreateMessage (read "2938481828383") "Joined!"
---     liftIO $ threadDelay 5e6
---     playYouTube "Rate of Reaction of Sodium Hydroxide and Hydrochloric Acid"
---     liftDiscord $ void $ restCall $ R.CreateMessage (read "2938481828383") "Finished!"
--- void $ restCall $ R.CreateMessage (read "2938481828383") "Finished all voice actions!"
+-- func :: DiscordHandler ()
+-- func = do
+--     let textChannel = read "2938481828383"
+--     void $ restCall $ R.CreateMessage textChannel "Joining!"
+--     runVoice $ do
+--         join (read "123456789012345") (read "67890123456789012")
+--
+--         liftDiscord $ void $ restCall $ R.CreateMessage textChannel "Joined!"
+--         liftIO $ threadDelay 5e6
+--
+--         res <- createYoutubeResource "Sodium Hydroxide" Nothing
+--         play res UnknownCodec
+--
+--         liftDiscord $ void $ restCall $ R.CreateMessage textChannel "Finished!"
 -- @
 --
 liftDiscord :: DiscordHandler a -> Voice a
 liftDiscord = Voice . lift
 
--- | Execute the voice actions stored in the Voice monad.
+-- | Executes the voice actions stored in the form of the Voice monad.
 --
--- A single mutex and sending packet channel is used throughout all voice
--- connections within the actions, which enables multi-channel broadcasting.
+-- ## Basic Usage
+--
+-- The following demonstrates joining a voice call and instantly leaving it.
+--
+-- @
+-- runVoice $ join (read "<guildID>") (read "<vcID>")
+-- @
+--
+-- ## Control Flow
+--
+-- The voice monad cleans up after execution and thus you cannot linger in the
+-- voice chat unless you explicitly prevent exiting from the computation. The
+-- following demonstrates joining a voice call and never leaving it.
+--
+-- @
+-- runVoice $ do
+--     join (read "<guildID>") (read "<vcID>")
+--     forever $ pure ()
+-- @
+--
+-- This might seem unintuitive at first. You might ask, "How would I return
+-- control flow to my program!? I want to control audio or do something else, not
+-- be stuck in the 'runVoice' function!". Our approach makes it impossible for
+-- your bot to be in a state that you forgot about, and makes it easy to reason
+-- about your voice call. So in fact, the solution to do other things during
+-- voice calls is not to return control flow, but to use multiple threads and
+-- communicate. Threads are cheap in Haskell, and Discord-Haskell already spawns
+-- a new thread for each event. You can let one thread forever stay in
+-- 'runVoice', while other threads communicate with it using 'MVar', for example.
+-- To leave a voice call from another thread, use the return value of 'join',
+-- which you might choose to communicate using 'MVar' too.
+--
+-- The following demonstrates joining a voice call and never leaving it, but
+-- making the leave action available in an STM Map container, which can be
+-- accessed and invoked from another event handler thread.
+--
+-- @
+-- mapping <- StmContainers.Map.newIO
+-- let guildId = (read "123456789012345")
+-- runVoice $ do
+--     leave <- join guildId (read "67890123456789012")
+--     liftDiscord $ atomically $ M.insert leave (show guildId) mapping
+--     forever $ pure ()
+-- @
+--
+-- See the BasicMusicBot example program provided together with this library
+-- (or on the GitHub repository for this library) for a music bot that does
+-- exactly the approach described above.
+--
+-- ## Broadcasting
+--
+-- Within a single use of 'runVoice', the same packets are sent to all
+-- connections that have been joined. This enables multi-channel broadcasting.
 -- The following demonstrates how a single playback is streamed to multiple
 -- connections.
 --
@@ -123,16 +181,15 @@ liftDiscord = Voice . lift
 -- runVoice $ do
 --     join (read "123456789012345") (read "67890123456789012")
 --     join (read "098765432123456") (read "12345698765456709")
---     playYouTube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+--     res <- createYoutubeResource "https://www.youtube.com/watch?v=dQw4w9WgXcQ" Nothing
+--     play res UnknownCodec
 -- @
 --
--- The return type of @runVoice@ represents result status of the voice computation.
--- It is isomorphic to @Maybe@, but the use of Either explicitly denotes that
--- the correct\/successful\/'Right' behaviour is (), and that the potentially-
--- existing value is of failure.
+-- ## Possible Exceptions
 --
--- This function may propagate and throw an 'IOException' if 'createProcess' 
--- fails for e.g. ffmpeg or youtube-dl.
+-- This function may propagate and throw an 'IOException' if 'createProcess'
+-- fails for e.g. ffmpeg or yt-dlp, or if any file- or network-related
+-- errors occur.
 runVoice :: Voice () -> DiscordHandler ()
 runVoice action = do
     voiceHandles <- UnliftIO.newMVar []
@@ -160,27 +217,44 @@ runVoice action = do
 
 -- | Join a specific voice channel, given the Guild and Channel ID of the voice
 -- channel. Since the Channel ID is globally unique, there is theoretically no
--- need to specify the Guild ID, but it is provided until discord-haskell fully
--- caches the mappings internally.
+-- need to specify the Guild ID, but it needs to be provided manually until
+-- discord-haskell fully caches the mappings internally and is able to look up
+-- the Guild for any Channel ID.
+--
+-- ## Basic Usage
+--
+-- @
+-- runVoice $ do
+--    join (read "123456789012345") (read "67890123456789012")
+-- @
+--
+-- Note that the above on its own is not useful in practice, since the runVoice
+-- cleanup will make the bot leave the voice call immediately after joining.
+--
+-- ## Leaving the channel
 --
 -- This function returns a Voice action that, when executed, will leave the
 -- joined voice channel. For example:
 --
 -- @
 -- runVoice $ do
---   leave <- join (read "123456789012345") (read "67890123456789012")
---   playYouTube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
---   leave
+--     leave <- join (read "123456789012345") (read "67890123456789012")
+--     let res = createFileResource "myfile.mp3" Nothing
+--     play res UnknownCodec
+--     leave
 -- @
 --
--- The above use is not meaningful in practice, since @runVoice@ will perform
--- the appropriate cleanup and leaving as necessary at the end of all actions.
--- However, it may be useful to interleave @leave@ with other Voice actions.
+-- Calling leave at the end of runVoice is not needed in practice, since
+-- @runVoice@ will perform the appropriate cleanup and leaving as necessary at
+-- the end of all actions. However, it may be useful to interleave @leave@ with
+-- other Voice actions, or escape it from the monad using MVars or STMs to be
+-- called from other threads.
 --
--- Since the @leave@ function will gracefully do nothing if the voice connection
--- is already severed, it is safe to escape this function from the Voice monad
--- and use it in a different context. That is, the following is allowed and
--- is encouraged if you are building a @\/leave@ command of any sort:
+-- The @leave@ function is idempotent and will do nothing if the voice
+-- connection is already severed, meaning it is safe to call this from other
+-- contexts. The following demonstrates joining a voice channel and playing a
+-- file on repeat forever, until a @\/leave@ command is received at which point
+-- the connection is severed and the playback thread is killed gracefully.
 --
 -- @
 -- -- On \/play
@@ -188,16 +262,12 @@ runVoice action = do
 --   leave <- join (read "123456789012345") (read "67890123456789012")
 --   liftIO $ putMVar futureLeaveFunc leave
 --   forever $
---     playYouTube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+--     play (createFileResource "myfile.ogg" Nothing) OpusCodec
 --
 -- -- On \/leave, from a different thread
 -- leave <- liftIO $ takeMVar futureLeaveFunc
 -- runVoice leave
 -- @
---
--- The above will join a voice channel, play a YouTube video, but immediately
--- quit and leave the channel when the @\/leave@ command is received, regardless
--- of the playback status.
 join :: GuildId -> ChannelId -> Voice (Voice ())
 join guildId channelId = do
     h <- liftDiscord ask
@@ -295,14 +365,16 @@ join guildId channelId = do
             loopForBothEvents mb1 result events
         _ -> loopForBothEvents mb1 mb2 events
 
--- | Helper function to update the speaking indicator for the bot. Setting the
--- microphone status to True is required for Discord to transmit the bot's
--- voice to other clients. It is done automatically in all of the @play*@
--- functions, so there should be no use for this function in practice.
+-- | @updateSpeakingStatus@ updates the speaking indicator for the bot. Setting
+-- the indicator to True is required for Discord to transmit the bot's voice to
+-- other clients. However, we call this automatically as part of the 'play'
+-- function, so there should be no use for this function in practice.
+--
+-- === __Dev Note:__
 --
 -- Note: Soundshare and priority are const as False in the payload because I
--- don't see bots needing them. If and when required, add Bool signatures to
--- this function.
+-- don't see bots needing them. If there are users who require this, this
+-- function will gain additional arguments to control those fields.
 updateSpeakingStatus :: Bool -> Voice ()
 updateSpeakingStatus micStatus = do
     h <- (^. voiceHandles) <$> ask
@@ -316,26 +388,28 @@ updateSpeakingStatus micStatus = do
             , speakingPayloadSSRC       = handle ^. ssrc
             }
 
--- | Send a Gateway Websocket Update Voice State command (Opcode 4). Used to
--- indicate that the client voice status (deaf/mute) as well as the channel
--- they are active on.
--- This is not in the Voice monad because it has to be used after all voice
--- actions end, to quit the voice channels. It also has no benefit, since it
--- would cause extra transformer wrapping/unwrapping.
+-- | @updateStatusVoice@ sends a Gateway uplink Opcode 4 Update Voice State.
+-- This is used to indicate the client voice status (deaf/mute) as well as the
+-- channel they are active on (or Nothing if they are leaving).
+--
+-- This function is not in the Voice monad because it's purely an operation on
+-- the regular websocket. It even has to be used after all voice actions end to
+-- move the bot out of voice channels, so there's no benefit to the extra
+-- transformer wrapping.
 updateStatusVoice
     :: GuildId
-    -- ^ Id of Guild
+    -- ^ Guild ID
     -> Maybe ChannelId
-    -- ^ Id of the voice channel client wants to join (Nothing if disconnecting)
+    -- ^ Voice channel ID that we want to join (Nothing if disconnecting)
     -> Bool
-    -- ^ Whether the client muted
+    -- ^ Whether we want to be muted
     -> Bool
-    -- ^ Whether the client deafened
+    -- ^ Whether we want to be deafened
     -> DiscordHandler ()
 updateStatusVoice a b c d = sendCommand $ UpdateStatusVoice $ UpdateStatusVoiceOpts a b c d
 
 -- | @probeCodec resource@ tries to use @ffprobe@ to probe the codec of the
--- audio resource for files/URLs. If the probed format was OPUS or 16-bit PCM,
+-- audio resource for files/URLs. If the probed format was Opus or 16-bit PCM,
 -- then the function will return the appropriate 'AudioCodec', so that it can be
 -- used to tell we won't need FFmpeg is needed as a transcoder. For any other
 -- codec or if the resource is raw bytes, the function will return 'UnknownCodec'.
@@ -371,10 +445,10 @@ probeCodec ffprobeBinary resource = do
 -- datatype for the flags set.
 --
 -- The audio resource pipeline can be complex. Even if the source is already
--- OPUS encoded (and Discord wants OPUS), if there is an FFmpeg filter desired
+-- Opus encoded (and Discord wants Opus), if there is an FFmpeg filter desired
 -- then discord-haskell-voice will need to launch a FFmpeg subprocess. If there
 -- is also a ByteString conduit filter also desired, then the FFmpeg subprocess
--- will need to output PCM ByteString, which is then transcoded to OPUS within
+-- will need to output PCM ByteString, which is then transcoded to Opus within
 -- Haskell. This complex behaviour is hard to keep track of, so this function
 -- acts as an abstraction layer that basically returns what things are necessary
 -- for a given audio resource.
@@ -430,6 +504,33 @@ getPipeline _ (ProbeCodec _) = error $
 -- seconds at first to probe the codec (using @ffprobe@) so that we may be able
 -- to skip transcoding if it's either PCM or OPUS, then use 'ProbeCodec' and
 -- specify the name/location of the @ffprobe@ binary.
+--
+-- ## Basic Usage
+--
+-- The following unconditionally calls out to ffmpeg to transcode to Opus:
+--
+-- @
+-- res <- createYoutubeResource "i love trains" Nothing
+-- play res UnknownCodec
+-- @
+--
+-- The following checks if the resource is actually Opus (which actually a lot
+-- of YouTube audio streams are), otherwise calls out to ffmpeg to transcode:
+--
+-- @
+-- res <- createYoutubeResource "i love trains" Nothing
+-- play res (ProbeCodec "ffprobe")
+-- @
+--
+-- The following calls out to ffmpeg to transcode to 16-bit PCM (despite being
+-- Opus already), because it needs to use the provided conduit to process each
+-- PCM sample. Afterwards, the bytestream is encoded to Opus from within Haskell
+-- using @libopus@ bindings
+--
+-- @
+-- let res = createFileResource "myfile.ogg" $ HaskellTransformation myConduit
+-- play res OpusCodec
+-- @
 play :: AudioResource -> AudioCodec -> Voice ()
 play resource (ProbeCodec ffprobeExe) = do
     -- If we are told the audio should be probed for info, do so and rerun play.
