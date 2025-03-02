@@ -61,7 +61,7 @@ import Discord.Internal.Types.VoiceWebsocket
 -- Discord API capabilities on top of IO, and the second layer is 'Voice' which
 -- gives you voice capabilities on top of 'DiscordHandler'. As such, you can
 -- only run a 'Voice' monad computation from within 'DiscordHandler' using a
--- function called 'runVoice'.
+-- function called 'Discord.Voice.runVoice'.
 --
 -- This monad's ReaderT transformer holds references to voice connections and
 -- thread handles. The content of the reader handle is strictly
@@ -78,7 +78,8 @@ newtype Voice a = Voice
     , Monad
     , MonadIO
     -- ^ MonadIO gives the ability to perform 'liftIO' and run IO actions. To
-    -- run 'DiscordHandler' actions from within Voice, use 'liftDiscord'.
+    -- run 'DiscordHandler' actions from within Voice, use
+    -- 'Discord.Voice.liftDiscord'.
     , MonadReader DiscordBroadcastHandle
     -- ^ MonadReader is for internal use, to read the held broadcast handle.
     , MonadFail
@@ -92,13 +93,13 @@ newtype Voice a = Voice
     )
 
 -- | A type to hint the library at your audio resource's codec. This is used with
--- 'play' to guide the library about the audio codec if you already know it,
--- which might prevent unnecessary transcoding or probing. For example, if you
--- already have a bytestream or file that is known to be encoded with Opus/Ogg,
--- you can choose 'OpusCodec'. For web media and other unknown sources, a safe
--- choice is either 'UnknownCodec' or 'ProbeCodec'.
+-- 'Discord.Voice.play' to guide the library about the audio codec if you
+-- already know it, which might prevent unnecessary transcoding or probing. For
+-- example, if you already have a bytestream or file that is known to be encoded
+-- with Opus/Ogg, you can choose 'OPUSCodec'. For web media and other unknown
+-- sources, a safe choice is either 'UnknownCodec' or 'ProbeCodec'.
 --
--- Note that choosing 'OpusCodec' or 'PCMCodec' doesn't necessarily exclude the
+-- Note that choosing 'OPUSCodec' or 'PCMCodec' doesn't necessarily exclude the
 -- possibility of transcoding using FFmpeg, since you may have specified some
 -- audio transformations (like custom FFmpeg flags) which will need FFmpeg. The
 -- purpose of hinting the library of the codec using this datatype is so that in
@@ -118,7 +119,7 @@ data AudioCodec
     -- @ffprobe@ (specifying the execuable name) first to determine the best
     -- codec hint automatically. For example, @ffprobe@ can discover that the
     -- resource is already in Opus format, in which case the behaviour becomes
-    -- identical to 'OpusCodec'. This can sometimes result in more efficient
+    -- identical to 'OPUSCodec'. This can sometimes result in more efficient
     -- audio processing with minimal transcoding, but requires an initial delay
     -- to probe the codec.
     | UnknownCodec
@@ -165,7 +166,8 @@ data AudioPipeline = AudioPipeline
 data AudioTransformation
     = FFmpegTransformation (FilePath -> [String])
     -- ^ Transform the audio using FFmpeg with custom arguments. The no-op
-    -- transformation here is to use 'defaultFFmpegArgs' as the transformation.
+    -- transformation here is to use 'Discord.Voice.defaultFfmpegArgs' as the
+    -- transformation.
     --
     -- By using 'FFmpegTransformation', the audio resource will unconditionally
     -- go through FFmpeg (and thus requires @ffmpeg@ to be installed), even if
@@ -173,9 +175,10 @@ data AudioTransformation
     -- 'OpusCodec' or 'PCMCodec'.
     | HaskellTransformation (ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ())
     -- ^ Transform the audio using a Haskell conduit that operates on PCM audio.
-    -- We recommend using this in conjunction with 'packInt16CT' and
-    -- 'unpackInt16CT', so that you can operate on each 16-bit sample at a time
-    -- instead of a byte at a time.
+    -- We recommend using this in conjunction with
+    -- 'Discord.Voice.Conduit.packInt16CT' and 'Discord.Voice.Conduit.unpackInt16CT',
+    -- so that you can operate on each 16-bit sample at a time instead of a byte
+    -- at a time.
     --
     -- By using 'HaskellTransformation', the audio resource will be transcoded
     -- to PCM if it wasn't already, which means it will go through FFmpeg (and
@@ -197,8 +200,8 @@ instance Show AudioTransformation where
     show (_a :.->: _b) = "<FFmpeg Flags Transformation> :FollowedBy: <Haskell Conduit Byte Transformations>"
 
 -- | A data type that represents an audio resource to be played. You can
--- construct this type using functions such as 'createYoutubeResource' or
--- 'createFileResource'.
+-- construct this type using functions such as
+-- 'Discord.Voice.createYoutubeResource' or 'Discord.Voice.createFileResource'.
 --
 -- Lenses are defined for this type using Template Haskell. You can use them
 -- to make accessing fields easier, like:
@@ -212,11 +215,11 @@ data AudioResource = AudioResource
     -- for the entire audio.
     , audioResourceYouTubeDLInfo :: Maybe Object
     -- ^ If this audio resource was created through yt-dlp using
-    -- 'createYoutubeResource', then this field will be Just, and will contain
-    -- JSON metadata returned by yt-dlp, such as the uploader, date, etc. We
-    -- make no promises on the specific keys or data present in this field, as
-    -- it's entirely populated by yt-dlp -- please see their documentation for
-    -- the output of the @-j@ flag (which we use).
+    -- 'Discord.Voice.createYoutubeResource', then this field will be Just, and
+    -- will contain JSON metadata returned by yt-dlp, such as the uploader,
+    -- date, etc. We make no promises on the specific keys or data present in
+    -- this field, as it's entirely populated by yt-dlp -- please see their
+    -- documentation for the output of the @-j@ flag (which we use).
     --
     -- Use Aeson functions to parse the keys in this field. For example, to find
     -- the URL of the resource (which is also contained in 'audioResourceStream',
