@@ -12,7 +12,8 @@
   - New dependency on `typed-process` for safer external process
   - New dependency on `opus` from Hackage instead of direct git source
   - Remove ExceptT from the Voice monad stack
-  - Remove `VoiceError` and `SubprocessException types from the library as they became unused
+  - Remove `SubprocessException` type from the library as it became unused
+  - Remove `InvalidPayloadOrder` from the `VoiceError` ADT since it became unused
 
 - Bug Fixes
   - Fix `OpusBufferTooSmall` when receiving Opus data due to buffer being half the size it should be
@@ -43,6 +44,7 @@
   - Renamed `master` branch to `main`
   - Updated copyright to current year and include contributors where applicable
   - Added link to GitHub Sponsors
+  - Updated Haddock for all functions and added examples and usage to many functions
 
 ## 2.3.1 — 2022 July
 
