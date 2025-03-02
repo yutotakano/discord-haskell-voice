@@ -42,6 +42,7 @@ import Control.Concurrent
     )
 import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Exception.Safe ( SomeException, finally, try, bracket )
+import Control.Monad ( replicateM_ )
 import Lens.Micro
 import Data.Binary ( encode, decode )
 import Data.ByteString.Lazy qualified as BL
@@ -69,7 +70,7 @@ data UDPState
 logChan ✍ log = do
     t <- formatTime defaultTimeLocale "%F %T %q" <$> getCurrentTime
     tid <- myThreadId
-    writeChan logChan $ (T.pack t) <> " " <> (tshow tid) <> " " <> log
+    writeChan logChan $ T.pack t <> " " <> tshow tid <> " " <> log
 
 -- | A variant of (✍) that prepends the udpError text.
 (✍!) :: Chan T.Text -> T.Text -> IO ()
@@ -123,7 +124,7 @@ launchUdp opts log = loop UDPStart 0
         case next :: Either SomeException UDPState of
             Left e -> do
                 (✍!) log $ "could not start UDP conn due to an exception: " <>
-                    (T.pack $ show e)
+                    tshow e
                 loop UDPClosed 0
             Right n -> loop n 0
 
@@ -165,7 +166,7 @@ startForks conn log = do
     -- write five frames of silence initially
     -- TODO: check if this is needed (is the 5 frames only for between voice,
     -- or also at the beginning like it is now?)
-    sequence_ $ replicate 5 $ Bounded.writeChan (conn ^. launchOpts . udpHandle . _2) "\248\255\254"
+    replicateM_ 5 $ Bounded.writeChan (conn ^. launchOpts . udpHandle . _2) "\248\255\254"
 
     finally (receivableLoop conn log >> pure UDPClosed)
         (killThread sendLoopId)
@@ -261,7 +262,7 @@ sendableLoop conn log sequence timestamp startTime = do
             -- logic taken from discord.py discord/player.py L595
             let theoreticalNextTime = startTime + (20 / 1000)
             currentTime <- getPOSIXTime
-            threadDelay $ round $ (max 0 $ theoreticalNextTime - currentTime) * 10^(6 :: Int)
+            threadDelay $ round $ max 0 (theoreticalNextTime - currentTime) * 10^(6 :: Int)
             sendableLoop conn log
                 (sequence + 1 `mod` 0xFFFF) (timestamp + 48*20 `mod` 0xFFFFFFFF) theoreticalNextTime
 
@@ -272,5 +273,4 @@ decodeOpusData bytes = do
     let deCfg = mkDecoderConfig opusSR48k True
     let deStreamCfg = mkDecoderStreamConfig deCfg (48*20*2) 0
     decoder <- opusDecoderCreate deCfg
-    decoded <- opusDecode decoder deStreamCfg bytes
-    pure decoded
+    opusDecode decoder deStreamCfg bytes
