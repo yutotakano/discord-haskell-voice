@@ -240,7 +240,6 @@ data AudioResource = AudioResource
 data VoiceError
     = VoiceNotAvailable
     | NoServerAvailable
-    | InvalidPayloadOrder
     deriving stock (Show, Eq)
 
 instance Exception VoiceError
