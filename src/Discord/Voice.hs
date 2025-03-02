@@ -15,20 +15,19 @@ For a quick intuitive introduction to what this library enables you to do, see
 the following snippet of code:
 
 @
-rickroll :: 'Channel' -> 'DiscordHandler' ()
-rickroll c@(ChannelVoice {}) = do
-    result <- runVoice $ do
-        join (channelGuild c) (channelId c)
-        playYouTube \"https:\/\/www.youtube.com\/watch?v=dQw4w9WgXcQ\"
-
-    case result of
-        Left err -> liftIO $ print err
-        Right _  -> pure ()
+rickroll :: 'Discord.Types.Channel' -> 'Discord.DiscordHandler' ()
+rickroll c@(ChannelVoice {}) = runVoice $ do
+    join (channelGuild c) (channelId c)
+    res <- createYoutubeResource \"https:\/\/www.youtube.com\/watch?v=dQw4w9WgXcQ\" Nothing
+    play res UnknownCodec
 @
 
 We can see that this library introduces a dedicated monad for voice operations,
 which opaquely guarantees that you won't accidentally keep hold of a closed
-voice connection, or try to use it after a network error had occurred.
+voice connection, or try to use it after a network error had occurred. We also
+see intuitive functions for creating and playing audio resources. If you were
+worried about how we leave the voice call, it's done automatically as part of
+the cleanup action in 'runVoice'.
 
 You'll also see further down the docs, that you can use
 @[conduit](https://hackage.haskell.org/package/conduit)@ to stream arbitrary
@@ -36,52 +35,137 @@ ByteString data as audio, as well as manipulate and transform streams using its
 interface. This is quite a powerful feature!
 
 Let's dive in :)
+
+== Dependencies / Requirements
+
+Our README contains the requirements for this library to operate as expected,
+but we repeat it here as well for readers who are too lazy.
+
+  [@libsodium@]: We depend on [saltine](https://github.com/tel/saltine) for
+  encryption and decryption of audio packets. This binds to libsodium, a system
+  package.
+  An alternative to saltine is provided via a compile flag. That is to use
+  @crypton@ as the encryption backend instead, which needs no system
+  dependencies. The security of this library has not been vetted so be cautious.
+
+  [@libopus@]: We require Opus libraries to be installed on your system. Please
+  follow the README of the [Haskell Opus package](https://github.com/yutotakano/opus).
+
+  [@ffmpeg@]: It is heavily recommended to have FFmpeg installed and available in
+  PATH. Without FFmpeg, you will not be able to transcode any non-PCM non-Opus
+  files, bytestrings, or YouTube media.
+
+  [@yt-dlp@]: It is equally heavily recommended to have yt-dlp installed and
+  available in PATH. Without yt-dlp, you will not be able to use
+  'createYoutubeResource'.
+
+  [@ffprobe@]: It is optional to have FFprobe installed and available in PATH.
+  Without FFprobe, you will not be able to use 'ProbeCodec' to check if a given
+  file, bytestream, or YouTube video can avoid transcoding via FFmpeg if it's
+  already PCM or Opus-encoded.
+
+In general, all three largest OSes (Windows, macOS, Ubuntu) are supported, but
+each one has a different way of installing system dependencies for encryption
+and encoding, so please be careful.
+
+=== I want to hurry up and just test around
+
+The following commands install all system dependencies for the three most major
+OSes.
+
+==== __Windows__
+
+For ffmpeg, ffprobe, and yt-dlp:
+
+> winget install --id=Gyan.FFmpeg -e
+> winget install --id=yt-dlp.yt-dlp -e
+
+For libopus and libsodium, if you know where the MSYS2 environment uesd by
+your Haskell toolchain is and you are comfortable modifying it, run:
+
+> pacman -S mingw64/mingw-w64-x86_64-pkg-config mingw64/mingw-w64-x86_64-opus mingw64/mingw-w64-x86_64-libsodium
+
+Otherwise, assuming you installed your Haskell toolchain using GHCup, run:
+
+> ghcup run -m -- pacman -S mingw64/mingw-w64-x86_64-pkg-config mingw64/mingw-w64-x86_64-opus mingw64/mingw-w64-x86_64-libsodium
+
+All other scenarios are unsupported but there should be equivalences.
+
+==== __macOS__
+> brew install ffmpeg yt-dlp opus libsodium
+
+==== __Ubuntu__
+
+> sudo add-apt-repository ppa:tomtomtom/yt-dlp
+> sudo apt update
+> sudo apt-get install ffmpeg yt-dlp pkg-config libopus-dev
+
+== Getting Started
+
+We assume you've added this library to your Cabal file dependencies list, and
+already have a basic skeleton of a Discord bot. Specifically, our 'Voice' monad
+can only be run from within code in the 'Discord.DiscordHandler' monad. Whether
+it be within an event handler or on join or some scheduled action, make sure you
+find where you want the bot to join a voice call.
+
+The first two functions to learn are 'runVoice' and 'join'. Scroll down!
 -}
 module Discord.Voice
-    ( 
+    (
       -- * Monad for Voice Operations
       Voice
     , runVoice
     , liftDiscord
       -- * Joining a Voice Channel
     , join
-      -- * Play Some Audio
+      -- * Play an Audio Resource
     , play
+      -- * Create an Audio Resource
     , createYoutubeResource
     , createFileResource
     , createPCMResource
+      -- * Transformations
+      --
+      -- | You can apply transformations to your audio stream, in the form of
+      -- extra @ffmpeg@ arguments, or in the form of a Haskell conduit that
+      -- operates on PCM bytestreams.
+      --
+      -- == Examples
+      --
+      -- The following transforms the audio to mono by averaging the left and
+      -- right channels:
+      --
+      -- @
+      -- res \<- createFileResource "space.m4a" $ HaskellTransformation $ packTo16CT .| toMono .| packFrom16CT
+      -- @
+      --
+      -- The following transforms the audio's volume by multiplying every value:
+      --
+      -- @
+      -- let adjust = awaitForever $ \current -> yield (urrent * 2)
+      -- res \<- createFileResource "space.m4a" $ HaskellTransformation $ packTo16C .| adjust .| packFrom16C
+      -- @
+      --
+      -- The following selects the second audio track from a video file with multiple audio tracks:
+      --
+      -- @
+      -- res \<- createFileResource "movie.mkv" $ FFmpegTransformation $ \\file -> ["-i", file, "-map", "0:a:1"]
+      -- @
+      --
+      -- == Cost of Transformations
+      --
+      -- Unfortunately, for most cases, transformations are not zero-cost. If
+      -- the source audio is not PCM already, it will need to be transcoded via
+      -- FFmpeg to PCM in order to apply 'HaskellTransformation's. If the source
+      -- audio was Opus already and ready-to-send to Discord, but you request
+      -- any sort of transformation, it will have to go through FFmpeg, and
+      -- potentially also be transcoded to PCM.
     , AudioTransformation(..)
     , AudioCodec(..)
+    , AudioResource(..)
     , defaultFfmpegArgs
     ) where
 
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Voice
 
-{- $moreAccessibleVariants
-
-While 'play' is the most fundamental way to play audio, it is often inconvenient
-to write a Conduit, especially if you want to perform common actions like
-streaming YouTube audio, or playing arbitrary audio files in arbitrary formats.
-This is why we provide a number of more accessible variants of 'play', which
-provide a more convenient interface to playing your favourite media.
-
-Some of the functions in this section are marked with an apostrophe, which
-indicate that they accept a Conduit processor as an argument to manipulate the
-audio stream on the fly (such as changing volume).
-
-The following table gives a comparative overview of all the functions provided
-in this module for playing audio:
-
-+-------------------------+--------------------+------------------+-------------------------------+-------------------------------------+
-| Variant \\ Audio Source | ByteString Conduit | PCM Encoded File | Arbitrary Audio File          | YouTube Search/Video                |
-+=========================+====================+==================+=============+=================+================+====================+
-| Basic                   | 'play'             | 'playPCMFile'    | 'playFile'  | 'playFileWith'  | 'playYouTube'  | 'playYouTubeWith'  |
-+-------------------------+--------------------+------------------+-------------+-----------------+----------------+--------------------+
-| Post-process audio      | -                  | 'playPCMFile''   | 'playFile'' | 'playFileWith'' | 'playYouTube'' | 'playYouTubeWith'' |
-+-------------------------+--------------------+------------------+-------------+-----------------+----------------+--------------------+
-
-The functions that end with @-With@ accept arguments to specify executable names,
-and in the case of FFmpeg, any arguments to FFmpeg.
-
--}
