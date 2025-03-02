@@ -81,7 +81,13 @@ library
       , crypton-box >=1.1.0 && <1.2
   else
     build-depends:
-        saltine >=0.1.1.1 && <0.4
+        saltine >=0.1.1.1 && <0.3
+
+  if impl(ghc >= 9.6)
+    -- 1.15.5 and earlier cannot build on GHC >= 9.6 since it tries to import
+    -- Control.Monad functions from Control.Monad.Reader
+    build-depends:
+        discord-haskell  >= 1.15.6
 
 executable basic-music-bot
   main-is: examples/BasicMusicBot.hs
