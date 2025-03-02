@@ -27,7 +27,7 @@
   - Improve BasicMusicBot example to be less lisp-y in terms of brackets, and fix all warnings
   - Improve error messages when parsing Ogg containers fail
   - Use `DerivingStrategies` in the library code to make explicit where deriving typeclasses are from
-  - Add a compile flag to use a `crypton`-based encryption backend, which removes the necessity for libsodium
+  - Add a compile flag (`-use-crypton`) to use a `crypton`-based encryption backend, which removes the necessity for libsodium
   - Remove `containers` dependency
   - Relax package bounds:
     - `aeson` from ==1.5.6.0 to <2.3
