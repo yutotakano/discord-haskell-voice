@@ -76,10 +76,10 @@ data VoiceUDPPacket
 -- The following code returns @Just IPDiscovery(..)@ for IPDiscovery packets and
 -- Nothing for all other packet types.
 --
--- @@
+-- @
 -- payload :: Maybe VoiceUDPPacket
 -- payload = packet ^? _IPDiscovery
--- @@
+-- @
 _IPDiscovery :: Traversoal' VoiceUDPPacket (Integer, T.Text, Integer)
 _IPDiscovery f (IPDiscovery ssrc ip port) = (\(a, b, c) -> IPDiscovery a b c) <$> f (ssrc, ip, port)
 _IPDiscovery _ packet = pure packet
