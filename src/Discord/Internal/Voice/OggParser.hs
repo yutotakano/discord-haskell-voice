@@ -37,6 +37,7 @@ import Data.Binary.Put
 import Data.Binary.Get
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
+import Data.Maybe ( isNothing )
 import Lens.Micro
 
 -- | The Ogg Page Header, after the initial 4 byte pattern of "OggS".
@@ -145,7 +146,7 @@ oggPageExtractC = loop BL.empty
         -- Return early and prevent the bytestring append operation if neither
         -- the unconsumed bytes nor the conduit data exist. Both BL.null and
         -- equality check are O(1).
-        if BL.null unconsumedBytes && mbChunk == Nothing then
+        if BL.null unconsumedBytes && isNothing mbChunk then
             pure ()
         else do
             -- Since these are lazy bytestrings, appending is only dependent

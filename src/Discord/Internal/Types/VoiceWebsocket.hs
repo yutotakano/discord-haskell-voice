@@ -201,9 +201,7 @@ instance FromJSON VoiceWebsocketReceivable where
                     (od .: "speaking" :: Parser Int) <|>
                         (do
                             s <- od .: "speaking" :: Parser Bool
-                            case s of
-                                True  -> pure 1
-                                False -> pure 0
+                            pure $ if s then 1 else 0
                         )
 
                 let (priority, rest1) = speaking `divMod` 4

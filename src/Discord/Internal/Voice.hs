@@ -46,10 +46,10 @@ import Control.Concurrent
     , modifyMVar_
     , readMVar
     )
-import Control.Concurrent.STM ( atomically, newEmptyTMVar, putTMVar, tryReadTMVar )
+import Control.Concurrent.STM ( atomically, newEmptyTMVarIO, putTMVar, tryReadTMVar )
 import Control.Concurrent.BoundedChan qualified as Bounded
 import Control.Exception.Safe ( catch, throwIO )
-import Control.Monad.Reader ( ask, runReaderT )
+import Control.Monad.Reader ( ask, asks, runReaderT )
 import Control.Monad.Except ( runExceptT )
 import Control.Monad ( when, void, forM_ )
 import Control.Exception ( BlockedIndefinitelyOnMVar(..) )
@@ -68,7 +68,7 @@ import Lens.Micro
 import Lens.Micro.Extras (view)
 import System.IO ( hGetContents, hWaitForInput )
 import System.IO.Error ( isEOFError )
-import UnliftIO qualified as UnliftIO
+import UnliftIO qualified
 
 import Discord ( DiscordHandler, sendCommand, readCache )
 import Discord.Handle ( discordHandleGateway, discordHandleLog )
@@ -199,7 +199,7 @@ runVoice action = do
 
     let initialState = DiscordBroadcastHandle voiceHandles mutEx
 
-    result <- flip runReaderT initialState $ unVoice $ action
+    result <- flip runReaderT initialState $ unVoice action
 
     -- Wrap cleanup action in @finally@ to ensure we always close the
     -- threads even if an exception occurred.
@@ -307,7 +307,7 @@ join guildId channelId = do
             -- ssrc to be filled in during initial handshake
             ssrcM <- liftIO newEmptyMVar
 
-            uid <- userId . cacheCurrentUser <$> (liftDiscord readCache)
+            uid <- userId . cacheCurrentUser <$> liftDiscord readCache
             let wsOpts = WebsocketLaunchOpts uid sessionId token guildId endpoint
                     wsChans udpTidM udpChans ssrcM
 
@@ -384,7 +384,7 @@ join guildId channelId = do
 -- function will gain additional arguments to control those fields.
 updateSpeakingStatus :: Bool -> Voice ()
 updateSpeakingStatus micStatus = do
-    h <- (^. voiceHandles) <$> ask
+    h <- asks (^. voiceHandles)
     handles <- UnliftIO.readMVar h
     flip (traverseOf_ traverse) handles $ \handle ->
         liftIO $ writeChan (handle ^. websocket . _2 . _2) $ Speaking $ SpeakingPayload
@@ -500,7 +500,7 @@ getPipeline (AudioResource _ _ (Just (_ :.->: _))) _ = AudioPipeline
     { audioPipelineNeedsFFmpeg = True
     , audioPipelineOutputCodec = PCMFinalOutput
     }
-getPipeline _ (ProbeCodec _) = error $
+getPipeline _ (ProbeCodec _) = error
     "Impossible! getPipeline should only be called after codec is probed." -- TODO: encode in type
 
 -- | @play resource codec@ plays the specified @resource@. The codec argument
@@ -605,7 +605,7 @@ play resource codec = do
         -- desired to stop the process rather than wait until safe termination
         -- (which may never happen).
         liftDiscord $ withProcessTerm processConfig $ \process -> do
-            errorSignal <- liftIO $ atomically $ newEmptyTMVar
+            errorSignal <- liftIO newEmptyTMVarIO
             void $ liftIO $ forkIO $
                 -- wait indefinitely until end of handle to see if we catch any
                 -- output in stderr.

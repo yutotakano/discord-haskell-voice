@@ -88,7 +88,7 @@ data WSState
 logChan ✍ log = do
     t <- formatTime defaultTimeLocale "%F %T %q" <$> getCurrentTime
     tid <- myThreadId
-    writeChan logChan $ (T.pack t) <> " " <> (tshow tid) <> " " <> log
+    writeChan logChan $ T.pack t <> " " <> tshow tid <> " " <> log
 
 -- | A variant of (✍) that prepends the wsError text.
 (✍!) :: Chan T.Text -> T.Text -> IO ()
@@ -150,7 +150,7 @@ launchWebsocket opts log = do
                         maybeToRight ("First packet after Identify not " <> "Opcode 2 Ready " <> tshow readyPacket) $
                             readyPacket ^? _Ready
 
-                    secretKey <- liftIO $ newEmptyMVar
+                    secretKey <- liftIO newEmptyMVar
                     let udpLaunchOpts = UDPLaunchOpts
                             { uDPLaunchOptsSsrc      = readyPayloadSSRC p
                             , uDPLaunchOptsIp        = readyPayloadIP p
@@ -213,8 +213,9 @@ launchWebsocket opts log = do
         -- Connection is now closed.
         case next :: Either SomeException WSState of
             Left e -> do
-                (✍!) log $ "connection terminated due to a synchronous exception: " <>
-                    (tshow e)
+                (✍!) log $
+                    "connection terminated due to a synchronous exception: " <>
+                    tshow e
                 writeChan (opts ^. wsHandle . _1) $ Left $
                     VoiceWebsocketCouldNotConnect
                         "connection terminated due to a synchronous exception"
@@ -227,7 +228,7 @@ launchWebsocket opts log = do
             helloPacket <- getPayload conn
             case helloPacket of
                 Left e -> do
-                    (✍!) log $ "Failed to get Opcode 8 Hello: " <> (tshow e)
+                    (✍!) log $ "Failed to get Opcode 8 Hello: " <> tshow e
                     pure WSClosed
                 Right (Hello interval) -> do
                     -- Create a thread to add heartbeating packets to the
@@ -237,28 +238,28 @@ launchWebsocket opts log = do
                     resumedPacket <- performResumption conn opts
                     case resumedPacket of
                         Left e -> do
-                            (✍!) log $ "Failed to get Opcode 9 Resumed: " <> (tshow e)
+                            (✍!) log $ "Failed to get Opcode 9 Resumed: " <> tshow e
                             pure WSClosed
-                        Right (Discord.Internal.Types.VoiceWebsocket.Resumed) -> do
+                        Right Discord.Internal.Types.VoiceWebsocket.Resumed -> do
                             -- use the previous UDP launch options since it's not resent
                             udpLaunchOpts <- readMVar udpInfo
 
                             -- Pass not the MVar but the raw options, since
                             -- there's no writing to be done.
-                            finally (eventStream conn opts interval udpLaunchOpts libSends log) $
+                            finally (eventStream conn opts interval udpLaunchOpts libSends log)
                                 (killThread heartGenTid >> killThread sendTid)
                         Right p -> do
                             (✍!) log $ "First packet after Resume not " <>
-                                "Opcode 9 Resumed: " <> (tshow p)
+                                "Opcode 9 Resumed: " <> tshow p
                             pure WSClosed
                 Right p -> do
-                    (✍!) log $ "First packet not Opcode 8 Hello: " <> (tshow p)
+                    (✍!) log $ "First packet not Opcode 8 Hello: " <> tshow p
                     pure WSClosed
 
         case next :: Either SomeException WSState of
             Left e -> do
                 (✍!) log $ "could not resume due to a synchronous exception: " <>
-                    (tshow e) <> ", retrying after 5 seconds"
+                    tshow e <> ", retrying after 5 seconds"
                 threadDelay $ 5 * (10^(6 :: Int))
                 websocketFsm WSResume (retries + 1) udpInfo
             Right n -> websocketFsm n retries udpInfo
@@ -298,10 +299,10 @@ performIdentification
 performIdentification conn opts = do
     -- Send opcode 0 Identify
     sendTextData conn $ encode $ Identify $ IdentifyPayload
-        { identifyPayloadServerId = (opts ^. guildId)
-        , identifyPayloadUserId = (opts ^. botUserId)
-        , identifyPayloadSessionId = (opts ^. sessionId)
-        , identifyPayloadToken = (opts ^. token)
+        { identifyPayloadServerId = opts ^. guildId
+        , identifyPayloadUserId = opts ^. botUserId
+        , identifyPayloadSessionId = opts ^. sessionId
+        , identifyPayloadToken = opts ^. token
         }
 
     getPayload conn
@@ -400,7 +401,7 @@ heartbeatLoop libSends interval _log = do
     threadDelay $ 1 * 10^(6 :: Int)
     forever $ do
         time <- round <$> getPOSIXTime
-        writeChan libSends $ Heartbeat $ time
+        writeChan libSends $ Heartbeat time
         threadDelay $ interval * 1000
 
 -- | @eventStream@ is the main event loop for the Websocket, after all initial
@@ -462,5 +463,5 @@ eventStream conn opts interval udpLaunchOpts libSends log = do
     handleClose 4015 _str = log ✍! "server crashed on Discord side, resuming"
         >> pure WSResume
     handleClose code str = (✍!) log ("connection closed with code: [" <>
-        tshow code <> "] " <> (TE.decodeUtf8 $ BL.toStrict str))
+        tshow code <> "] " <> TE.decodeUtf8 (BL.toStrict str))
         >> pure WSClosed
