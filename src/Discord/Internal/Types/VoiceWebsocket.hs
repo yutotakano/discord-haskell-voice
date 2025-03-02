@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-|
