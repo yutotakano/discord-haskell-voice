@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 3.0.0 — 2025 March
+
 - **Breaking API changes**
   - Replaced previously separate playing functions with a single `play` function
   - New `AudioResource` type represents a resource to be played, made with e.g. `createYoutubeResource`
