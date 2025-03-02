@@ -71,7 +71,7 @@ import Discord.Internal.Types.VoiceWebsocket
 -- that might fit the library!
 newtype Voice a = Voice
     { unVoice :: ReaderT DiscordBroadcastHandle DiscordHandler a
-    } deriving newtype
+    } deriving newtype -- we use the newtype strategy so it's mostly ReaderT
     ( Functor
     , Applicative
     , Monad
@@ -79,6 +79,12 @@ newtype Voice a = Voice
     -- ^ MonadIO gives the ability to perform 'liftIO' and run IO actions. To
     -- run 'DiscordHandler' actions from within Voice, use
     -- 'Discord.Voice.liftDiscord'.
+    , MonadUnliftIO
+    -- ^ MonadUnliftIO gives us the ability to come back into the monadic
+    -- context from within a lifted IO context. We don't need it in internal
+    -- code, but the instance is provided to make it more convenient for users
+    -- to use e.g. UnliftIO.forkIO from inside Voice without having to manually
+    -- unwrap and capture state.
     , MonadReader DiscordBroadcastHandle
     -- ^ MonadReader is for internal use, to read the held broadcast handle.
     , MonadFail
