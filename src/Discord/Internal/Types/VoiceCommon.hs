@@ -145,9 +145,9 @@ data AudioCodecNoFurtherFFmpeg
 --
 -- Lenses are defined for this type using Template Haskell. You can use them
 -- to make accessing fields easier, like:
--- @@
+-- @
 -- need = pipeline ^. needFFmpeg
--- @@
+-- @
 data AudioPipeline = AudioPipeline
     { audioPipelineNeedsFFmpeg :: Bool
     -- ^ Whether the pipeline needs FFmpeg to do transformations or transcoding.
@@ -201,9 +201,9 @@ instance Show AudioTransformation where
 --
 -- Lenses are defined for this type using Template Haskell. You can use them
 -- to make accessing fields easier, like:
--- @@
+-- @
 -- metadata = res ^. youtubeDLInfo
--- @@
+-- @
 data AudioResource = AudioResource
     { audioResourceStream :: Either String BL.ByteString
     -- ^ The stream source. If it's Left, the value is a URL or filepath that
@@ -221,10 +221,10 @@ data AudioResource = AudioResource
     -- the URL of the resource (which is also contained in 'audioResourceStream',
     -- run:
     --
-    -- @@
+    -- @
     -- url :: Maybe String
     -- url = flip parseMaybe (audioResourceYouTubeDLInfo res) $ \o -> o .: "url"
-    -- @@
+    -- @
     , audioResourceTransform :: Maybe AudioTransformation
     -- ^ Any transformations to perform on the audio resource.
     }
@@ -237,9 +237,9 @@ data AudioResource = AudioResource
 --
 -- Lenses are defined for this type using Template Haskell. You can use them
 -- to make accessing fields easier, like:
--- @@
+-- @
 -- mySSRC = handle ^. ssrc
--- @@
+-- @
 data DiscordVoiceHandle = DiscordVoiceHandle
     { discordVoiceHandleGuildId :: GuildId
       -- ^ The guild id of the voice channel.
@@ -260,9 +260,9 @@ data DiscordVoiceHandle = DiscordVoiceHandle
 --
 -- Lenses are defined for this type using Template Haskell. You can use them
 -- to make accessing fields easier, like:
--- @@
+-- @
 -- myHandles = broadcastHandle ^. voiceHandles
--- @@
+-- @
 data DiscordBroadcastHandle = DiscordBroadcastHandle
     { discordBroadcastHandleVoiceHandles :: MVar [DiscordVoiceHandle]
       -- ^ The list of voice connection handles. Do not modify this list without
@@ -305,9 +305,9 @@ type VoiceUDPSendChan = Bounded.BoundedChan B.ByteString
 --
 -- Lenses are defined for this type using Template Haskell. You can use them
 -- to make accessing fields easier, like:
--- @@
+-- @
 -- myId = opts ^. botUserId
--- @@
+-- @
 data WebsocketLaunchOpts = WebsocketLaunchOpts
     { websocketLaunchOptsBotUserId     :: UserId
     -- ^ The user ID of the running bot, which is needed for the voice gateway
@@ -351,9 +351,9 @@ data WebsocketLaunchOpts = WebsocketLaunchOpts
 --
 -- Lenses are defined for this type using Template Haskell. You can use them
 -- to make accessing fields easier, like:
--- @@
+-- @
 -- opts = wsConn ^. launchOpts
--- @@
+-- @
 data WebsocketConn = WebsocketConn
     { websocketConnConnection    :: Connection
     , websocketConnLaunchOpts    :: WebsocketLaunchOpts
@@ -367,9 +367,9 @@ data WebsocketConn = WebsocketConn
 --
 -- Lenses are defined for this type using Template Haskell. You can use them
 -- to make accessing fields easier, like:
--- @@
+-- @
 -- mySsrc = opts ^. ssrc
--- @@
+-- @
 data UDPLaunchOpts = UDPLaunchOpts
     { uDPLaunchOptsSsrc :: Integer
     , uDPLaunchOptsIp   :: T.Text
@@ -384,9 +384,9 @@ data UDPLaunchOpts = UDPLaunchOpts
 --
 -- Lenses are defined for this type using Template Haskell.You can use them
 -- to make accessing fields easier, like:
--- @@
+-- @
 -- sock = opts ^. socket
--- @@
+-- @
 data UDPConn = UDPConn
     { uDPConnLaunchOpts :: UDPLaunchOpts
     , uDPConnSocket     :: Socket

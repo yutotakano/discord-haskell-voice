@@ -59,10 +59,10 @@ data VoiceWebsocketReceivable
 -- The following code returns @Just Ready(..)@ for Ready packets and Nothing for
 -- all other packet types.
 --
--- @@
+-- @
 -- payload :: Maybe VoiceWebsocketReceivable
 -- payload = packet ^? _Ready
--- @@
+-- @
 _Ready :: Traversal' VoiceWebsocketReceivable ReadyPayload
 _Ready f (Ready rp) = Ready <$> f rp
 _Ready _ rp = pure rp
@@ -74,10 +74,10 @@ _Ready _ rp = pure rp
 -- The following code returns @Just SessionDescription(..)@ for
 -- SessionDescription packets and Nothing for all other packet types.
 --
--- @@
+-- @
 -- payload :: Maybe VoiceWebsocketReceivable
 -- payload = packet ^? _SessionDescription
--- @@
+-- @
 _SessionDescription :: Traversal' VoiceWebsocketReceivable (T.Text, [Word8])
 _SessionDescription f (SessionDescription t bytes) = uncurry SessionDescription <$> f (t, bytes)
 _SessionDescription _ sd = pure sd
@@ -88,10 +88,10 @@ _SessionDescription _ sd = pure sd
 -- The following code returns @Just Hello(..)@ for Hello packets and Nothing for
 -- all other packet types.
 --
--- @@
+-- @
 -- payload :: Maybe VoiceWebsocketReceivable
 -- payload = packet ^? _Hello
--- @@
+-- @
 _Hello :: Traversal' VoiceWebsocketReceivable Int
 _Hello f (Hello a) = Hello <$> f a
 _Hello _ a = pure a
