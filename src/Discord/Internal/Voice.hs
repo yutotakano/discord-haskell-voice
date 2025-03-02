@@ -172,6 +172,23 @@ liftDiscord = Voice . lift
 -- (or on the GitHub repository for this library) for a music bot that does
 -- exactly the approach described above.
 --
+-- == Forking
+--
+-- You can also fork and run 'runVoice' in a separate thread, although we don't
+-- provide any helpers or wrappers. An example is given below. The example uses
+-- UnliftIO for convenience of forking from within DiscordHandler, but you could
+-- also manually 'ask' the state from DiscordHandler, lift to IO, use regular
+-- 'Control.Concurrent.forkIO', and run ReaderT again to achieve the same.
+--
+-- @
+-- import qualified UnliftIO.Concurrent as Unlift (forkIO)
+-- func :: DiscordHandler ()
+-- func = do
+--     tid <- Unlift.forkIO $ runVoice $ do
+--         join guildid chanid
+--         forever $ play (createFileResource "music.mp3" Nothing) UnknownCodec
+-- @
+--
 -- == Broadcasting
 --
 -- Within a single use of 'runVoice', the same packets are sent to all
