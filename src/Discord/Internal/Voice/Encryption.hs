@@ -27,7 +27,7 @@ module Discord.Internal.Voice.Encryption
     ( module Discord.Internal.Voice.Encryption
     ) where
 
-#ifdef USE_SHECRETBOX
+#ifdef USE_CRYPTON
 import Crypto.PubKey.Curve25519 qualified as X25519
 import Crypto.SecretBox qualified as SecretBox
 import Crypto.Error ( maybeCryptoError )
@@ -51,10 +51,10 @@ import Data.Word ( Word8 )
 -- This does no error handling on misformatted key/nonce since this function is
 -- only used in contexts where we are guaranteed they are valid.
 --
--- When USE_SHECRETBOX is defined (using the use-shecretbox flag), the function
+-- When USE_CRYPTON is defined (using the use-crypton flag), the function
 -- is implemented as a wrapper for the 'SecretBox.open' function.
 decrypt :: [Word8] -> B.ByteString -> B.ByteString -> Maybe B.ByteString
-#ifdef USE_SHECRETBOX
+#ifdef USE_CRYPTON
 decrypt byteKey nonce ciphertext = SecretBox.open ciphertext nonce key
   where
     key = fromJust $ maybeCryptoError $ X25519.dhSecret $ B.pack byteKey
@@ -72,10 +72,10 @@ decrypt byteKey byteNonce og = secretboxOpen key nonce og
 -- As with decryption, this function does no error handling on the format of the
 -- key and nonce (key = 32 bytes, nonce = 24 bytes).
 --
--- When USE_SHECRETBOX is defined (using the use-shecretbox flag), the function
+-- When USE_CRYPTON is defined (using the use-crypton flag), the function
 -- is implemented as a warpper for the 'SecretBox.create' function.
 encrypt :: [Word8] -> B.ByteString -> B.ByteString -> B.ByteString
-#ifdef USE_SHECRETBOX
+#ifdef USE_CRYPTON
 encrypt byteKey nonce message = SecretBox.create message nonce key
   where
     key = fromJust $ maybeCryptoError $ X25519.dhSecret $ B.pack byteKey
