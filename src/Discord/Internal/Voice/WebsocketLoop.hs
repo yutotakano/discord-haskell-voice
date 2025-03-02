@@ -1,5 +1,4 @@
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-|
 Module      : Discord.Internal.Voice.WebsocketLoop
@@ -16,15 +15,17 @@ This module is considered __internal__.
 The Package Versioning Policy __does not apply__.
 
 The contents of this module may change __in any way whatsoever__ and __without__
-__any warning__ between minor versions of this package.
+__any warning__ between minor versions of this package, unless the identifier is
+re-exported from a non-internal module.
 
 = Description
 
-This module provides @launchWebsocket@, a function used to launch a websocket to
-the Discord Voice Gateway, and perform necessary handshakes including
-heartbeat setup, mode selection, and IP Discovery. The function will also set up
-the UDP socket for voice data transmission by calling @launchUDP@ from the
-"Discord.Internal.Voice.UDPLoop" module.
+This module provides 'launchWebsocket', a function used to start a websocket
+connection to the Discord voice gateway (i.e. the voice control-plane), and
+perform necessary setup including launching a heartbeat thread, selecting
+encryption modes, and initiating IP Discovery. The function will also set up
+the UDP socket (i.e. the voice data-plane) for voice data transmission by
+calling 'launchUdp'.
 -}
 module Discord.Internal.Voice.WebsocketLoop
     ( launchWebsocket
@@ -75,6 +76,7 @@ import Discord.Internal.Types.VoiceUDP
 import Discord.Internal.Voice.CommonUtils
 import Discord.Internal.Voice.UDPLoop
 
+-- | States of the Websocket thread state machine.
 data WSState
     = WSStart
     | WSClosed
@@ -86,7 +88,7 @@ data WSState
 logChan ✍ log = do
     t <- formatTime defaultTimeLocale "%F %T %q" <$> getCurrentTime
     tid <- myThreadId
-    writeChan logChan $ (T.pack t) <> " " <> (tshow tid) <> " " <> log
+    writeChan logChan $ T.pack t <> " " <> tshow tid <> " " <> log
 
 -- | A variant of (✍) that prepends the wsError text.
 (✍!) :: Chan T.Text -> T.Text -> IO ()
@@ -94,8 +96,8 @@ logChan ✍! log = logChan ✍ ("!!! Voice Websocket Error - " <> log)
 
 -- | @connect@ is an alias for running a websocket connection using the Discord
 -- endpoint URL (which contains the port as well). It makes sure to connect to
--- the correct voice gateway version as well, as the default version of 1 is
--- severely out of date (the opcode behaviours are not according to docs).
+-- the correct voice gateway version (v4) as well, as the default version of 1
+-- is severely out of date (the opcode behaviours are not according to docs).
 connect :: T.Text -> (Connection -> IO a) -> IO a
 connect endpoint = runSecureClient url port "/?v=4"
   where
@@ -113,15 +115,14 @@ launchWebsocket opts log = do
   where
     websocketFsm :: WSState -> Int -> MVar UDPLaunchOpts -> IO ()
     -- Websocket closed legitimately. The UDP thread and this thread
-    -- will be closed by the cleanup in runVoice.
+    -- will be closed by the cleanup in 'runVoice'.
     websocketFsm WSClosed _retries _udpInfo = pure ()
 
-    -- First time. Let's open a Websocket connection to the Voice
-    -- Gateway, do the initial Websocket handshake routine, then
-    -- ask to open the UDP connection.
-    -- When creating the UDP thread, we will fill in the MVars in
-    -- @opts@ to report back to runVoice, so it can be killed in the
-    -- future.
+    -- First time. Let's open a Websocket connection to the Voice gateway, do
+    -- the initial Websocket handshake routine, then ask to open the UDP data
+    -- plane connection. When creating the UDP thread, we will fill in the MVars
+    -- in @opts@ to report back to 'runVoice', so it can be killed from the main
+    -- thread if necessary (e.g. on leaving the call).
     websocketFsm WSStart _retries udpInfo = do
         next <- try $ connect (opts ^. endpoint) $ \conn -> do
             (libSends, sendTid) <- flip (setupSendLoop conn) log $ opts ^. wsHandle . _2
@@ -149,7 +150,7 @@ launchWebsocket opts log = do
                         maybeToRight ("First packet after Identify not " <> "Opcode 2 Ready " <> tshow readyPacket) $
                             readyPacket ^? _Ready
 
-                    secretKey <- liftIO $ newEmptyMVar
+                    secretKey <- liftIO newEmptyMVar
                     let udpLaunchOpts = UDPLaunchOpts
                             { uDPLaunchOptsSsrc      = readyPayloadSSRC p
                             , uDPLaunchOptsIp        = readyPayloadIP p
@@ -212,8 +213,9 @@ launchWebsocket opts log = do
         -- Connection is now closed.
         case next :: Either SomeException WSState of
             Left e -> do
-                (✍!) log $ "connection terminated due to a synchronous exception: " <>
-                    (tshow e)
+                (✍!) log $
+                    "connection terminated due to a synchronous exception: " <>
+                    tshow e
                 writeChan (opts ^. wsHandle . _1) $ Left $
                     VoiceWebsocketCouldNotConnect
                         "connection terminated due to a synchronous exception"
@@ -226,7 +228,7 @@ launchWebsocket opts log = do
             helloPacket <- getPayload conn
             case helloPacket of
                 Left e -> do
-                    (✍!) log $ "Failed to get Opcode 8 Hello: " <> (tshow e)
+                    (✍!) log $ "Failed to get Opcode 8 Hello: " <> tshow e
                     pure WSClosed
                 Right (Hello interval) -> do
                     -- Create a thread to add heartbeating packets to the
@@ -236,46 +238,44 @@ launchWebsocket opts log = do
                     resumedPacket <- performResumption conn opts
                     case resumedPacket of
                         Left e -> do
-                            (✍!) log $ "Failed to get Opcode 9 Resumed: " <> (tshow e)
+                            (✍!) log $ "Failed to get Opcode 9 Resumed: " <> tshow e
                             pure WSClosed
-                        Right (Discord.Internal.Types.VoiceWebsocket.Resumed) -> do
+                        Right Discord.Internal.Types.VoiceWebsocket.Resumed -> do
                             -- use the previous UDP launch options since it's not resent
                             udpLaunchOpts <- readMVar udpInfo
 
                             -- Pass not the MVar but the raw options, since
                             -- there's no writing to be done.
-                            finally (eventStream conn opts interval udpLaunchOpts libSends log) $
+                            finally (eventStream conn opts interval udpLaunchOpts libSends log)
                                 (killThread heartGenTid >> killThread sendTid)
                         Right p -> do
                             (✍!) log $ "First packet after Resume not " <>
-                                "Opcode 9 Resumed: " <> (tshow p)
+                                "Opcode 9 Resumed: " <> tshow p
                             pure WSClosed
                 Right p -> do
-                    (✍!) log $ "First packet not Opcode 8 Hello: " <> (tshow p)
+                    (✍!) log $ "First packet not Opcode 8 Hello: " <> tshow p
                     pure WSClosed
 
         case next :: Either SomeException WSState of
             Left e -> do
                 (✍!) log $ "could not resume due to a synchronous exception: " <>
-                    (tshow e) <> ", retrying after 5 seconds"
+                    tshow e <> ", retrying after 5 seconds"
                 threadDelay $ 5 * (10^(6 :: Int))
                 websocketFsm WSResume (retries + 1) udpInfo
             Right n -> websocketFsm n retries udpInfo
 
--- | Create the library-specific sending packets Chan, and then create the
--- thread for eternally sending contents in the said Chan, as well as the
--- user-generated packet Chan.
--- loop for
--- the websocket.
+-- | @setupSendLoop@ takes a 'Chan' of user-generated packets to send in the
+-- websocket. It forks a thread that runs 'sendableLoop' using the provided
+-- Chan, together with a new internal-use-only Chan for e.g. heartbeat packets.
 setupSendLoop
     :: Connection
-    -- ^ Connection to use
+    -- ^ The websocket connection
     -> VoiceWebsocketSendChan
     -- ^ User generated packets to send in the Websocket
     -> Chan T.Text
     -- ^ Logging channel
     -> IO (VoiceWebsocketSendChan, ThreadId)
-    -- ^ Chan to send library-specific packets in the Websocket, and the thread
+    -- ^ Chan to send internal-only packets in the Websocket, and the thread
     -- ID of the eternal sending thread (useful for killing it).
 setupSendLoop conn userSends log = do
     -- The following Chan will be used for accumulating library-generated
@@ -287,51 +287,62 @@ setupSendLoop conn userSends log = do
 
     pure (libSends, sendLoopId)
 
--- | Send the Opcode 0 Identify packet to Discord, and await the Opcode 2 Ready
--- payload, which contains the UDP connection info.
+-- | @performIdentification@ sends the voice gateway uplink Opcode 0 Identify
+-- packet to Discord, and awaits the voice gateway downlink Opcode 2 Ready,
+-- which has the UDP connection info in its payload.
 performIdentification
     :: Connection
+    -- ^ The websocket connection
     -> WebsocketLaunchOpts
+    -- ^ The options used to launch the websocket
     -> IO (Either ConnectionException VoiceWebsocketReceivable)
 performIdentification conn opts = do
     -- Send opcode 0 Identify
     sendTextData conn $ encode $ Identify $ IdentifyPayload
-        { identifyPayloadServerId = (opts ^. guildId)
-        , identifyPayloadUserId = (opts ^. botUserId)
-        , identifyPayloadSessionId = (opts ^. sessionId)
-        , identifyPayloadToken = (opts ^. token)
+        { identifyPayloadServerId = opts ^. guildId
+        , identifyPayloadUserId = opts ^. botUserId
+        , identifyPayloadSessionId = opts ^. sessionId
+        , identifyPayloadToken = opts ^. token
         }
-        
+
     getPayload conn
 
--- | Send the Opcode 7 Resume packet to Discord, and await the Opcode 9 Resumed
--- payload.
+-- | @performResumption@ sends the voice gateway uplink Opcode 7 Resume packet
+-- to Discord, and awaits the voice gateway downlink Opcode 9 Resumed payload.
 performResumption
     :: Connection
+    -- ^ The websocket connection
     -> WebsocketLaunchOpts
+    -- ^ The options used to launch the websocket
     -> IO (Either ConnectionException VoiceWebsocketReceivable)
 performResumption conn opts = do
     -- Send opcode 7 Resume
     sendTextData conn $ encode $
         Resume (opts ^. guildId) (opts ^. sessionId) (opts ^. token)
-    
+
     getPayload conn
 
--- | Send the Opcode 1 Select Protocol to Discord. Does not wait for a payload.
+-- | @sendSelectProtocol@ sends the voice gateway uplink Opcode 1 Select
+-- Protocol to Discord., and waits until we get voice gatway downlink Opcode 4
+-- Session Description. We ignore any irrelevant packets during this wait,
+-- including downlink Opcode 11 Client Connect, downlink Opcode 18 Client Flags,
+-- downlink 20 Client Platform, all of which are sent to us if there is already
+-- another user in the voice chat.
 sendSelectProtocol
     :: Connection
+    -- ^ The websocket connection
     -> T.Text
+    -- ^ Our local UDP thread IP as found by IP Discovery
     -> Integer
+    -- ^ Our local UDP thread port as found by IP Discovery
     -> T.Text
+    -- ^ Selected encryption mode
     -> IO (Either ConnectionException VoiceWebsocketReceivable)
 sendSelectProtocol conn ip port mode = do
     sendTextData conn $ encode $ SelectProtocol $ 
         SelectProtocolPayload "udp" ip port mode
-    
-    -- Skip payloads until we get the Opcode 4 Session Description, since there
-    -- tends to be Opcode 11 Client Connect, Opcode 18 Client Flags, and
-    -- Opcode 20 Client Platform before it sometimes, all of which we can ignore.
 
+    -- Skip payloads until we get the Opcode 4 Session Description.
     waitUntilSessionDescription
   where
     waitUntilSessionDescription :: IO (Either ConnectionException VoiceWebsocketReceivable)
@@ -342,14 +353,9 @@ sendSelectProtocol conn ip port mode = do
             Right s@(SessionDescription _ _) -> pure $ Right s
             Right _ -> waitUntilSessionDescription
 
-    -- We do not do getPayload here, since there's no guarantee the next
-    -- received packet is an Opcode 4 Session Description, when heartbeats
-    -- has began already.
-    -- TODO: remove if the above is not a problem
-
--- | Get one packet from the Websocket Connection, parsing it into a
--- VoiceWebsocketReceivable using Aeson. If the packet is not validly
--- parsed, it will be a @Right (ParseError info)@.
+-- | @getPayload@ gets one packet from the Websocket 'Connection' using
+-- 'receiveData', parsing it into a 'VoiceWebsocketReceivable' using Aeson. If
+-- the packet could not be parsed, it will return @Right (ParseError info)@.
 getPayload
     :: Connection
     -> IO (Either ConnectionException VoiceWebsocketReceivable)
@@ -360,12 +366,17 @@ getPayload conn = try $ do
         Left err  -> pure $ ParseError $ T.pack err
             <> " while decoding " <> TE.decodeUtf8 (BL.toStrict msg')
 
--- | Eternally send data from libSends and usrSends channels
+-- | @sendableLoop@ eternally send data from @libSends@ and @usrSends@ channels,
+-- whenever either of them have data to send.
 sendableLoop
     :: Connection
+    -- ^ The websocket connection
     -> VoiceWebsocketSendChan
+    -- ^ Internal-use sendable channel, e.g. for heartbeat packets
     -> VoiceWebsocketSendChan
+    -- ^ User-generated sendable packets channel
     -> Chan T.Text
+    -- ^ Logs
     -> IO ()
 sendableLoop conn libSends usrSends log = do
     -- Wait-time taken from discord-haskell/Internal.Gateway.EventLoop
@@ -376,32 +387,42 @@ sendableLoop conn libSends usrSends log = do
     sendTextData conn $ encode payload
     sendableLoop conn libSends usrSends log
 
--- | Eternally send heartbeats through the libSends channel
+-- | @heartbeatLoop@ eternally generates Heartbeat packets every interval, and
+-- puts it into the sendable channel to be sent by 'sendableLoop'.
 heartbeatLoop
     :: VoiceWebsocketSendChan
+    -- ^ The internal-use sendable channel for websocket packets
     -> Int
     -- ^ milliseconds
     -> Chan T.Text
+    -- ^ Logs
     -> IO ()
 heartbeatLoop libSends interval _log = do
     threadDelay $ 1 * 10^(6 :: Int)
     forever $ do
         time <- round <$> getPOSIXTime
-        writeChan libSends $ Heartbeat $ time
+        writeChan libSends $ Heartbeat time
         threadDelay $ interval * 1000
 
--- | This function is the main event loop for the Websocket, after all initial
+-- | @eventStream@ is the main event loop for the Websocket, after all initial
 -- handshake stages (Hello and identification/resumption). It will continuously
 -- read the top packet in the Websocket receives, and handle closures, and
 -- packet responses (like heartbeat responses).
--- TODO: a separate ADT for this? what to call it
 eventStream
     :: Connection
+    -- ^ The websocket connection
     -> WebsocketLaunchOpts
+    -- ^ Options used to launch the websokcet connection
     -> Int
+    -- ^ Interval at which we expect to receive a heartbeat response. We tolerate
+    -- up to double of the interval, but if no heartbeat response is received in
+    -- this time, we consider the connection to be lost.
     -> UDPLaunchOpts
+    -- ^ Options used to launch the UDP data plane
     -> VoiceWebsocketSendChan
+    -- ^ The internal-use sendable channel for websocket packets
     -> Chan T.Text
+    -- ^ Logs
     -> IO WSState
 eventStream conn opts interval udpLaunchOpts libSends log = do
     -- there has to be at least one packet every @interval@ milliseconds (which
@@ -442,5 +463,5 @@ eventStream conn opts interval udpLaunchOpts libSends log = do
     handleClose 4015 _str = log ✍! "server crashed on Discord side, resuming"
         >> pure WSResume
     handleClose code str = (✍!) log ("connection closed with code: [" <>
-        tshow code <> "] " <> (TE.decodeUtf8 $ BL.toStrict str))
+        tshow code <> "] " <> TE.decodeUtf8 (BL.toStrict str))
         >> pure WSClosed

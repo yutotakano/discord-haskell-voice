@@ -16,11 +16,12 @@ This module is considered __internal__.
 The Package Versioning Policy __does not apply__.
 
 The contents of this module may change __in any way whatsoever__ and __without__
-__any warning__ between minor versions of this package.
+__any warning__ between minor versions of this package, unless the identifier is
+re-exported from a non-internal module.
 
 = Description
 
-This module provides @unwrapOggPacketsC@, a conduit that unwraps Ogg packets
+This module provides 'unwrapOggPacketsC', a conduit that unwraps Ogg packets
 from a stream of bytes, and extracts the Opus packets from them. This is used
 to parse FFmpeg's Ogg output into Opus packets that can be sent to Discord.
 -}
@@ -36,9 +37,11 @@ import Data.Binary.Put
 import Data.Binary.Get
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
+import Data.Maybe ( isNothing )
 import Lens.Micro
 
 -- | The Ogg Page Header, after the initial 4 byte pattern of "OggS".
+--
 -- As described here: https://xiph.org/ogg/doc/framing.html
 -- and here: http://www33146ue.sakura.ne.jp/staff/iz/formats/ogg.html
 data OggPageHeader = OggPageHeader
@@ -98,15 +101,29 @@ instance Binary OggPageHeader where
         segmentLengths <- replicateM segmentAmt $ fromIntegral <$> getWord8
         pure $ OggPageHeader ver flags granularPosition streamSerial seqNumber crcChecksum segmentAmt segmentLengths
 
+-- | An @OggPage@ consists of an 'OggPageHeader' followed by a segment of
+-- variable length with maximum 255 bytes. An Opus packet may span multiple
+-- page boundaries.
 data OggPage = OggPage
     { oggPageHdr :: OggPageHeader
     , oggPageSegs :: BS.ByteString
     }
     deriving stock (Eq, Show)
 
+-- | @unwrapOggPacketsC@ is a conduit that extracts Opus audio frames from
+-- a stream of Ogg page packets. It works by parsing the stream into a series
+-- of 'OggPage's, then constructing Opus frames by concatinating multiple Ogg
+-- pages using a buffer, and finally filtering out any non-audio packets.
+--
+-- The function is meant to be used as a replacement for Opus encoding when the
+-- audio source is already in Ogg format. Thus, the function will also insert
+-- five frames of silence to avoid audio interpolation, just like in
+-- 'Discord.Internal.Voice.encodeOpusC'.
 unwrapOggPacketsC :: ConduitT BS.ByteString BS.ByteString IO ()
 unwrapOggPacketsC = oggPageExtractC .| opusPacketExtractC .| filterOpusNonMetaC
 
+-- | Parses a byte stream as a stream of 'OggPage's, using a buffer to consume
+-- bytes as needed and yielding the parsed data.
 oggPageExtractC :: (Monad m) => ConduitT BS.ByteString OggPage m ()
 oggPageExtractC = loop BL.empty
   where
@@ -129,7 +146,7 @@ oggPageExtractC = loop BL.empty
         -- Return early and prevent the bytestring append operation if neither
         -- the unconsumed bytes nor the conduit data exist. Both BL.null and
         -- equality check are O(1).
-        if BL.null unconsumedBytes && mbChunk == Nothing then
+        if BL.null unconsumedBytes && isNothing mbChunk then
             pure ()
         else do
             -- Since these are lazy bytestrings, appending is only dependent
@@ -151,11 +168,12 @@ oggPageExtractC = loop BL.empty
                     loop rest
 
 -- | Conduit to extract the Opus bytes from an Ogg Page. This also handles the
--- addition of empty frames when there is no audio. The output of this conduit
--- is a strict bytestring since there is no longer any need for laziness, and
--- it's better to make it strict when we can guarantee properties of it (like
--- that each packet will only be made strict once) than later down when we know
--- for sure we need a strict bytestring anyway to send to Discord.
+-- addition of empty frames when there is no audio, like in
+-- 'Discord.Internal.Voice.encodeOpusC'. The output of this conduit is a strict
+-- bytestring since there is no longer any need for laziness, and it's better to
+-- make it strict when we can guarantee properties of it (like that each packet
+-- will only be made strict once) than later down. We need a strict bytestring
+-- at the end anyway to send to Discord.
 opusPacketExtractC :: ConduitT OggPage BS.ByteString IO ()
 opusPacketExtractC = loop BL.empty
   where
@@ -171,11 +189,12 @@ opusPacketExtractC = loop BL.empty
                 -- is only called maximally once for each segment).
                 if BL.null opusSegment then pure () else yield (BL.toStrict opusSegment)
 
-                -- Send at least 5 blank frames (20ms * 5 = 100 ms)
-                let enCfg = mkEncoderConfig opusSR48k True app_audio
-                encoder <- opusEncoderCreate enCfg
-                let frame = BS.pack $ concat $ replicate 1280 [0xF8, 0xFF, 0xFE]
-                encoded <- opusEncode encoder (mkStreamConfig enCfg (48*20) 1276) frame
+                -- Send at least 5 blank frames before stopping.
+                -- Per Discord docs: "When there's a break in the sent data, the
+                -- packet transmission shouldn't simply stop. Instead, send five
+                -- frames of silence (0xF8, 0xFF, 0xFE) before stopping to avoid
+                -- unintended Opus interpolation with subsequent transmissions."
+                let encoded = BS.pack [0xF8, 0xFF, 0xFE]
                 forM_ [0..4] $ \_ -> do
                     yield encoded
             Just (OggPage hdr segsBytes) -> do
@@ -183,7 +202,8 @@ opusPacketExtractC = loop BL.empty
                 forM_ pkts $ yield . BL.toStrict
                 loop untermSeg
 
--- | Conduit to filter out any packets beginning with OpusHead or OpusTag.
+-- | Conduit to filter out any Opus packets beginning with the first 8 bytes
+-- being @OpusHead@ or @OpusTag@.
 filterOpusNonMetaC :: (Monad m) => ConduitT BS.ByteString BS.ByteString m ()
 filterOpusNonMetaC = do
     mbPkt <- await
@@ -194,7 +214,8 @@ filterOpusNonMetaC = do
                 yield pkt
             filterOpusNonMetaC
 
--- Keep droping one byte at a time until the first four bytes say OggS.
+-- | @dropUntilPageStart@ drops one byte at a time until the first four bytes
+-- say @OggS@.
 dropUntilPageStart :: BL.ByteString -> BL.ByteString
 dropUntilPageStart bsChunk
     | BL.length bsChunk < 4
@@ -204,15 +225,25 @@ dropUntilPageStart bsChunk
     | otherwise
     = dropUntilPageStart $ BL.tail bsChunk
 
--- | split according to the given lengths, return any segments that were not
--- properly finished, like if the last item in the segLengths was 255
+-- | @splitOggPackets@ splits a series of bytes according to a list of segment
+-- lengths, returning any leftover bytes or unterminated segments. Leftover
+-- bytes can be present when there are more bytes provided than the segments,
+-- while unterminated segments can be present if e.g. the last item in the
+-- provided lengths was 255. (This is because the Ogg frame segmentation
+-- defines the segments to be 255 long except for the last one, which is <255).
+--
+-- Callers of this function can also specify leftover bytes from a previous call
+-- to the function, to essentially prepend to the parsing bytes.
 splitOggPackets
     :: [Int]
     -- ^ Length of each segment in bytes (0 - 255). This list can be up to 255
-    -- long, and is taken from the segmentAmt header.
+    -- items long (255 bytes each), and is taken from the segmentAmt header.
+    -- By definition of the Ogg frame format, each segment should be exactly
+    -- 255 bytes long, except for the last segment which is <255.
     -> BS.ByteString
-    -- ^ The bytes. Unless the network packet itself was corrupt or lost halfway,
-    -- this should have at least the total length of all segments.
+    -- ^ The bytes to split and parse from. Unless the network packet itself was
+    -- corrupt or lost halfway, this should have at least the total length of
+    -- all segments.
     -> BL.ByteString
     -- ^ Any previous segment data that was not terminated in the previous page.
     -> ([BL.ByteString], BL.ByteString, BS.ByteString)
@@ -230,7 +261,7 @@ splitOggPackets sl bytes ps = loop sl bytes ps
         -- this one to construct a complete Opus packet. This argument is lazy
         -- since it can undergo an append operation on each loop.
         --
-        -- To be precise:
+        -- To explain:
         --
         -- 1. Both Lazy and Strict bytestring variants would need to be made
         --    strict in its entirety once: O(n). The lazy variant will be made
@@ -289,4 +320,4 @@ splitOggPackets sl bytes ps = loop sl bytes ps
         -- happens if the network packet was lost somewhere, or if the Ogg packet
         -- is simply corrupt.
         | otherwise
-        = error "TODO think of a better (non-crashing) way to handle this here"
+        = error "Ogg packet is corrupt and couldn't be parsed."

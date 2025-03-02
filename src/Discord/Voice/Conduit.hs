@@ -10,21 +10,25 @@ Maintainer  : Yuto Takano <moa17stock@gmail.com>
 
 This module provides convenient Conduits (see the @conduit@ package for an
 introduction to conduits, but essentially streaming pipes) for transforming
-audio data, to be used with the apostrophe-marked functions in "Discord.Voice".
+audio data, to be used 'Discord.Voice.HaskellTransformation's when constructing
+audio resources using functions like 'Discord.Voice.createYoutubeResource'.
 
-The apostrophe-marked functions, such as 'playFile'', take as argument a
-Conduit of the following type:
+Functions that create an audio resource can optionally take as argument a
+'Discord.Voice.HaskellTransformation', which is a Conduit transformation to
+apply to the 16 bit little endian representation of the audio stream. It takes a
+Conduit of the following type.
 
 @
 ConduitT B.ByteString B.ByteString (ResourceT DiscordHandler) ()
 @
 
 That is, the Conduit's needs to take @ByteString@ values from the upstream and
-give to the downstream, @ByteString@s. This ByteString is formatted according to
-a 16-bit signed little-endian representation of PCM data, with a sample rate of
-48kHz. Since ByteStrings are stored as 'Word8' (8-bits) internally, this module
-provides conduits to pack every two bytes into a single signed 16-bit 'Int16',
-and vice versa. See 'packInt16C' and 'unpackInt16C'.
+give to the downstream @ByteString@s. This ByteString stream is rather useless
+as-is because it interweaves both stereo channels and has bytes as elements
+(when 16-bit signed little-endian PCM means each sample spans across two bytes).
+To make this stream useful, this module provides conduits to pack every two
+bytes into a single signed 16-bit 'Int16', and vice versa. See 'packInt16C' and
+'unpackInt16C'.
 
 Since the audio data is stereo, there are also conduits provided that pack to
 and unpack from tuples of @(left, right) :: (Int16, Int16)@ values.
@@ -35,22 +39,20 @@ arithmetics on audio data:
 @
 yourConduit :: ConduitT Int16 Int16 (ResourceT DiscordHandler) ()
 
-playYouTube' "never gonna give you up" $ packInt16C .| yourConduit .| unpackInt16C
+play (createFileResource "myfile.mp3" $ HaskellTransformation $ packInt16C .| yourConduit .| unpackInt16C) UnknownCodec
 @
 
-Despite the pack/unpack being a common pattern, unfortunately due to library
-design, it is not the default behaviour for apostrophe-marked functions (the
-reason being that the non-apostrophe-marked-functions are simply aliases for
-the apostrophe ones but with a @awaitForever yield@ conduit; this means adding
-pack/unpack to the apostrophe versions would slow down the streaming of
-untransformed data).
+Despite the pack/unpack being a common pattern, we have not chosen it to be the
+default behaviour, since you may want to use your own algorithms for
+transforming audio.
 
 An example usage of these conduits is:
 
 @
 runVoice $ do
     join (read "123456789012345") (read "67890123456789012")
-    playFile' "Lost in the Woods.mp3" $ packTo16CT .| toMono .| packFrom16CT
+    res <- createYoutubeResource "Lost in the Woods" $ HaskellTransformation $ packTo16CT .| toMono .| packFrom16CT
+    play res (ProbeCodec "ffprobe")
 @
 -}
 module Discord.Voice.Conduit

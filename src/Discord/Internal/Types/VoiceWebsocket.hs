@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-|
@@ -16,15 +15,14 @@ This module is considered __internal__.
 The Package Versioning Policy __does not apply__.
 
 The contents of this module may change __in any way whatsoever__ and __without__
-__any warning__ between minor versions of this package.
+__any warning__ between minor versions of this package, unless the identifier is
+re-exported from a non-internal module.
 
 = Description
 
 This module defines basic types for the communication packets in the Discord
-Voice Gateway. Some ToJSON and FromJSON instances are defined, as according to
-the official Discord documentation for v4 of the gateway.
-
-Prisms are defined using TemplateHaskell for VoiceWebsocketReceivable.
+Voice control plane gateway. Some ToJSON and FromJSON instances are defined,
+according to the official Discord documentation for v4 of the gateway.
 -}
 module Discord.Internal.Types.VoiceWebsocket
     ( module Discord.Internal.Types.VoiceWebsocket
@@ -39,6 +37,8 @@ import Data.Word ( Word8 )
 
 import Discord.Internal.Types.Prelude
 
+-- | @VoiceWebsocketReceivable@ represents a JSON websocket packet that could be
+-- received from Discord's voice control plane gateway.
 data VoiceWebsocketReceivable
     = Ready ReadyPayload                            -- Opcode 2
     | SessionDescription T.Text [Word8]             -- Opcode 4
@@ -53,19 +53,51 @@ data VoiceWebsocketReceivable
     | Reconnect                                     -- Internal use
     deriving stock (Show, Eq)
 
+-- | @_Ready@ is a 'Traversal'' for manipulating the payload of the
+-- 'Ready' voice gateway receivable packet. It is a no-op for other packet types.
+--
+-- The following code returns @Just Ready(..)@ for Ready packets and Nothing for
+-- all other packet types.
+--
+-- @
+-- payload :: Maybe VoiceWebsocketReceivable
+-- payload = packet ^? _Ready
+-- @
 _Ready :: Traversal' VoiceWebsocketReceivable ReadyPayload
 _Ready f (Ready rp) = Ready <$> f rp
 _Ready _ rp = pure rp
 
+-- | @_SessionDescription@ is a 'Traversal'' for manipulating the payload of the
+-- 'SessionDescription' voice gateway receivable packet. It is a no-op for other
+-- packet types.
+--
+-- The following code returns @Just SessionDescription(..)@ for
+-- SessionDescription packets and Nothing for all other packet types.
+--
+-- @
+-- payload :: Maybe VoiceWebsocketReceivable
+-- payload = packet ^? _SessionDescription
+-- @
 _SessionDescription :: Traversal' VoiceWebsocketReceivable (T.Text, [Word8])
 _SessionDescription f (SessionDescription t bytes) = uncurry SessionDescription <$> f (t, bytes)
 _SessionDescription _ sd = pure sd
 
+-- | @_Hello@ is a 'Traversal'' for manipulating the payload of the 'Hello'
+-- voice gateway receivable packet. It is a no-op for other packet types.
+--
+-- The following code returns @Just Hello(..)@ for Hello packets and Nothing for
+-- all other packet types.
+--
+-- @
+-- payload :: Maybe VoiceWebsocketReceivable
+-- payload = packet ^? _Hello
+-- @
 _Hello :: Traversal' VoiceWebsocketReceivable Int
 _Hello f (Hello a) = Hello <$> f a
 _Hello _ a = pure a
 
-
+-- | @VoiceWebsocketSendable@ represents a JSON websocket packet that could be
+-- sent to Discord's voice control plane gateway.
 data VoiceWebsocketSendable
     = Identify IdentifyPayload                      -- Opcode 0
     | SelectProtocol SelectProtocolPayload          -- Opcode 1
@@ -75,37 +107,73 @@ data VoiceWebsocketSendable
     | Resume GuildId T.Text T.Text                  -- Opcode 7
     deriving stock (Show, Eq)
 
+-- | The payload of the voice control plane gateway downlink packet Opcode 2
+-- Ready.
 data ReadyPayload = ReadyPayload
-    { readyPayloadSSRC  :: Integer -- contains the 32-bit SSRC identifier
+    { readyPayloadSSRC  :: Integer
+    -- ^ The 32-bit SSRC identifier for our bot client. SSRC is an identifier
+    -- used by other voice clients to distinguish which packets are from which
+    -- speaker.
     , readyPayloadIP    :: T.Text
+    -- ^ The UDP IP to connect to for the data plane.
     , readyPayloadPort  :: Integer
+    -- ^ The UDP port to connect to for the data plane.
     , readyPayloadModes :: [T.Text]
-    -- , readyPayloadHeartbeatInterval <- This should not be used, as per Discord documentation
+    -- ^ Supported encryption modes. Per Discord's documentation, we should
+    -- support at least @aead_xchacha20_poly1305_rtpsize@, or
+    -- @aead_aes256_gcm_rtpsize@ if available.
+    -- , readyPayloadHeartbeatInterval
+    -- ^ The Ready payload also contains heartbeat_interval, but this should not
+    -- be used per Discord's docs. Instead, the Hello payload contains the
+    -- correct heartbeat interval.
     }
     deriving stock (Show, Eq)
 
+-- | The payload of the voice control plane gateway uplink packet Opcode 5
+-- Speaking.
 data SpeakingPayload = SpeakingPayload
     { speakingPayloadMicrophone :: Bool
+    -- ^ Whether this is a normal microphone transmission of audio.
     , speakingPayloadSoundshare :: Bool
+    -- ^ Whether this is a companion context audio for video, and the speaking
+    -- indicator shouldn't light up.
     , speakingPayloadPriority   :: Bool
+    -- ^ Whether the audio should be lower other speakers as a priority speaker.
     , speakingPayloadDelay      :: Integer
+    -- ^ The delay field is not documented except that it should be set to 0 for
+    -- all bots that use the voice gateway.
     , speakingPayloadSSRC       :: Integer
+    -- ^ The SSRC for the bot client.
     }
     deriving stock (Show, Eq)
 
+-- | The payload of the voice control plane gateway uplink packet Opcode 0
+-- Identify.
 data IdentifyPayload = IdentifyPayload
     { identifyPayloadServerId  :: GuildId
+    -- ^ Server where bot wants to join the voice call
     , identifyPayloadUserId    :: UserId
+    -- ^ User ID for the bot
     , identifyPayloadSessionId :: T.Text
+    -- ^ Session ID obtained from the normal gateway.
     , identifyPayloadToken     :: T.Text
+    -- ^ Token obtained from the normal gateway.
     }
     deriving stock (Show, Eq)
 
+-- | The payload for the voice control plane gateway uplink packet Opcode 1
+-- Select Protocol.
 data SelectProtocolPayload = SelectProtocolPayload
     { selectProtocolPayloadProtocol :: T.Text
+    -- ^ Can only be "udp" as far as we understand -- Discord hasn't explained
     , selectProtocolPayloadIP       :: T.Text
+    -- ^ Our client's external IP for the UDP thread, which we discover through
+    -- IP Discovery.
     , selectProtocolPayloadPort     :: Integer
+    -- ^ Our client's external port for the UDP thread, which we discover through
+    -- IP Discovery.
     , selectProtocolPayloadMode     :: T.Text
+    -- ^ Our selected encryption mode, e.g. "aead_aes256_gcm_rtpsize"
     }
     deriving stock (Show, Eq)
 
@@ -133,9 +201,7 @@ instance FromJSON VoiceWebsocketReceivable where
                     (od .: "speaking" :: Parser Int) <|>
                         (do
                             s <- od .: "speaking" :: Parser Bool
-                            case s of
-                                True  -> pure 1
-                                False -> pure 0
+                            pure $ if s then 1 else 0
                         )
 
                 let (priority, rest1) = speaking `divMod` 4
@@ -211,5 +277,3 @@ instance ToJSON VoiceWebsocketSendable where
             , "token"      .= token
             ]
         ]
-
--- $(makePrisms ''VoiceWebsocketReceivable)

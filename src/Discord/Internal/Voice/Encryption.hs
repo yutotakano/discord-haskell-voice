@@ -15,12 +15,13 @@ This module is considered __internal__.
 The Package Versioning Policy __does not apply__.
 
 The contents of this module may change __in any way whatsoever__ and __without__
-__any warning__ between minor versions of this package.
+__any warning__ between minor versions of this package, unless the identifier is
+re-exported from a non-internal module.
 
 = Description
 
 This module provides encryption and decryption of secretbox schemes, abstracting
-over either Saltine/Libsodium (standard) or Shecretbox/Cryptonite.
+over either Saltine/Libsodium (standard) or Crypton.
 -}
 module Discord.Internal.Voice.Encryption
     ( module Discord.Internal.Voice.Encryption
@@ -43,12 +44,15 @@ import Data.Maybe ( fromJust )
 import Data.Word ( Word8 )
 
 
--- | Decrypt a sound packet using the provided Discord key and header nonce. The
--- argument is strict because it has to be strict when passed to Saltine anyway,
--- and having the same type signature leaves room for the caller to choose.
+-- | @decrypt byteKey nonce ciphertext@ decrypts a packet using the provided
+-- Discord key (32-bytes) and header nonce (24-bytes). The argument uses strict
+-- bytestrings because it has to be strict when passed to FFI/Saltine anyway.
 --
 -- This does no error handling on misformatted key/nonce since this function is
 -- only used in contexts where we are guaranteed they are valid.
+--
+-- When USE_SHECRETBOX is defined (using the use-shecretbox flag), the function
+-- is implemented as a wrapper for the 'SecretBox.open' function.
 decrypt :: [Word8] -> B.ByteString -> B.ByteString -> Maybe B.ByteString
 #ifdef USE_SHECRETBOX
 decrypt byteKey nonce ciphertext = SecretBox.open ciphertext nonce key
@@ -61,13 +65,15 @@ decrypt byteKey byteNonce og = secretboxOpen key nonce og
     nonce = fromJust $ SC.decode byteNonce
 #endif
 
--- | Encrypt a strict sound packet using the provided Discord key and header
--- nonce. The argument is strict because it has to be converted to strict
--- before passing onto Saltine anyway, and it leaves room for the caller of the
--- function to choose which laziness to use.
+-- | @encrypt byteKey nonce message@ encrypts an audio packet using the provided
+-- Discord key and (32-bytes) header nonce (24-bytes). The argument uses strict
+-- bytestrings because it has to be strict when passed to FFI/Saltine anyway.
 --
 -- As with decryption, this function does no error handling on the format of the
 -- key and nonce (key = 32 bytes, nonce = 24 bytes).
+--
+-- When USE_SHECRETBOX is defined (using the use-shecretbox flag), the function
+-- is implemented as a warpper for the 'SecretBox.create' function.
 encrypt :: [Word8] -> B.ByteString -> B.ByteString -> B.ByteString
 #ifdef USE_SHECRETBOX
 encrypt byteKey nonce message = SecretBox.create message nonce key
