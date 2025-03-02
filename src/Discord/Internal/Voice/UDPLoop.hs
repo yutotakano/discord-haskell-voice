@@ -23,7 +23,7 @@ perform initial handshaking with the Discord Voice UDP Endpoint. It will
 continuously encrypt and send the Opus voice packets as received through the
 specified Chan. The UDP (data-plane) thread is launched by the websocket
 (control-plane) thread, however references to both are held by the main thread
-which may terminate the threads using asynchronous exceptions (e.g. on 'leave').
+which may terminate the threads using asynchronous exceptions (e.g. on leave).
 -}
 module Discord.Internal.Voice.UDPLoop
     ( launchUdp
