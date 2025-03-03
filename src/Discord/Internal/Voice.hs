@@ -736,6 +736,15 @@ createYoutubeResource query mbTransform = do
 -- | @createFileResource path mbTransform@ creates an audio resource from a file
 -- path. The optional 'AudioTransformation' is applied to the audio stream before
 -- it is sent to Discord.
+--
+-- Note: Currently, file resources are unconditionally read using FFmpeg even
+-- when you specify an Opus or PCM codec (which don't need transcoding). This is
+-- currently because the library can't distinguish a URL path and a file path
+-- given they're both valid inputs to FFmpeg -- however, in the future, this may
+-- change. If you have any ideas on how to implement a more intelligent way to
+-- avoid transcoding for local files if they're already in the appropriate
+-- format, then please suggest an issue or pull request! (It will likely need
+-- changes in 'getPipeline')
 createFileResource :: String -> Maybe AudioTransformation -> AudioResource
 createFileResource path mbTransform = AudioResource
     { audioResourceStream = Left path
