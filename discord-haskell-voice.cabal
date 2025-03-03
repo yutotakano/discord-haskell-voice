@@ -1,15 +1,11 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.35.0.
---
--- see: https://github.com/sol/hpack
-
 name:           discord-haskell-voice
-version:        2.3.1
+version:        3.0.0
 synopsis:       Voice support for discord-haskell.
 description:    Supplementary library to discord-haskell. See the project README on GitHub for more information. <https://github.com/yutotakano/discord-haskell-voice>
 category:       Network
-homepage:       https://github.com/yutotakano/discord-haskell-voice#readme
+homepage:       https://github.com/yutotakano/discord-haskell-voice
 bug-reports:    https://github.com/yutotakano/discord-haskell-voice/issues
 author:         Yuto Takano <moa17stock@gmail.com>
 maintainer:     Yuto Takano <moa17stock@gmail.com>
@@ -44,7 +40,6 @@ library
   other-modules:
       Discord.Internal.Voice.Encryption
       Discord.Internal.Voice.OggParser
-      Paths_discord_haskell_voice
   hs-source-dirs:
       src
   default-extensions:
@@ -91,8 +86,6 @@ library
 
 executable basic-music-bot
   main-is: examples/BasicMusicBot.hs
-  other-modules:
-      Paths_discord_haskell_voice
   default-extensions:
       OverloadedStrings
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
@@ -110,8 +103,6 @@ executable basic-music-bot
 
 executable join-all-on-start
   main-is: examples/JoinAllVC.hs
-  other-modules:
-      Paths_discord_haskell_voice
   default-extensions:
       OverloadedStrings
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
