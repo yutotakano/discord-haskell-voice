@@ -34,11 +34,12 @@
   - Relax package bounds:
     - `aeson` from ==1.5.6.0 to <2.3
     - `bytestring` from <0.11 to <0.13
-    - `conduit` from <=1.3.4.2 to <=1.4.0.0
+    - `conduit` from <=1.3.4.2 to <1.4.0.0
     - `mtl` from ==2.2.2 to <2.4
     - `saltine` from <0.2 to <0.4
     - `stm` from <2.5.1 to <2.6
     - `text` from <2 to <3
+    - `time` from <=1.13 to <1.15
     - `websockets` from <0.12.8 to <0.14
     - `wuss` from <=1.2 to <2.1
     - `discord-haskell` from <= 1.14.0 to <= 1.17.1
@@ -47,6 +48,7 @@
   - Updated copyright to current year and include contributors where applicable
   - Added link to GitHub Sponsors
   - Updated Haddock for all functions and added examples and usage to many functions
+  - Added upper bound of `<0.5` to microlens and microlens-th
 
 ## 2.3.1 — 2022 July
 
