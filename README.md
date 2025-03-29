@@ -87,6 +87,11 @@ What is not supported:
 - Decrypting audio packets sent from Discord (other people's voices), and
   decoding them to PCM. This isn't particularly well-documented by Discord and
   will thus likely never be supported by this library.
+- End to End Audio Encryption (DAVE protocol) -- this is planned in the near
+  future, but because Haskell doesn't have the required libraries in the
+  ecosystem, it will require us to create lots of FFI bindings to MLS++ and
+  libdave. Development will be prioritised when Discord sets the discontinuation
+  timeline for non-E2E voice calls. 
 
 ## Installation
 
