@@ -117,11 +117,6 @@ jobs:
         run: |
           brew install libsodium opus
 
-          # Temporary until runner image is updated: actions/runner-images#6364
-          # or until cabal is updated: haskell/cabal#8496
-          # whichever is earlier
-          brew update && brew reinstall highway
-
       # Renovate is configured in renovate.json to tell the CI about the specific
       # version bump using a Git message trailer. So we parse from this and
       # make it so CI for Renovate is forced to use that constraints -- otherwise
