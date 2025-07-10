@@ -42,10 +42,20 @@ jobs:
           # and runs CI on the result.
           fetch-depth: 0
 
-      - name: Install LLVM 12 for 8.10.7 and 9.0.2 on macOS
+      - name: Install LLVM 12 for 8.10.7 and 9.0.2 on macOS (override disabled)
         if: ${{ matrix.os == 'macOS-latest' && (matrix.ghc == '8.10.7' || matrix.ghc == '9.0.2') }}
         run: |
-          brew install llvm@12
+          # Download the llvm@12 formula and patch it to remove the disabled reason
+          brew update
+          brew fetch --formula llvm@12
+          FORMULA_PATH="$(brew --repo homebrew/core)/Formula/llvm@12.rb"
+          if [ ! -f "$FORMULA_PATH" ]; then
+            FORMULA_PATH="$(brew --repo homebrew/core)/Formula/llvm@12.rb"
+          fi
+          # Remove the 'disable!' line
+          sed -i.bak '/^  disable!/d' "$FORMULA_PATH"
+          # Install ignoring the disabled status
+          HOMEBREW_NO_INSTALL_FROM_API=1 brew install llvm@12
           echo "OPT=$(brew --prefix llvm@12)/bin/opt" >> "${GITHUB_ENV}"
           echo "LLC=$(brew --prefix llvm@12)/bin/llc" >> "${GITHUB_ENV}"
 
