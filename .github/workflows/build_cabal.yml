@@ -21,7 +21,7 @@ jobs:
       matrix:
         os: ["ubuntu-24.04"]
         # Range all supported versions on most common ubuntu OS
-        ghc: ["8.10.7", "9.0.2", "9.2.8", "9.6.7", "9.8.4"]
+        ghc: ["8.10.7", "9.0.2", "9.2.8", "9.6.7", "9.8.4", "9.10.2", "9.12.2"]
         include:
           - os: ubuntu-22.04 # one previous ubuntu version
             ghc: "9.8.4"
@@ -54,9 +54,6 @@ jobs:
           brew update
           brew fetch --formula llvm@12
           FORMULA_PATH="$(brew --repo homebrew/core)/Formula/l/llvm@12.rb"
-          if [ ! -f "$FORMULA_PATH" ]; then
-            FORMULA_PATH="$(brew --repo homebrew/core)/Formula/l/llvm@12.rb"
-          fi
           # Remove the 'disable!' line
           sed -i.bak '/^  disable!/d' "$FORMULA_PATH"
           # Install ignoring the disabled status

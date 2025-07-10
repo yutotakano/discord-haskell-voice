@@ -1,7 +1,7 @@
 # discord-haskell-voice
 
 [![hackage version](https://img.shields.io/hackage/v/discord-haskell-voice?color=7565a8)](https://hackage.haskell.org/package/discord-haskell-voice)
-[![discord-haskell version dependency](https://img.shields.io/badge/discord--haskell-%3E=1.12.0%20%26%26%20%3C=1.17.1-677eab)](https://hackage.haskell.org/package/discord-haskell)
+[![discord-haskell version dependency](https://img.shields.io/badge/discord--haskell-%3E=1.12.0%20%26%26%20%3C=1.18.0-677eab)](https://hackage.haskell.org/package/discord-haskell)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/yutotakano/discord-haskell-voice/build_cabal.yml)
 
 Welcome to `discord-haskell-voice`! This library provides you with a high-level
@@ -106,7 +106,7 @@ dependency in your `.cabal` file:
 # --- myproject.cabal <truncated>
  build-depends:
       base >=4.7 && <5
-    , discord-haskell ==1.17.1
+    , discord-haskell ==1.18.0
     , discord-haskell-voice ==3.0.0
 ```
 
@@ -119,7 +119,7 @@ Stackage for the same reason `discord-haskell` is not on Stackage):
 ```yaml
 # --- stack.yaml <truncated>
 extra-deps:
-- discord-haskell-1.17.1
+- discord-haskell-1.18.0
 - discord-haskell-voice-3.0.0
 ```
 
@@ -127,7 +127,7 @@ extra-deps:
 # --- package.yaml <truncated>
 dependencies:
 - base >= 4.7 && < 5
-- discord-haskell == 1.17.1
+- discord-haskell == 1.18.0
 - discord-haskell-voice == 3.0.0
 ```
 
