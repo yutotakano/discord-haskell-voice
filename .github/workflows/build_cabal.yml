@@ -48,9 +48,9 @@ jobs:
           # Download the llvm@12 formula and patch it to remove the disabled reason
           brew update
           brew fetch --formula llvm@12
-          FORMULA_PATH="$(brew --repo homebrew/core)/Formula/llvm@12.rb"
+          FORMULA_PATH="$(brew --repo homebrew/core)/Formula/l/llvm@12.rb"
           if [ ! -f "$FORMULA_PATH" ]; then
-            FORMULA_PATH="$(brew --repo homebrew/core)/Formula/llvm@12.rb"
+            FORMULA_PATH="$(brew --repo homebrew/core)/Formula/l/llvm@12.rb"
           fi
           # Remove the 'disable!' line
           sed -i.bak '/^  disable!/d' "$FORMULA_PATH"
