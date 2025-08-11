@@ -36,7 +36,7 @@ jobs:
       fail-fast: false
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Default is 1 (only one commit) but in order to do git log on PRs and
           # get the PR head commit, we need more history -- so we set it to 0
