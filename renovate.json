@@ -4,8 +4,17 @@
   "extends": [
     "config:recommended"
   ],
-  "commitBody": "New-Versions:\n{{#each upgrades}}  {{{depName}}}=={{{newVersion}}}\n{{/each}}",
   "commitBodyTable": true,
   "branchPrefix": "renovate/",
-  "ignoreDeps": ["base"]
+  "ignoreDeps": [
+    "base"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": [
+        "haskell-cabal"
+      ],
+      "commitBody": "New-Versions:\n{{#each upgrades}}  {{{depName}}}=={{{newVersion}}}\n{{/each}}"
+    }
+  ]
 }
