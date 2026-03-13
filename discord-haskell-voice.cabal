@@ -73,7 +73,7 @@ library
     cpp-options: -DUSE_CRYPTON
     build-depends:
         crypton >=0.32 && <1.1
-      , crypton-box >=1.1.0 && <1.2
+      , crypton-box >=1.1.0 && <1.3
   else
     build-depends:
         saltine >=0.1.1.1 && <0.3
