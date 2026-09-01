@@ -72,7 +72,7 @@ library
   if flag(use-crypton)
     cpp-options: -DUSE_CRYPTON
     build-depends:
-        crypton >=0.32 && <1.1
+        crypton >=0.32 && <1.2
       , crypton-box >=1.1.0 && <1.2
   else
     build-depends:
