@@ -84,6 +84,8 @@ import Discord.Internal.Types
     , GatewaySendable(..)
     , UpdateStatusVoiceOpts(..)
     , EventInternalParse (..)
+    , VoiceState(..)
+    , VoiceServerUpdateInfo(..)
     )
 import Discord.Internal.Types.VoiceCommon
 import Discord.Internal.Types.VoiceWebsocket
@@ -373,20 +375,15 @@ join guildId channelId = do
         -> IO (T.Text, T.Text, GuildId, Maybe T.Text)
     loopForBothEvents (Just a) (Just (b, c, d)) _ = pure (a, b, c, d)
     loopForBothEvents mb1 mb2 events = readChan events >>= \case
-        -- Parse UnknownEvent, which are events not handled by discord-haskell.
-        Right (InternalUnknownEvent "VOICE_STATE_UPDATE" obj) -> do
-            -- Conveniently, we can just pass the result of parseMaybe
-            -- back recursively.
-            let sessionId = flip parseMaybe obj $ \o -> do
-                    o .: "session_id"
-            loopForBothEvents sessionId mb2 events
-        Right (InternalUnknownEvent "VOICE_SERVER_UPDATE" obj) -> do
-            let result = flip parseMaybe obj $ \o -> do
-                    token <- o .: "token"
-                    guildId <- o .: "guild_id"
-                    endpoint <- o .: "endpoint"
-                    pure (token, guildId, endpoint)
-            loopForBothEvents mb1 result events
+        Right (InternalVoiceStateUpdate voiceState) ->
+            loopForBothEvents (Just $ voiceStateSessionId voiceState) mb2 events
+        Right (InternalVoiceServerUpdate serverUpdate) ->
+            let result =
+                    ( voiceServerUpdateToken serverUpdate
+                    , voiceServerUpdateGuildId serverUpdate
+                    , voiceServerUpdateEndpoint serverUpdate
+                    )
+            in loopForBothEvents mb1 (Just result) events
         _ -> loopForBothEvents mb1 mb2 events
 
 -- | @updateSpeakingStatus@ updates the speaking indicator for the bot. Setting
